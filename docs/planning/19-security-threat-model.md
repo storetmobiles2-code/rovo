@@ -111,52 +111,50 @@ Money integrity (orders, payments, refunds, ledger, COD cash) is treated as an a
 flowchart LR
   subgraph TB0["TB0 · Untrusted clients (Internet)"]
     C["Customer PWA"]
-    P["Partner PWA<br/>(restaurant + rider)"]
+    P["Restaurant PWA + Rider PWA"]
     A["Admin SPA"]
     N["Native apps (later, bearer)"]
   end
 
   subgraph TB1["TB1 · Edge (global, provider-managed)"]
-    CDN["CDN distributions per host<br/>app. / partner. / admin. / api.<br/>/api/* → LB · default → static bucket"]
-    WAF["Cloud WAF<br/>managed rules · rate-based rules · geo/IP sets"]
-    IAP["Identity-aware proxy<br/>(admin host only)"]
-    BOT["Bot challenge (Turnstile)"]
+    CDN["CloudFront hosts<br/>app. / restaurant. / rider. / admin. / api. (webhooks)<br/>/api/* → LB with Host + origin-verify secret · default → static bucket"]
+    WAF["AWS WAF<br/>managed rules · rate-based rules · geo-IN on admin."]
+    BOT["Bot challenge (Turnstile, risk-based)"]
   end
 
   subgraph TB2["TB2 · Prod account/project — India region"]
     subgraph VPC["VPC"]
       subgraph PUB["Public subnets"]
-        LB["Application LB<br/>accepts only CDN (prefix list + origin-verify header)"]
-        NAT["NAT egress"]
+        LB["Application LB<br/>accepts only CloudFront (prefix list + origin-verify header)"]
+        NAT["NAT Gateway, single AZ<br/>(added before Gate B, R28)"]
       end
-      subgraph PRIV["Private app subnets (no public IPs)"]
-        API["API service (N replicas)<br/>workload identity: role-api"]
-        WRK["Worker service<br/>(River, outbox, dispatch, uploads, payouts calc)<br/>role-worker"]
-        CLAM["ClamAV service (internal)"]
+      subgraph PRIV["App tasks: public subnets in closed pilot (R28),<br/>private subnets from Gate B"]
+        API["API service (N replicas)<br/>workload identity: role-api<br/>SG ingress from ALB only"]
+        WRK["Worker service<br/>(River jobs, dispatch, uploads, payouts calc)<br/>role-worker"]
         MIG["Migration job (one-off)<br/>role-migrate"]
       end
       subgraph DATA["Isolated data subnets"]
-        PG[("Managed PostgreSQL + PostGIS<br/>Multi-AZ · PITR · CMK · TLS-only")]
+        PG[("RDS PostgreSQL + PostGIS<br/>Single-AZ pilot, Multi-AZ by Gate B (R32) · PITR · CMK · TLS-only")]
         RC[("Managed Redis-compatible (optional, P6)")]
       end
     end
-    subgraph RS["Regional managed services via private endpoints"]
+    subgraph RS["Regional managed services via VPC endpoints"]
       S3S[("Static SPA bucket (CDN-only access)")]
       S3M[("Media bucket (CDN-only access)")]
-      S3K[("KYC bucket — private, SSE-KMS + app envelope")]
+      S3K[("KYC bucket — private, SSE-KMS, images only")]
       SM["Secrets manager"]
       KMS["KMS CMKs (kms-pii, kms-kyc, kms-totp, kms-db, kms-logs)"]
       REG["Container registry (immutable tags, scan)"]
-      LOG[("Logs/metrics/traces — India region")]
+      LOG[("CloudWatch Logs ap-south-1<br/>+ Grafana Cloud (metrics, traces, Faro)")]
     end
   end
 
-  subgraph TB3["TB3 · Security / log-archive account"]
-    TRAIL[("Cloud audit logs (org trail)<br/>WORM bucket, India region")]
-    ANCH[("App audit-chain anchors (WORM)")]
+  subgraph TB3["TB3 · Audit/backup account — log archive, ap-south-1 (C18)"]
+    TRAIL[("Cloud audit logs (org trail)<br/>Object Lock bucket")]
+    ARCH[("CERT-In log archive S3<br/>180 d all logs · ≥ 1 y security events (R36)")]
   end
 
-  subgraph TB4["TB4 · Backup account — 2nd India region"]
+  subgraph TB4["TB4 · Audit/backup account — backup vault, ap-south-2"]
     VAULT[("Locked backup vault<br/>snapshot copies + logical dumps")]
   end
 
@@ -165,7 +163,7 @@ flowchart LR
     SMS["SMS/OTP providers (DLT)"]
     PUSH["Web Push services"]
     MAIL["Transactional email"]
-    ERR["Error tracking SaaS (Sentry lean)"]
+    ERR["Grafana Cloud (OTLP + Faro)"]
   end
 
   subgraph TB6["TB6 · Dev & supply chain"]
@@ -175,7 +173,7 @@ flowchart LR
   end
 
   C & P & N --> CDN
-  A --> IAP --> CDN
+  A --> CDN
   C & P -.-> BOT
   CDN --> WAF --> LB
   CDN -- "OAC" --> S3S
@@ -187,15 +185,14 @@ flowchart LR
   MIG -- "owner role" --> PG
   C & P -- "presigned PUT (5 min)" --> S3K
   P -- "presigned PUT (5 min)" --> S3M
-  WRK --> CLAM
   API & WRK --> SM & KMS
   API & WRK --> S3K
   API & WRK --> LOG
-  PA -- "webhooks (HMAC) via api. CDN/WAF" --> CDN
-  API & WRK -- "via NAT (egress allowlist)" --> PA & SMS & PUSH & MAIL & ERR
+  PA -- "webhooks (HMAC) via api. CloudFront/WAF" --> CDN
+  API & WRK -- "443 only: IGW in pilot, NAT from Gate B; SG + app host allow-list" --> PA & SMS & PUSH & MAIL & ERR
+  LOG -- "subscription / export" --> ARCH
   PG -- "snapshot copy (CMK)" --> VAULT
   TB2 -. "control-plane events" .-> TRAIL
-  WRK -- "daily anchor" --> ANCH
   GH --> OIDC -- "short-lived creds: push image, update service" --> REG
   OIDC --> API
   REG --> API & WRK & MIG
@@ -206,15 +203,15 @@ flowchart LR
 
 | TB | Boundary | Crossing flows | Primary controls |
 |---|---|---|---|
-| TB0→TB1 | Device → edge | All HTTP(S), SSE, uploads (presigned to bucket) | TLS 1.2+ (HSTS preload), WAF managed + rate rules, bot challenge on OTP, IAP on admin |
-| TB1→TB2 | Edge → LB / buckets | `/api/*` to LB; static/media from buckets | **LB only reachable from the CDN** (CDN prefix list in LB security group + secret origin-verify header, rotated); buckets reachable only via CDN origin access control; no public bucket ACLs |
-| TB2 internal | LB → services → data | App traffic | Private subnets; security groups allow only LB→API, API/worker→DB/cache; DB in isolated subnets with no internet route; TLS to DB enforced; separate DB roles |
+| TB0→TB1 | Device → edge | All HTTP(S), SSE, uploads (presigned to bucket) | TLS 1.2+ (HSTS preload), WAF managed + rate rules, risk-based bot challenge on OTP, rate + geo-IN rules on the admin host (R37) |
+| TB1→TB2 | Edge → LB / buckets | `/api/*` to LB; static/media from buckets | **LB only reachable from CloudFront** (prefix list in LB security group + secret origin-verify header, rotated); the API derives the audience from `Host` only when the secret is valid and ignores client `X-Rovo-Audience` (SEC-186); buckets reachable only via CDN origin access control; no public bucket ACLs |
+| TB2 internal | LB → services → data | App traffic | **Closed pilot (R28):** tasks in public subnets with public IPv4 but **no inbound path** (SG ingress only from the ALB SG); **from Gate B:** private subnets behind one NAT Gateway. Always: security groups allow only LB→API, API/worker→DB/cache; DB in isolated subnets with no internet route; TLS to DB enforced; separate DB roles |
 | TB2 → regional services | Services → secrets/KMS/storage/registry/logs | API calls | Private endpoints; per-workload IAM roles; resource policies (bucket/key/secret) restricting principals **and** VPC endpoint (`aws:SourceVpce` / VPC-SC `[OPEN]`) |
-| TB5→TB2 | PA webhooks inbound | `POST api.rovo.in/webhooks/{provider}` | HMAC on raw body, idempotency, amount/order match, fetch-to-confirm (§6.5) |
-| TB2→TB5 | Egress to providers | PA, SMS, push, email, error tracking | NAT egress; **DNS/egress allowlist** (AWS Network Firewall / DNS Firewall, GCP Cloud NGFW / Secure Web Proxy) `[OPEN — cost; minimum: app-level host allowlist]`; PII minimisation |
-| TB2→TB3/TB4 | Logs, audit, backups to separate accounts | Audit trail, backup copies | Separate accounts; WORM (Object Lock / Bucket Lock, vault lock); prod operators cannot delete |
+| TB5→TB2 | PA webhooks inbound | `POST api.rovo.in/webhooks/payments/{provider}` (through CloudFront + WAF) | HMAC on raw body, idempotency, amount/order match, fetch-to-confirm (§6.5) |
+| TB2→TB5 | Egress to providers | PA, SMS, push, email, Grafana Cloud | **Closed pilot:** direct via the internet gateway; SG egress limited to 443 (and 5432 to the DB SG); **app-level outbound host allow-list** in the shared HTTP client; VPC endpoints keep S3/ECR/Secrets Manager/CloudWatch Logs traffic off the internet (SEC-187). **Gate B:** via one NAT Gateway (fixed egress IP for provider allow-listing). DNS Firewall / Network Firewall stays `[OPEN — cost]`. PII minimisation |
+| TB2→TB3/TB4 | Logs, audit, backups to the audit/backup account (C18) | Audit trail, CERT-In log archive, backup copies | Separate account; Object Lock / vault lock; prod operators cannot delete |
 | TB6→TB2 | CI/operators → cloud control plane | Deploys, IaC, console | GitHub OIDC with pinned subject claims; SSO + phishing-resistant MFA; least-privilege permission sets; guardrail policies (region lock, no public storage, no trail stop) |
-| Admin app | Admin SPA ↔ API | Highest-privilege app actions | IAP outer gate, password+TOTP, step-up, maker-checker, audit (12) |
+| Admin app | Admin SPA ↔ API | Highest-privilege app actions | WAF rate + geo-IN rules, password + mandatory TOTP (passkeys P1), step-up, maker-checker (R31), audit (12) |
 
 ---
 

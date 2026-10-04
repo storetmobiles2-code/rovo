@@ -1366,7 +1366,6 @@ CREATE TABLE orders (
   item_total_paise              bigint NOT NULL CHECK (item_total_paise >= 0),
   packaging_paise               bigint NOT NULL DEFAULT 0 CHECK (packaging_paise >= 0),
   delivery_fee_paise            bigint NOT NULL DEFAULT 0 CHECK (delivery_fee_paise >= 0),
-  surge_fee_paise               bigint NOT NULL DEFAULT 0 CHECK (surge_fee_paise >= 0),
   platform_fee_paise            bigint NOT NULL DEFAULT 0 CHECK (platform_fee_paise >= 0),
   small_cart_fee_paise          bigint NOT NULL DEFAULT 0 CHECK (small_cart_fee_paise >= 0),
   discount_paise                bigint NOT NULL DEFAULT 0 CHECK (discount_paise >= 0),
@@ -1381,7 +1380,10 @@ CREATE TABLE orders (
   -- commercial snapshot (not customer-visible)
   fee_config_id                 uuid NOT NULL,              -- ref: pricing.fee_configs
   commission_plan_id            uuid,                       -- ref: ledger.commission_plans
-  commission_bps                int NOT NULL CHECK (commission_bps BETWEEN 0 AND 5000),
+  commission_bps                int NOT NULL CHECK (commission_bps BETWEEN 0 AND 3000),   -- 0–30% (register row 56)
+  -- channel (M8: ops-assisted phone ordering, P1)
+  placed_via                    text NOT NULL DEFAULT 'CUSTOMER_APP' CHECK (placed_via IN ('CUSTOMER_APP','OPS_ASSISTED')),
+  placed_by_admin_id            uuid REFERENCES users(id),                               -- OPS_ASSISTED only
   -- context snapshots
   restaurant_snapshot           jsonb NOT NULL,   -- {name, legalName, addressLine, pinCode, phone, fssaiLicenseNo, gstin, location}
   delivery_address_snapshot     jsonb NOT NULL,   -- full Indian address + contact (§13 redaction after 180 d)
@@ -1391,8 +1393,10 @@ CREATE TABLE orders (
   est_road_distance_m           int NOT NULL CHECK (est_road_distance_m >= 0),
   customer_note                 text CHECK (char_length(customer_note) <= 200),       -- for the kitchen
   delivery_instructions         text CHECK (char_length(delivery_instructions) <= 200), -- for the rider
-  delivery_code_hmac            bytea,          -- handover PIN if enabled (app_config dispatch.delivery_code_required) [OPEN]
-  prep_time_min                 smallint CHECK (prep_time_min BETWEEN 5 AND 120),   -- set at accept
+  requires_delivery_code        boolean NOT NULL DEFAULT false,  -- R39: ONLINE and total ≥ dispatch.delivery_code_min_payable_paise (13 SM-D13)
+  delivery_code_enc             bytea,          -- 4-digit handover code, AES-GCM (stored so the customer app can show it, R39)
+  delivery_code_key_id          text,           -- KEK version
+  prep_time_min                 smallint CHECK (prep_time_min BETWEEN 5 AND 90),    -- set at accept (register row 58)
   promised_eta_at               timestamptz,    -- shown at placement (upper bound)
   eta_at                        timestamptz,    -- live estimate, updated on milestones
   -- milestone timestamps
@@ -1416,14 +1420,16 @@ CREATE TABLE orders (
   client_app                    text,           -- 'customer-web/1.4.2'
   created_at                    timestamptz NOT NULL DEFAULT now(),
   updated_at                    timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT ck_orders__total CHECK (total_paise = item_total_paise + packaging_paise + delivery_fee_paise + surge_fee_paise
+  CONSTRAINT ck_orders__total CHECK (total_paise = item_total_paise + packaging_paise + delivery_fee_paise
                                      + platform_fee_paise + small_cart_fee_paise - discount_paise + tax_paise + round_off_paise),
   CONSTRAINT ck_orders__whole_rupee CHECK (round_off_paise = 0 OR total_paise % 100 = 0),
   CONSTRAINT ck_orders__discount_split CHECK (discount_paise = discount_platform_paise + discount_restaurant_paise),
   CONSTRAINT ck_orders__terminal_reason CHECK (
     status NOT IN ('CANCELLED','REJECTED','UNDELIVERABLE','PAYMENT_FAILED')
     OR (cancel_reason_code IS NOT NULL AND cancelled_by_role IS NOT NULL AND closed_at IS NOT NULL)),
-  CONSTRAINT ck_orders__cod_never_pending_payment CHECK (NOT (payment_method = 'COD' AND status = 'PENDING_PAYMENT'))
+  CONSTRAINT ck_orders__cod_never_pending_payment CHECK (NOT (payment_method = 'COD' AND status = 'PENDING_PAYMENT')),
+  CONSTRAINT ck_orders__delivery_code CHECK (NOT requires_delivery_code OR (payment_method = 'ONLINE' AND delivery_code_enc IS NOT NULL)),
+  CONSTRAINT ck_orders__assisted CHECK ((placed_via = 'OPS_ASSISTED') = (placed_by_admin_id IS NOT NULL))
 );
 CREATE INDEX ix_orders__customer        ON orders (customer_id, created_at DESC);
 CREATE INDEX ix_orders__restaurant      ON orders (restaurant_id, created_at DESC);
@@ -1446,7 +1452,7 @@ CREATE TABLE order_items (
   veg_type             text NOT NULL CHECK (veg_type IN ('VEG','NON_VEG','EGG')),   -- effective incl. addons
   addons_snapshot      jsonb NOT NULL DEFAULT '[]',  -- [{"groupName":"Extras","addonId":"…","name":"Raita","pricePaise":3000}]
   unit_price_paise     bigint NOT NULL CHECK (unit_price_paise >= 0),   -- variant/base price + Σ addon prices
-  quantity             smallint NOT NULL CHECK (quantity BETWEEN 1 AND 50),
+  quantity             smallint NOT NULL CHECK (quantity BETWEEN 1 AND 20),      -- register row 57
   packaging_paise      bigint NOT NULL DEFAULT 0 CHECK (packaging_paise >= 0),   -- line total packaging
   line_total_paise     bigint NOT NULL,
   note                 text,
@@ -1459,8 +1465,8 @@ CREATE TABLE order_charges (                    -- the customer bill, one row pe
   id                   uuid PRIMARY KEY,
   order_id             uuid NOT NULL REFERENCES orders(id),
   line_no              smallint NOT NULL,
-  component            text NOT NULL CHECK (component IN ('ITEM_TOTAL','PACKAGING','DELIVERY_FEE','SURGE_FEE',
-                                         'PLATFORM_FEE','SMALL_CART_FEE','DISCOUNT','TAX','ROUND_OFF')),
+  component            text NOT NULL CHECK (component IN ('ITEM_TOTAL','PACKAGING','DELIVERY_FEE',
+                                         'PLATFORM_FEE','SMALL_CART_FEE','DISCOUNT','TAX','ROUND_OFF')),   -- no SURGE_FEE (R30)
   label                text NOT NULL,             -- 'GST on food (CGST 2.5%)'
   label_i18n           jsonb NOT NULL DEFAULT '{}',
   amount_paise         bigint NOT NULL,           -- signed; DISCOUNT ≤ 0
@@ -1531,7 +1537,7 @@ The detailed PA flow, reconciliation and settlement-report tables are in **14**.
 ```sql
 CREATE TABLE payments (                         -- one per PA order ("intent"); COD orders get one row with provider='COD'
   id                     uuid PRIMARY KEY,
-  order_id               uuid NOT NULL,           -- ref: ordering.orders
+  order_id               uuid NOT NULL REFERENCES orders(id),   -- money-path FK (R41)
   city_id                uuid NOT NULL REFERENCES cities(id),
   provider               text NOT NULL CHECK (provider IN ('RAZORPAY','CASHFREE','PHONEPE','COD','MANUAL','FAKE')),
   status                 text NOT NULL CHECK (status IN ('CREATED','AUTHORIZED','CAPTURED','FAILED','EXPIRED',
@@ -1582,8 +1588,10 @@ CREATE TABLE payment_events (                   -- raw webhook / poll / client-c
   source                text NOT NULL CHECK (source IN ('WEBHOOK','POLL','CLIENT_CALLBACK')),
   event_type            text NOT NULL,           -- 'payment.captured', 'refund.processed', …
   signature_verified    boolean NOT NULL,
-  payload               jsonb NOT NULL,          -- raw JSON (no card data is ever sent by PA webhooks; still treated as confidential)
+  payload               jsonb NOT NULL,          -- REDACTED at ingest: contact, email, VPA and name fields removed (RV-030); kept 8 y
   raw_body_sha256       bytea NOT NULL,
+  raw_body_object_key   text,                    -- full raw body in private bucket prefix 'webhooks-raw/' with a 180-day lifecycle rule
+                                                 -- (disputes); the key dangles after expiry by design
   provider_order_id     text,
   provider_payment_id   text,
   payment_id            uuid REFERENCES payments(id),
@@ -1598,8 +1606,14 @@ CREATE INDEX ix_payment_events__payment ON payment_events (payment_id, received_
 CREATE TABLE refunds (
   id                     uuid PRIMARY KEY,
   payment_id             uuid NOT NULL REFERENCES payments(id),
-  order_id               uuid NOT NULL,           -- ref
+  order_id               uuid NOT NULL REFERENCES orders(id),   -- money-path FK (R41)
   city_id                uuid NOT NULL REFERENCES cities(id),
+  channel                text NOT NULL DEFAULT 'PA' CHECK (channel IN ('PA','MANUAL_UPI','MANUAL_BANK')),
+                                                 -- MANUAL_*: finance pays from rovo's account (COD compensation by customer choice, R29)
+  payee_vpa_enc          bytea,                   -- MANUAL_UPI destination given by the customer
+  payee_vpa_masked       text,
+  pii_key_id             text,
+  utr_reference          text,                    -- MANUAL_*: required once SUCCEEDED
   amount_paise           bigint NOT NULL CHECK (amount_paise > 0),
   currency               char(3) NOT NULL DEFAULT 'INR',
   reason_code            text NOT NULL,           -- 'ORDER_REJECTED','ORDER_CANCELLED','LATE_CAPTURE','DUPLICATE_PAYMENT','SUPPORT_GOODWILL'…
@@ -1616,7 +1630,9 @@ CREATE TABLE refunds (
   processed_at           timestamptz,
   version                int NOT NULL DEFAULT 1,
   created_at             timestamptz NOT NULL DEFAULT now(),
-  updated_at             timestamptz NOT NULL DEFAULT now()
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_refunds__manual CHECK (channel = 'PA' OR status <> 'SUCCEEDED' OR utr_reference IS NOT NULL),
+  CONSTRAINT ck_refunds__upi CHECK (channel <> 'MANUAL_UPI' OR payee_vpa_enc IS NOT NULL)
 );
 CREATE UNIQUE INDEX ux_refunds__provider ON refunds (provider_refund_id) WHERE provider_refund_id IS NOT NULL;
 CREATE INDEX ix_refunds__order ON refunds (order_id);
@@ -1624,7 +1640,105 @@ CREATE INDEX ix_refunds__open  ON refunds (status, requested_at) WHERE status IN
 ALTER TABLE payment_events ADD CONSTRAINT fk_payment_events__refund FOREIGN KEY (refund_id) REFERENCES refunds(id);
 ```
 
-**Refund bound:** creating a refund locks the `payments` row `FOR UPDATE` and increments `amount_refunded_paise` (reservation). The CHECK makes over-refunding impossible. A `FAILED` refund that is abandoned decrements it. **COD orders never get money refunds** (ruling 9): compensation for COD orders is a goodwill coupon (§5.4). `provider='MANUAL'` exists only for exceptional finance-approved transfers recorded with a UTR [OPEN — Finance].
+**Refund bound:** creating a refund locks the `payments` row `FOR UPDATE` and increments `amount_refunded_paise` (reservation). The CHECK makes over-refunding impossible. A `FAILED` refund that is abandoned decrements it. **COD orders (R29, register D3):** when a COD customer is owed money (missing/wrong items after paying cash), the customer **chooses** a manual UPI refund or a single-user goodwill coupon, never coupon-only `[LEGAL]`. A manual refund is a `refunds` row against the order's `COD` payment row with `channel = 'MANUAL_UPI'`. Finance pays it and records the UTR (11 `POST /admin/refunds/{id}/mark-paid`). It posts journal `cod_manual_refund.v1` (13 §6.2). Maker-checker applies above `approvals.refund_threshold_paise` (R31 family 1).
+
+### 7.1 PA split settlement and reconciliation (14 §5, §16, §17; R25; M4)
+
+These tables support **both** money-flow models (R25/R35): `transfers` is used only under PA split settlement; `pa_settlements` and `recon_exceptions` are used in both.
+
+```sql
+CREATE TABLE transfers (                         -- split-settlement transfer to a restaurant's PA linked account (Route / Easy Split)
+  id                     uuid PRIMARY KEY,
+  order_id               uuid NOT NULL REFERENCES orders(id),     -- money-path FK (R41)
+  payment_id             uuid NOT NULL REFERENCES payments(id),
+  restaurant_id          uuid NOT NULL,                            -- ref: catalog.restaurants
+  city_id                uuid NOT NULL REFERENCES cities(id),
+  provider               text NOT NULL CHECK (provider IN ('RAZORPAY','CASHFREE','FAKE')),
+  provider_account_ref   text NOT NULL,                            -- linked-account / vendor id at the PA (not a bank number)
+  provider_transfer_id   text,
+  amount_paise           bigint NOT NULL CHECK (amount_paise > 0),
+  currency               char(3) NOT NULL DEFAULT 'INR',
+  on_hold                boolean NOT NULL DEFAULT true,            -- released at statement time (14 §17)
+  release_at             timestamptz,
+  status                 text NOT NULL DEFAULT 'CREATED' CHECK (status IN ('CREATED','PENDING','ON_HOLD','RELEASED',
+                                                 'SETTLED','REVERSED','PARTIALLY_REVERSED','FAILED')),
+  reversed_paise         bigint NOT NULL DEFAULT 0,
+  payout_id              uuid,                                     -- ref: ledger.payouts (statement that released it)
+  failure_reason         text,
+  version                int NOT NULL DEFAULT 1,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_transfers__reversal CHECK (reversed_paise BETWEEN 0 AND amount_paise)
+);
+CREATE UNIQUE INDEX ux_transfers__provider ON transfers (provider, provider_transfer_id) WHERE provider_transfer_id IS NOT NULL;
+CREATE UNIQUE INDEX ux_transfers__order ON transfers (order_id) WHERE status NOT IN ('FAILED','REVERSED');
+CREATE INDEX ix_transfers__held ON transfers (restaurant_id, status) WHERE status IN ('ON_HOLD','PENDING');
+
+CREATE TABLE pa_settlements (                    -- one ingested settlement/recon report or bank statement (idempotent per file)
+  id                     uuid PRIMARY KEY,
+  city_id                uuid REFERENCES cities(id),
+  provider               text NOT NULL,                            -- 'RAZORPAY' | 'CASHFREE' | 'BANK:<bank code>'
+  source                 text NOT NULL CHECK (source IN ('PA_REPORT','BANK_STATEMENT')),
+  report_date            date NOT NULL,                            -- D-1 for the daily recon; statement date for banks
+  provider_settlement_id text,                                     -- PA settlement id / UTR of the bank credit
+  file_id                uuid,                                     -- ref: platform.file_objects (original file, private)
+  file_sha256            bytea NOT NULL,
+  expected_credit_paise  bigint,
+  line_count             int NOT NULL DEFAULT 0,
+  status                 text NOT NULL DEFAULT 'INGESTED' CHECK (status IN ('INGESTED','MATCHING','MATCHED','EXCEPTIONS')),
+  ingested_at            timestamptz NOT NULL DEFAULT now(),
+  completed_at           timestamptz,
+  CONSTRAINT ux_pa_settlements__file UNIQUE (provider, source, file_sha256)
+);
+CREATE UNIQUE INDEX ux_pa_settlements__period ON pa_settlements (provider, source, report_date, provider_settlement_id)
+  NULLS NOT DISTINCT;                                              -- catch-up completion marker (13 §5.2)
+
+CREATE TABLE pa_settlement_lines (
+  id                     uuid PRIMARY KEY,
+  settlement_id          uuid NOT NULL REFERENCES pa_settlements(id),
+  line_no                int NOT NULL,
+  line_type              text NOT NULL CHECK (line_type IN ('PAYMENT','REFUND','TRANSFER','FEE','ADJUSTMENT','CHARGEBACK','BANK_CREDIT')),
+  provider_entity_id     text,                                     -- pay_xxx / rfnd_xxx / trf_xxx / bank txn ref
+  amount_paise           bigint NOT NULL,                          -- signed as in the report
+  fee_paise              bigint,
+  tax_on_fee_paise       bigint,
+  utr_reference          text,
+  occurred_at            timestamptz,
+  match_status           text NOT NULL DEFAULT 'UNMATCHED' CHECK (match_status IN ('UNMATCHED','MATCHED','EXCEPTION','IGNORED')),
+  payment_attempt_id     uuid REFERENCES payment_attempts(id),
+  refund_id              uuid REFERENCES refunds(id),
+  transfer_id            uuid REFERENCES transfers(id),
+  journal_id             uuid,                                     -- ref: ledger.ledger_journals (J6-style settlement journal)
+  raw                    jsonb NOT NULL DEFAULT '{}',              -- PII-minimised row as received
+  CONSTRAINT ux_pa_settlement_lines__line UNIQUE (settlement_id, line_no)
+);
+CREATE INDEX ix_pa_settlement_lines__entity ON pa_settlement_lines (provider_entity_id);
+CREATE INDEX ix_pa_settlement_lines__unmatched ON pa_settlement_lines (settlement_id) WHERE match_status = 'UNMATCHED';
+
+CREATE TABLE recon_exceptions (                  -- finance work queue (14 §16.1)
+  id                     uuid PRIMARY KEY,
+  city_id                uuid REFERENCES cities(id),
+  exception_type         text NOT NULL CHECK (exception_type IN ('MISSING_IN_LEDGER','MISSING_AT_PA','AMOUNT_MISMATCH',
+                            'FEE_MISMATCH','CHARGEBACK','REFUND_FAILED','TRANSFER_FAILED','BANK_CREDIT_MISMATCH','OTHER')),
+  settlement_line_id     uuid REFERENCES pa_settlement_lines(id),
+  payment_id             uuid REFERENCES payments(id),
+  refund_id              uuid REFERENCES refunds(id),
+  transfer_id            uuid REFERENCES transfers(id),
+  order_id               uuid,                                     -- ref (denormalised for the finance UI)
+  amount_paise           bigint,
+  expected_paise         bigint,
+  status                 text NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','INVESTIGATING','RESOLVED','WRITTEN_OFF')),
+  resolution_note        text,
+  resolution_journal_id  uuid,                                     -- ref: correcting journal, if any
+  assigned_admin_id      uuid REFERENCES users(id),
+  raised_at              timestamptz NOT NULL DEFAULT now(),
+  resolved_at            timestamptz,
+  resolved_by            uuid REFERENCES users(id)
+);
+CREATE INDEX ix_recon_exceptions__queue ON recon_exceptions (city_id, status, raised_at) WHERE status IN ('OPEN','INVESTIGATING');
+```
+
+The open-exception count and the `SUSPENSE` balance are finance KPIs (14 §16.1). A `WRITTEN_OFF` exception needs a ledger adjustment, which is maker-checker above the threshold (R31 family 1).
 
 ---
 

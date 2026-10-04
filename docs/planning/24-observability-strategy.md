@@ -210,8 +210,8 @@ Guardrails: Alloy `relabel` drops unknown labels; CI lint for metric definitions
 
 ## 5. Traces & sampling
 
-- **Propagation:** W3C `traceparent` from browser (Sentry SDK) → ALB → api → River job metadata / outbox rows → worker → outbound HTTP (PA, SMS).
-- **Sampling** (in `otel-gateway`, tail-based; the SDK is parent-based and exports 100% to the gateway):
+- **Propagation:** W3C `traceparent` from the browser (Faro, same-origin) → CloudFront → ALB → api → River job metadata → worker → outbound HTTP (PA, SMS).
+- **Sampling:** `closed-pilot` keeps 100% (SDK, no gateway). When volume requires it (`public-launch`), the optional gateway applies tail-based sampling; the SDK is parent-based and exports 100% to the gateway:
 
   | Policy | Keep |
   |---|---|
@@ -220,7 +220,7 @@ Guardrails: Alloy `relabel` drops unknown labels; CI lint for metric definitions
   | `payments.*`, `webhook.*`, `dispatch.*`, `admin.*` routes/jobs | 100% |
   | Everything else | **10%** (pilot), 5% (10×) |
 
-- Budget at pilot: ≈ 1.3M requests/day × ~6 spans × ~1 KB ≈ 7.8 GB/day raw. After sampling ≈ **0.8 GB/day ≈ 25 GB/month**, inside the 50 GB Free allowance [S71]. At 10×, tighten to 5% plus Pro usage.
+- Budget (requests per month from `25` §15.7, ~6 spans × ~1 KB each): closed pilot ≈ 1.3M → ≈ 8 GB/month at 100%; month 3 ≈ 5.9M → ≈ 35 GB/month at 100%, which approaches the 50 GB allowance [S71]. From there, use 50% head sampling or the gateway's tail sampling. At the design point, use tail sampling at 10% plus Pro usage.
 - Exemplars link latency histograms to traces.
 
 ---
@@ -244,10 +244,10 @@ Guardrails: Alloy `relabel` drops unknown labels; CI lint for metric definitions
 
 | SLO | SLI | Target (28-day) |
 |---|---|---|
-| API availability | Non-5xx ratio of `api` requests excluding health | **99.5%** |
+| API availability | Non-5xx ratio of `api` requests excluding health, **measured during service hours** (RV-067); raise to 99.9% after 3 months of data | **99.5%** |
 | API latency | p95 of core routes (menu, cart, place order, order status) < 400 ms | 99% of 5-min windows |
 | Order placement success | `PLACED` ÷ (place-order attempts with valid cart, excl. payment declines) | **99%** |
-| Restaurant acceptance flow | Orders accepted or explicitly rejected/auto-cancelled within 3 min (P11 timeout honoured) | 99% (system honours the timer) |
+| Restaurant acceptance flow | Orders resolved (accepted, rejected, or auto-cancelled `RESTAURANT_UNRESPONSIVE` by `SYSTEM`, R1) within doc 13's `accept_timeout` + 30 s | 99% (system honours the timer) |
 | Dispatch | Deliveries assigned within 5 min of `READY_FOR_PICKUP`/assignment trigger, **when riders are online in the zone** | 95% |
 | Real-time | SSE event delivered ≤ 5 s after state change (measured by synthetic) | 99% |
 | Webhooks | PA webhook processed ≤ 60 s after receipt | 99.5% |
@@ -263,16 +263,16 @@ Guardrails: Alloy `relabel` drops unknown labels; CI lint for metric definitions
 
 | # | Alert | Condition (indicative) | Severity | Route |
 |---|---|---|---|---|
-| A1 | **Order unaccepted > 3 min** | `rovo_orders_pending_accept_oldest_seconds > 180` for 1 min (the system should have auto-cancelled/escalated; indicates worker/timer failure) | **P1** | Telegram on-call + ops group |
+| A1 | **Order past its accept deadline** | `rovo_orders_pending_accept_oldest_seconds > accept_timeout + 30 s` for 1 min (timer key owned by doc 13; R1 sets 180 s). The system should already have auto-cancelled it, so this indicates a worker/timer failure | **P1** | Telegram on-call + ops group |
 | A2 | Pending-accept backlog | `rovo_orders_pending_accept > 5` for 5 min (operating hours) | P2 | Ops group (call the restaurant) |
 | A3 | **No riders online in zone** | `rovo_riders_online{zone} == 0` for 10 min within zone operating hours | P2 | Ops group |
 | A4 | Unassigned deliveries aging | oldest unassigned > 10 min | P1 | On-call + ops |
 | A5 | Offer accept rate collapse | accept rate < 30% over 30 min with ≥ 10 offers | P3 | Ops (email) |
 | A6 | **Payment webhooks failing** | `rate(rovo_webhook_failures_total[10m]) > 0.1/s` OR `rovo_webhook_lag_seconds > 300` OR no webhooks for 30 min while online payments > 5 in that window | **P1** | On-call |
 | A7 | Payment success rate drop | success < 85% over 15 min with ≥ 20 attempts | P1 | On-call (consider COD-only flag) |
-| A8 | **Outbox lag > 1 min** | `rovo_outbox_lag_seconds > 60` for 2 min | P1 | On-call |
+| A8 | **River queue latency** (replaces outbox lag, R22/R42) | `rovo_river_queue_latency_seconds{queue="realtime"} > 10` for 2 min, or any queue > 60 for 5 min | P1 | On-call |
 | A9 | River queue stuck | `available` jobs > 500 for 5 min OR job failure rate > 10% | P2 | On-call |
-| A10 | Worker down | `up{service="rovo-worker"} == 0` for 2 min OR CloudWatch ECS `RunningTaskCount < 1` | **P1** | On-call + **CloudWatch last-resort** |
+| A10 | Worker down | `up{service="rovo-worker"} == 0` for 2 min OR CloudWatch ECS `RunningTaskCount < 1` (`closed-pilot` runs 1 worker) | **P1** | On-call + **CloudWatch last-resort** |
 | A11 | SLO burn (availability/latency/placement) | §7 | P1/P2 | On-call |
 | A12 | 5xx spike | 5xx ratio > 5% for 5 min | P1 | On-call |
 | A13 | **DB storage > 80%** | RDS `FreeStorageSpace` < 20% | P2 | On-call + CloudWatch alarm |
@@ -284,6 +284,10 @@ Guardrails: Alloy `relabel` drops unknown labels; CI lint for metric definitions
 | A19 | Security signals | KMS `ScheduleKeyDeletion`, root login, IAM policy change in prod, GuardDuty high (EventBridge → SNS) | P1 | Founders + on-call |
 | A20 | Cost | AWS Budget 80/100%, Cost Anomaly Detection, Grafana series > 7k | P3 | Email |
 | A21 | Synthetic golden flow failed (staging) / external uptime down (prod) | 2 consecutive failures | P2 (staging) / P1 (prod) | On-call |
+| A22 | **NOTIFY queue filling (M12)** | `rovo_pg_notification_queue_usage > 0.1` for 2 min (P1), `> 0.02` for 10 min (P2). A full queue makes every committing `pg_notify` transaction fail, including order placement | **P1**/P2 | On-call |
+| A23 | **LISTEN watchdog (M12)** | `rovo_listen_watchdog_ok == 0` on any replica for 2 min, or `increase(rovo_listen_reconnects_total[15m]) > 5`. The watchdog itself reconnects a stalled LISTEN connection, and `/readyz` reports degraded while it is down | P2 | On-call |
+| A24 | **Missed periodic run / settlement (M11)** | Any catch-up job with `time() - rovo_periodic_job_last_success_timestamp` beyond its period + grace. **Missed settlement:** no completed settlement run for the last period within 3 h of its scheduled time (schedule owned by doc 14) | **P1** (settlement) / P2 | On-call + finance |
+| A25 | **CERT-In archive delivery** | No new events in `/rovo/prod/app` for 30 min during service hours, CloudTrail/flow-log delivery to S3 stopped > 2 h, or a log-group retention change (EventBridge) | P2 | On-call + email (CloudWatch alarm) |
 
 Every alert has a **runbook link** (`docs/ops/runbooks/<alert>.md`, Phase 2) and a dashboard link.
 
@@ -293,7 +297,7 @@ Every alert has a **runbook link** (`docs/ops/runbooks/<alert>.md`, Phase 2) and
 
 | Check | Tool | Frequency | Target |
 |---|---|---|---|
-| `https://api.rovo.example/readyz`, `app.`, `partner.`, `admin.` home, `cdn.` sample image, TLS expiry | **UptimeRobot Free** (50 monitors, 5-min interval; ToS allows commercial use [S76, S77]) | 5 min | Independent of AWS + Grafana |
+| Public health route through the CDN on `app.` (path per doc 11), `app.`, `restaurant.`, `rider.`, `admin.` home, a `/media/*` sample image, TLS expiry | **UptimeRobot Free** (50 monitors, 5-min interval; ToS allows commercial use [S76, S77]) | 5 min | Independent of AWS + Grafana |
 | API multi-step (login with test account → menu → cart quote) | **Grafana Synthetic Monitoring** (100k API checks/month free [S71]) | 1 min (≈ 43k/month per check) | prod |
 | **Synthetic golden-flow order** (fake/sandbox payment, test restaurant + test rider bot in a hidden "QA zone") | Scheduled job (k6 or Go `rovo synth` in an ECS scheduled task) | Staging: every 15 min, 08:00–23:30 IST; **Prod: every 30 min in a hidden test city/zone with COD and auto-cancel** [OPEN: business approval; excluded from KPIs via `is_synthetic` flag] | Emits `rovo_synthetic_success`, SSE latency |
 | Public status page | UptimeRobot status page (1 free) [S76] | — | Partners/riders |
@@ -306,28 +310,27 @@ Every alert has a **runbook link** (`docs/ops/runbooks/<alert>.md`, Phase 2) and
   - **Telegram** bot → `rovo-oncall` group (P1/P2) and `rovo-ops` group (business alerts A2/A3/A5 to city ops staff).
   - **Email** (P3, digests).
   - **Discord** optional for the open-source community status channel (no PII).
-- **CloudWatch last resort** (A10, A13, A16, A19): SNS → email to on-call + founders. Fires even if Grafana Cloud is down.
+- **CloudWatch last resort** (A10, A13, A16, A19, A25): SNS → email to on-call + founders. Fires even if Grafana Cloud is down.
 - **On-call:** Grafana IRM (Free: 3 IRM users [S71]) weekly rotation, primary + secondary.
-  - **Operating hours (10:30–23:30 IST):** ack P1 within 5 min.
+  - **Service hours (08:00–23:30 IST; RV-067):** dev on-call acks P1 within 5 min. The ops desk is the first responder for business alerts and uses the runbooks (pause zone, COD-only mode, accept on behalf).
   - **Overnight:** only infra P1 (DB down, worker down, security). Business alerts are suppressed outside zone hours.
-  - Phone-call escalation for unacked P1 after 10 min [OPEN: Grafana IRM phone/SMS on Free **UNVERIFIED**; fallback is a second Telegram mention + UptimeRobot voice credits].
+  - Phone-call escalation for unacked P1 after 10 min. `closed-pilot`: a second Telegram mention plus a manual call by ops. `public-launch`: a **paid** phone-call tier of Grafana IRM or UptimeRobot (costed in `25` §15.1; **UNVERIFIED** price).
 - **Ops vs engineering split:** business alerts (no riders, restaurant not accepting) go to the **ops desk** with clear actions. Engineering gets system alerts.
 - **Post-incident:** a blameless review for every P1 (template in Phase 2), with action items in the backlog.
 
 ---
 
-## 11. Data-volume budget (production)
+## 11. Data-volume budget (production; volumes per R45 / doc 20, requests per `25` §15.7)
 
-| Signal | Pilot (high scenario) | Grafana Free limit [S71] | 10× | Plan at 10× |
+| Signal | Closed pilot (30/day, ≈ 1.3M req/mo) | Month 3 (250/day, ≈ 5.9M req/mo) | Grafana Free limit [S71] | Plan |
 |---|---|---|---|---|
-| Logs | ≈ 21 GB/mo | 50 GB | ≈ 120 GB (with 2xx sampling) | Pro usage (price **UNVERIFIED**, est. `25` §15.2) |
-| Metrics | ≈ 4,800 series | 10k | ≈ 7–9k (more tasks, zones) | Pro or tighter relabel |
-| Traces | ≈ 25 GB/mo (10% + tail) | 50 GB | ≈ 120 GB at 5% | Pro usage |
-| Frontend sessions | 10% sample ≈ 60k/mo | 50k | — | 5% or Pro |
-| Sentry errors | backend ≪ 1k; frontend unknown | 5k (Developer) | — | **Team plan** from launch ($26 [S75]) for > 1 user |
-| CloudWatch Logs (safety copy) | ≈ 21 GB × $0.67 ≈ $14 [C11] | n/a | ≈ $80 | Reduce to errors-only safety copy at 10× |
+| Logs (OTLP → Grafana) | ≈ 1–2 GB/mo | ≈ 5–8 GB/mo | 50 GB | Fits; 2xx access-log sampling only at the design point |
+| Metrics | ≈ 3,000 series (no Alloy/postgres integration) | ≈ 4,000 series | 10k | Fits with the §4.5 cardinality rules |
+| Traces | ≈ 8 GB/mo at 100% | ≈ 35 GB/mo at 100% → 50% sampling | 50 GB | Gateway/tail sampling only if needed (§2.3) |
+| Frontend sessions (Faro) | ≈ 9k/mo at 100% | ≈ 75k/mo → 50% sampling | 50k | Fits |
+| CERT-In archive (CloudWatch IA + S3) | ≈ 2 GB/mo app logs + ≈ 3 GB/mo S3 logs | ≈ 10–15 GB/mo + ≈ 10 GB/mo | n/a | Cost in `25` §15.1 |
 
-Grafana Free retention is 14 days [S71]. Longer retention needs for investigations rely on the audit log (DB) and S3-archived ALB logs (90 d).
+Grafana Free retention is 14 days [S71]. Investigations that need older data use the CERT-In archive (§1.2) and the audit log (DB). At the design point (2,000 orders/day, ≈ 40M requests/month), Grafana Pro usage applies (`25` §15.2).
 
 ---
 
@@ -337,3 +340,6 @@ Grafana Free retention is 14 days [S71]. Longer retention needs for investigatio
 - No log-based billing analytics or BI in the observability stack (that is the analytics roadmap, deferred).
 - No session replay on customer/rider apps (privacy + cost).
 - No self-hosted Prometheus/Loki in production (ops cost). It remains the fallback if Grafana Cloud terms change.
+- **No Sentry in V1 (R36)**: one vendor for errors, RUM and telemetry (C11). Re-evaluate after the pilot.
+- **No Alloy gateway in `closed-pilot`** (R32); OTLP goes direct.
+- No CORS configuration anywhere: all browser traffic is same-origin (R27).
