@@ -153,34 +153,38 @@ jobs:
   merge:
     needs: build
     # docker buildx imagetools create -t $ECR_REPO:sha-$GITHUB_SHA <digest-amd64> <digest-arm64>
-    # also push the same manifest to ghcr.io/<org>/rovo:sha-$GITHUB_SHA (public; used by preview)
+    # also push the same manifest to ghcr.io/<org>/rovo:sha-$GITHUB_SHA (public mirror; same digest; DR source, `23` DR-3)
+    # while vars.AWS_ENABLED != 'true': build with GITHUB_TOKEN (packages: write) and push to GHCR only — no AWS steps run
 ```
 
 - Tags: `sha-<40-hex>` (immutable, ECR tag immutability ON); `main` (moving, staging convenience); `vX.Y.Z` (release). **Deploys always reference `@sha256:` digests.**
 - ECR lifecycle: keep all `v*` tags, the last 50 `sha-*`, and expire untagged after 7 days.
 
-### 5.3 CI Postgres image
+### 5.3 CI Postgres image (multi-arch PostGIS)
 
-The `rovo-postgres` image is rebuilt weekly and on `deploy/postgres/**` change, then pushed to GHCR (public, free [S69]) and used by integration/E2E jobs and local Compose.
+- `postgres-image.yml` builds `rovo-postgres:17-3.5` from `deploy/docker/postgres-postgis.Dockerfile` with the same native-runner matrix as §5.2: `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` (arm64), with no QEMU.
+- The two per-arch digests are merged with `docker buildx imagetools create` and pushed to **GHCR** (public, free, no card [S69]) using `GITHUB_TOKEN` with `packages: write`. Tags are `17-3.5`, `17-3.5-<yyyymmdd>` and `sha-<git sha>`.
+- It is rebuilt weekly (picking up PGDG/Debian security patches) and on Dockerfile change. A smoke step runs `SELECT postgis_full_version()` on both arches before the merge.
+- Consumed by integration/E2E service containers and by local Compose on both Intel and Apple-silicon/ARM laptops (`22` §10).
 
 ---
 
 ## 6. OIDC from GitHub Actions to AWS (no long-lived keys)
 
-- One **IAM OIDC identity provider** `token.actions.githubusercontent.com` per AWS account (`rovo-shared`, `rovo-staging`, `rovo-prod`), audience `sts.amazonaws.com`.
+- These roles are created only when AWS exists (`AWS_ENABLED`). One **IAM OIDC identity provider** `token.actions.githubusercontent.com` per workload account (`rovo-prod`, `rovo-nonprod`; 4-account org per C18), audience `sts.amazonaws.com`. `rovo-mgmt` and `rovo-audit` have no CI roles.
 - Roles and trust conditions (`sub` claim pinned):
 
 | Role (account) | Trusted `sub` | Permissions |
 |---|---|---|
-| `gha-ecr-push` (shared) | `repo:<org>/rovo:ref:refs/heads/main`, `repo:<org>/rovo:ref:refs/tags/v*` | ECR push to `rovo` repos only |
-| `gha-tofu-plan` (staging, prod) | `repo:<org>/rovo:pull_request` | `ReadOnlyAccess` + state bucket read + lock table |
-| `gha-tofu-apply` (staging) | `repo:<org>/rovo:environment:staging-infra` | Admin-scoped by permission boundary (no IAM user creation, no Organizations) |
+| `gha-ecr-push` (prod — ECR lives in `rovo-prod`) | `repo:<org>/rovo:ref:refs/heads/main`, `repo:<org>/rovo:ref:refs/tags/v*` | ECR push to `rovo` repos only |
+| `gha-tofu-plan` (nonprod, prod) | `repo:<org>/rovo:pull_request` | `ReadOnlyAccess` + state bucket read + lock table |
+| `gha-tofu-apply` (nonprod) | `repo:<org>/rovo:environment:staging-infra` | Admin-scoped by permission boundary (no IAM user creation, no Organizations) |
 | `gha-tofu-apply` (prod) | `repo:<org>/rovo:environment:production-infra` | same, prod |
-| `gha-deploy` (staging) | `repo:<org>/rovo:environment:staging` | `ecs:RegisterTaskDefinition`, `ecs:UpdateService`, `ecs:RunTask`, `ecs:Describe*`, `iam:PassRole` (only rovo task/execution roles), `s3:PutObject/DeleteObject/ListBucket` on web buckets, `cloudfront:CreateInvalidation` |
+| `gha-deploy` (nonprod) | `repo:<org>/rovo:environment:staging` | `ecs:RegisterTaskDefinition`, `ecs:UpdateService`, `ecs:RunTask`, `ecs:Describe*`, `iam:PassRole` (only rovo task/execution roles), `s3:PutObject/DeleteObject/ListBucket` on the web bucket's app prefixes, `cloudfront:CreateInvalidation` |
 | `gha-deploy` (prod) | `repo:<org>/rovo:environment:production` | same, prod |
 
 - `max-session-duration` = 1 h; CloudTrail logs every `AssumeRoleWithWebIdentity`.
-- Fork PRs get **no** `id-token: write` (default for `pull_request` from forks). Plans for fork PRs run only after a maintainer applies the `safe-to-plan` label, via `pull_request_target` with a checkout of the base ref + the PR's `infra/` diff only. Default is **no plan for forks** [OPEN: maintainers decide].
+- Fork PRs get **no** `id-token: write` (default for `pull_request` from forks) and **no plan**. There are **no `pull_request_target` workflows** (RV-033). For a fork PR touching `deploy/terraform/**`, a maintainer reviews the diff and pushes it to a branch in the main repo, where `infra-plan.yml` runs normally. Fork PRs still get fmt/validate/tflint/Checkov, which need no credentials.
 
 ---
 
@@ -192,8 +196,8 @@ The `rovo-postgres` image is rebuilt weekly and on `deploy/postgres/**` change, 
 sequenceDiagram
   participant M as main push
   participant CI as main.yml
-  participant ECR as ECR (shared)
-  participant STG as AWS staging
+  participant ECR as ECR (rovo-prod)
+  participant STG as AWS staging (rovo-nonprod)
   M->>CI: checks pass
   CI->>ECR: build + push multi-arch, sign, SBOM
   CI->>STG: OIDC assume gha-deploy (env: staging)
@@ -242,7 +246,7 @@ deploy:
 
 | Stage | Steps |
 |---|---|
-| PR | `tofu fmt -check`, `tofu validate`, `tflint`, Trivy/Checkov, **`tofu plan` for staging and prod** (read-only roles) → plan summary comment (resources to add/change/destroy; destroys highlighted) |
+| PR | `tofu fmt -check`, `tofu validate`, `tflint`, Trivy/Checkov, **`tofu plan` for staging and prod** with each env's profile (`-var-file=profiles/closed-pilot.tfvars` or `public-launch.tfvars`, R32) (read-only roles) → plan summary comment (resources to add/change/destroy; destroys highlighted) |
 | Merge to `main` | `infra-apply.yml`: staging `plan -out` → apply (environment `staging-infra`, no reviewer); prod `plan -out` → upload plan artifact → **`production-infra` approval (2 reviewers for destroys or IAM/KMS/RDS changes)** → `tofu apply plan.bin` (exact saved plan; fails if state changed → re-plan) |
 | Nightly | Drift detection: `tofu plan -detailed-exitcode` on prod → issue + Telegram if drift |
 
@@ -250,11 +254,11 @@ Infra and app deploys are **separate workflows**. App deploys never change infra
 
 ### 7.4 Frontends
 
-`pnpm build` per app with `VITE_API_BASE=https://api.<env-domain>`; upload hashed assets with `Cache-Control: public,max-age=31536000,immutable`; then `index.html`, `sw.js` and `manifest.webmanifest` with `no-cache`; then invalidate those three paths. Frontend and backend deploy from the **same commit**, and the API stays backward compatible for one release (old SPA tabs keep working; the service worker prompts reload).
+`pnpm build` per app (customer, restaurant, rider, admin) with `VITE_API_BASE=/api/v1`: same-origin through CloudFront on each app host, no CORS (R14/R27). Upload each app to its prefix in the web bucket (`22` §6.3): hashed assets with `Cache-Control: public,max-age=31536000,immutable`; then `index.html`, `sw.js` and `manifest.webmanifest` with `no-cache`; then invalidate those three paths. Frontend and backend deploy from the **same commit**, and the API stays backward compatible for one release (old SPA tabs keep working; the service worker prompts reload).
 
-### 7.5 Preview (free tier, optional)
+### 7.5 Demo (local only)
 
-`preview.yml`: GHCR images (arm64) → SSH to the Oracle VM through **Cloudflare Access service token** (`cloudflared access ssh`) → `docker compose pull && docker compose run --rm migrate && docker compose up -d` → frontends via `wrangler deploy` to Workers Static Assets. Secrets come from the GitHub Environment `preview`.
+There is no preview deployment (R24, RV-019). A demo runs the local Compose stack (`make up`) with fakes and synthetic data, exposed through a temporary card-free quick tunnel (`22` §11). CI only provides the images (GHCR).
 
 ---
 
@@ -277,9 +281,10 @@ Rollbacks are exercised in staging every month (`23` drill calendar).
 | Cron (IST) | Job |
 |---|---|
 | Daily 02:00 | gitleaks full history; govulncheck + osv-scanner on `main`; Trivy on **currently deployed** prod/staging digests |
-| Daily 03:00 | OpenTofu drift (prod, staging) |
-| Weekly Mon 04:00 | Rebuild `rovo-postgres` CI image; CodeQL full |
-| Monthly 1st Sat | **Restore drill** (`23` §7): PITR clone in staging account from a prod cross-region snapshot copy, run verification queries, record RTO/RPO, destroy |
+| Daily 03:00 | OpenTofu drift (prod, staging), when `AWS_ENABLED` |
+| Weekly Mon 04:00 | Rebuild `rovo-postgres` multi-arch image (`postgres-image.yml`); CodeQL full |
+| Weekly Wed 04:00 | **Automated restore-and-verify** (R50, `23` §7 D0) into an ephemeral instance in `rovo-nonprod`, when `AWS_ENABLED`. Before that, CI restores a synthetic dump into the `rovo-postgres` container to keep the scripts exercised |
+| Monthly 1st Sat | Reminder issue for the **timed manual DR drill** (R50, `23` §7 D1). Quarterly from Gate B: the cross-Region restore (D3) |
 | Quarterly | Pricing/free-tier diff: fetch the pages listed in `25` §11/§17, diff key numbers, open issue |
 
 ---
@@ -308,7 +313,7 @@ Renovate is an acceptable alternative if grouping or regex managers are needed (
 
 - `main`:
   - Require a PR.
-  - **1 approval**; **CODEOWNERS** review for `infra/**`, `db/migrations/**`, `api/openapi/**`, `.github/workflows/**`, `backend/**/payments/**`, `backend/**/ledger/**` (2 approvals for these paths).
+  - **1 approval**; **CODEOWNERS** review for `deploy/terraform/**`, `backend/migrations/**`, `openapi/**`, `.github/workflows/**`, `backend/**/payments/**`, `backend/**/ledger/**` (2 approvals for these paths).
   - Dismiss stale approvals.
   - Required checks (§3.4), up-to-date branch (or merge queue [OPEN: availability/cost for public repos UNVERIFIED]).
   - Linear history (squash only), no force-push, no deletion.
@@ -321,7 +326,6 @@ Renovate is an acceptable alternative if grouping or regex managers are needed (
   | `staging-infra` | none | `main` | role ARN |
   | `production` | ≥ 1 release manager (2 for contract migrations) | tags `v*` | role ARNs, URLs |
   | `production-infra` | 2 maintainers | `main` | role ARN |
-  | `preview` | none | any (manual) | CF Access token, SSH key |
 
 - Workflow files changes need CODEOWNERS review. `GITHUB_TOKEN` defaults to read-only.
 
@@ -338,5 +342,5 @@ Renovate is an acceptable alternative if grouping or regex managers are needed (
 | Monthly total (≈ 80 PRs, 60 main pushes, 6 releases, nightly jobs) | | **≈ 8,000–9,000 job-minutes** | |
 
 - **Public repo:** standard GitHub-hosted runners (incl. arm64) are **free** [S67, S68], so the budget is not a constraint.
-- **If the repo were private:** GitHub Free includes 2,000 min/month [S67], an overrun of about 4×. At $0.006/min for Linux 2-core [S67], about $40–45/month. Mitigation: self-hosted runner on the preview VM (self-hosted runner fees postponed [S70 *search*]).
+- **If the repo were private:** GitHub Free includes 2,000 min/month [S67], an overrun of about 4×. At $0.006/min for Linux 2-core [S67], that is about $40–45/month and needs a card. This is not planned: the repo stays public (Apache-2.0), and no self-hosted runner is used.
 - **Speed levers:** `concurrency: { group: ${{ github.ref }}, cancel-in-progress: true }` on PRs; Go build/test cache (`actions/setup-go` cache), pnpm store cache, buildx `type=gha` cache; path filters; `go test` sharding when > 5 min; Playwright sharding (2 shards).

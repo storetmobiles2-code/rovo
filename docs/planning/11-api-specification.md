@@ -4,9 +4,19 @@
 |---|---|
 | **Purpose** | The HTTP contract for all rovo clients: conventions (paths, casing, pagination, errors, idempotency, concurrency, rate limits, i18n, money, time, auth, versioning), the full endpoint catalogue by audience, real-time SSE and push, webhooks, and OpenAPI 3.1 excerpts for the six most critical operations. |
 | **Owner** | Backend Architect |
-| **Status** | Draft v1 (2026-10-04). Includes Lead rulings 1–13 of 2026-10-04 (stateless cart quote, accept window, round-off, SSE without replay, maker-checker, etc.). |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
 | **Depends on** | 00 baseline (P2 spec-first, P3 SSE, P9 auth, P10 payments); 08 system architecture (idempotency, CAS, SSE via `NOTIFY`); 10 database schema; 12 auth/RBAC (hosts, cookies, CSRF, permissions, maker-checker); 13 state machines (commands, errors, events); 14 payment architecture (PA specifics); 15 notifications; 16 geography (serviceability, fees, ETA); 17/18 frontend & PWA (client expectations) |
 | **Consumed by** | Go server codegen (`oapi-codegen` strict server [ASSUMPTION — 26 decides]), TS client (`openapi-typescript` + `openapi-fetch`, 17), 20 testing (contract tests), 19 threat model |
+
+**Changes in v1.1**
+- **R14 / R27 / RV-001 / RV-025 (register rows 31–33):** four app hosts (`app.`, `restaurant.`, `rider.`, `admin.`), each serving `/api/v1/*` **same-origin** through the CDN, with no CORS. The audience is derived from `Host` plus the CDN origin-verify secret; a client-sent `X-Rovo-Audience` is ignored. `api.` is reserved for future native bearer clients and carries only PA/SMS webhooks in V1.
+- **R30 / C1 / C15 / C20:** removed surge endpoints and fields (`SURGE_FEE`, `SURGE_CHANGED`, `zone.surge`, rider `surge` earnings), zone import/export, `geo/live`, broadcasts, and tax-rule writes. **C2:** OTP over SMS only. **C12:** no `ON_BREAK`. **C13:** partner analytics today/this week only. **C16:** coupon `SHARED` funding and cuisine/user targets removed.
+- **R31 / C7:** ⚖ (maker-checker) kept only on the five action families. Removed it from user block/unblock, TOTP reset, role revoke, cash-limit override, coupon budgets, PII reports and erasure.
+- **R16:** offer status `REVOKED` (`DeliveryOfferStatus`). **R29:** COD compensation choice + manual refund `mark-paid` with UTR. **R39:** `Order.deliveryCode`. **R40:** no restaurant self-cancel after accept (issues endpoint only). **R44 / M10:** device registration endpoints for device-bound sessions.
+- **M4 / M5 / M7 / M8 and others:** new endpoints for waitlist, restaurant leads, staff invites, SOS, contact taps, recon exceptions / PA settlements / bank-statement import, erasure requests, ledger adjustments (`MG_TOPUP`, `PEAK_BONUS`), gig-worker export, ops bulk menu CSV import (P0 for Gate B), ops-assisted phone orders (P1), and the order `ack` endpoint (row 64).
+- **Row 29 / RV-011 / R52:** SSE keeps one rule. The stream outlives the access token while the session is valid, the server closes at 30 min, `revoked` is sent on revocation, and the heartbeat is 20 s. **R27:** batched rider pings (60 s); restaurant heartbeat 60 s, with SSE presence counting.
+- **R21:** rate-limit counters in Postgres (`rate_limit_buckets`). **Rows 57/58:** quantity 1–20, prep time 5–90. **R48:** timer/threshold values are cited by key (13 §5.1), fee values by 16 §6.5.
+- §2.9 operation counts updated.
 
 The **single source of truth** is `api/openapi.yaml` in Phase 2 (spec-first, P2). This document fixes its conventions and content. Paths below omit the `/api/v1` prefix in tables unless shown.
 
@@ -16,17 +26,18 @@ The **single source of truth** is `api/openapi.yaml` in Phase 2 (spec-first, P2)
 
 | ID | Decision |
 |---|---|
-| API-D01 | Base path **`/api/v1`** on every host. App hosts (`app.`, `partner.`, `admin.`) serve the API same-origin with cookie auth (12 AUTH-D03). `api.<domain>` serves the **same paths** with bearer auth only, plus webhooks. One router, one spec. (Minor deviation from 12 §4.1, which showed `/v1` on the api host: path parity is simpler to route, test and document.) |
+| API-D01 | Base path **`/api/v1`** on every host (R15, R27). The four app hosts (`app.`, `restaurant.`, `rider.`, `admin.`; R14) route `/api/*` **same-origin through CloudFront** to the API, with cookie auth (12 AUTH-D03) and **no CORS**. `api.<domain>` is reserved for future native bearer clients; in V1 it serves only `/api/v1/webhooks/*` (R27). One router, one spec. |
 | API-D02 | **JSON bodies and query params in `camelCase`**. Enum values in `UPPER_SNAKE` (identical to DB). Path segments in `kebab-case`. |
 | API-D03 | **Resources + command sub-resources.** CRUD uses REST verbs. State-machine transitions are explicit `POST …/{id}/{command}` endpoints (`/accept`, `/cancel`, `/picked-up`). There is no generic "PATCH status". Each command maps 1:1 to a transition ID in 13. |
 | API-D04 | **Money** is always `{"amountPaise": 24900, "currency": "INR"}`. Integers only. Clients format with `Intl` (`en-IN`/`te-IN`). |
 | API-D05 | **Errors:** RFC 9457 `application/problem+json` with a stable `code`, `fieldErrors[]` (the shape 17 expects) and `traceId`. |
 | API-D06 | **Pagination:** opaque cursor (`?cursor=&limit=`), response `{items, nextCursor}`. No offset pagination on unbounded lists. |
-| API-D07 | **Idempotency-Key** is required on every POST that creates or transitions something (orders, payments, refunds, all state commands, offers, milestones, payouts). Optional on other POSTs. |
+| API-D07 | **Idempotency-Key** is required on every POST that creates or transitions something (orders, payments, refunds, all state commands, offers, milestones, payouts, adjustments, imports). Optional on other POSTs. |
 | API-D08 | **Optimistic concurrency:** `ETag: "v<version>"` on aggregate reads. `If-Match` is **required** on PUT/PATCH of mutable aggregates (menu items, restaurant profile, zones, fee configs, coupons) and **optional** on state commands (13 §7.1). |
 | API-D09 | **Cart is client-side; `POST /cart/quote` is stateless for the client** and returns a signed short-TTL `quoteId`. `POST /orders` takes `quoteId` + `Idempotency-Key`. A stale quote returns `409` with a new quote and diff (Lead ruling 12; 10 §5.1). |
-| API-D10 | **Real-time:** one multiplexed SSE stream `GET /stream?topics=` per tab. Thin events. No replay buffer. Heartbeat every 20 s (≤ 25 s). `event: reauth` at token expiry. Clients refetch snapshots on (re)connect (ruling 10; 08 §6; 12 §4.7). |
-| API-D11 | **Maker-checker actions** return `202 Accepted` + an `ApprovalRequest` when approval is needed, and `200/201` when below threshold (ruling 11; 12 §5.5). |
+| API-D10 | **Real-time:** one multiplexed SSE stream `GET /stream?topics=` per tab. Thin events. No replay buffer. Heartbeat every **20 s** (R10, R52). The stream continues past access-token expiry while the server-side session is valid; the server closes it at 30 min for rebalancing, and immediately with `event: revoked` on session revocation (RV-011). Clients refetch snapshots on (re)connect (R10; 08 §6; 12 §4.7). |
+| API-D11 | **Maker-checker actions** (⚖) return `202 Accepted` + an `ApprovalRequest` when approval is needed, and `200/201` when below threshold. Only the five R31 action families use ⚖ (10 §11). |
+| API-D13 | **Parameter values are cited by key (R48):** timers/thresholds → 13 §5.1, fee/commission defaults → 16 §6.5, operational keys → 10 §15.3. |
 | API-D12 | Public catalog endpoints live under **`/public/*`**: cookie-less, `Cache-Control: public`, CDN-cacheable, usable by the service worker (17). |
 
 ---
@@ -35,14 +46,15 @@ The **single source of truth** is `api/openapi.yaml` in Phase 2 (spec-first, P2)
 
 ### 1.1 Hosts, audiences, prefixes
 
-| Host | Audience | Auth | Paths served |
+| Host | Audience | Auth | Paths served (all under `/api/v1`) |
 |---|---|---|---|
-| `app.<domain>` | `customer` | cookies | `/api/v1/public/*`, `/config/*`, `/auth/*`, `/me/*`, `/cart/*`, `/orders/*`, `/payments/*`, `/support/*`, `/stream`, `/uploads` |
-| `partner.<domain>` | `partner` | cookies | public, auth, `/me/*`, `/partner/*` (restaurant), `/rider/*`, `/support/*`, `/stream`, `/uploads`, `/kyc/*` |
+| `app.<domain>` | `customer` | cookies | `/public/*`, `/config/*`, `/auth/*`, `/me/*`, `/cart/*`, `/orders/*`, `/payments/*`, `/support/*`, `/stream`, `/uploads` |
+| `restaurant.<domain>` | `restaurant` | cookies | public, auth, `/me/*`, `/partner/*`, `/support/*`, `/stream`, `/uploads`, `/kyc/*` |
+| `rider.<domain>` | `rider` | cookies | public, auth, `/me/*`, `/rider/*`, `/support/*`, `/stream`, `/uploads`, `/kyc/*` |
 | `admin.<domain>` | `admin` | cookies (`SameSite=Strict`) | `/auth/admin/*`, `/me/*`, `/admin/*`, `/stream` |
-| `api.<domain>` | `*_native`, server-to-server | bearer; **no cookies** | same paths as above per token `aud` + `/webhooks/*` |
+| `api.<domain>` | V1: webhooks only; later `*_native` | signature (webhooks); bearer later; **no cookies, no CORS** | `/webhooks/*` |
 
-The server derives the audience from the host (`X-Rovo-Audience`, set by the edge proxy and overwriting any client value; 12 §4.1). A token whose `aud` doesn't match the host is rejected (`401 TOKEN_AUDIENCE_MISMATCH`). `/admin/*` on a non-admin host returns 404.
+Each app host has a CloudFront behaviour for `/api/*` (caching off, cookies forwarded) to the ALB. The ALB accepts only the CloudFront origin-facing prefix list **and** a secret origin-verify header. The server derives the audience from **`Host`** and requires that secret. A request carrying `X-Rovo-Audience` without the secret is rejected, and the header is otherwise ignored (RV-001, RV-025). A token or session whose audience doesn't match the host is rejected (`401 TOKEN_AUDIENCE_MISMATCH`). `/admin/*` on a non-admin host, `/partner/*` off the restaurant host and `/rider/*` off the rider host return 404. Because `RIDER` and `RESTAURANT_*` roles are mutually exclusive (R26), no user needs both partner hosts.
 
 Health endpoints `GET /healthz` (liveness) and `GET /readyz` (DB, River, LISTEN) are outside `/api` and not exposed publicly (internal LB only).
 
@@ -123,7 +135,7 @@ Content-Language: en
 
 - `type` is a relative URI resolved against the API origin. Each code has a human page in the docs site later.
 - `code` is **stable** and the only thing clients branch on. `title`/`detail` are localized per `Accept-Language` for display, but clients should prefer their own translation of `code` (17).
-- `fieldErrors[]`: `{ "field": "lines[0].quantity", "code": "OUT_OF_RANGE", "detail": "1–50" }`.
+- `fieldErrors[]`: `{ "field": "lines[0].quantity", "code": "OUT_OF_RANGE", "detail": "1–20" }`.
 - Extension members are allowed per code (`quote`, `diff`, `currentStatus`, `currentVersion`, `approvalRequest`, `retryAfterSeconds`).
 - 404 is used for resources outside the caller's scope (12 AUTH-D09). 403 is used only when the caller can see the resource but may not act on it (e.g. a staff member without `MENU_EDIT`).
 - 5xx never leak internals. `traceId` links to logs and traces.
@@ -138,7 +150,7 @@ Content-Language: en
 | 404 | `NOT_FOUND` |
 | 409 | `CONFLICT`, `REQUEST_IN_PROGRESS`, `ORDER_STATE_CONFLICT`, `ORDER_INVALID_TRANSITION`, `ORDER_NOT_CANCELLABLE`, `CANCEL_GRACE_EXPIRED`, `ACCEPT_WINDOW_CLOSED`, `QUOTE_CHANGED`, `QUOTE_EXPIRED`, `QUOTE_ALREADY_USED`, `PAYMENT_ALREADY_COMPLETED`, `OFFER_EXPIRED`, `OFFER_NOT_PENDING`, `DELIVERY_INVALID_TRANSITION`, `RIDER_HAS_ACTIVE_DELIVERY`, `UNDELIVERABLE_REQUEST_OPEN`, `REFRESH_RACE`, `ZONE_OVERLAP`, `DUPLICATE` |
 | 412 | `VERSION_MISMATCH` (`If-Match` failed; body has `currentVersion`) |
-| 422 | `IDEMPOTENCY_KEY_REUSED`, `OTP_INVALID`, `OTP_EXPIRED`, `OTP_ATTEMPTS_EXCEEDED`, `OUTSIDE_SERVICE_AREA`, `CITY_NOT_LIVE`, `ZONE_PAUSED`, `RESTAURANT_ZONE_PAUSED`, `TOO_FAR`, `RESTAURANT_CLOSED`, `RESTAURANT_PAUSED`, `ITEM_UNAVAILABLE`, `ADDON_SELECTION_INVALID`, `MIN_ORDER_NOT_MET`, `CART_EMPTY`, `CART_TOO_LARGE`, `COUPON_INVALID`, `COUPON_EXPIRED`, `COUPON_NOT_APPLICABLE`, `COUPON_MIN_ORDER_NOT_MET`, `COUPON_USAGE_EXCEEDED`, `COUPON_BUDGET_EXHAUSTED`, `COD_NOT_AVAILABLE`, `COD_LIMIT_EXCEEDED`, `COD_DISABLED_FOR_CUSTOMER`, `RIDER_NOT_ELIGIBLE`, `RIDER_CASH_LIMIT_REACHED`, `RIDER_NOT_ONLINE`, `DELIVERY_CODE_INVALID`, `COD_AMOUNT_MISMATCH`, `UNDELIVERABLE_PRECONDITION`, `REFUND_EXCEEDS_CAPTURED`, `ZONE_GEOMETRY_INVALID`, `REASON_CODE_INVALID`, `KYC_INCOMPLETE`, `FEATURE_DISABLED` |
+| 422 | `IMPORT_INVALID` (row-level `fieldErrors`, M7), `IDEMPOTENCY_KEY_REUSED`, `OTP_INVALID`, `OTP_EXPIRED`, `OTP_ATTEMPTS_EXCEEDED`, `OUTSIDE_SERVICE_AREA`, `CITY_NOT_LIVE`, `ZONE_PAUSED`, `RESTAURANT_ZONE_PAUSED`, `TOO_FAR`, `RESTAURANT_CLOSED`, `RESTAURANT_PAUSED`, `ITEM_UNAVAILABLE`, `ADDON_SELECTION_INVALID`, `MIN_ORDER_NOT_MET`, `CART_EMPTY`, `CART_TOO_LARGE`, `COUPON_INVALID`, `COUPON_EXPIRED`, `COUPON_NOT_APPLICABLE`, `COUPON_MIN_ORDER_NOT_MET`, `COUPON_USAGE_EXCEEDED`, `COUPON_BUDGET_EXHAUSTED`, `COD_NOT_AVAILABLE`, `COD_LIMIT_EXCEEDED`, `COD_DISABLED_FOR_CUSTOMER`, `RIDER_NOT_ELIGIBLE`, `RIDER_CASH_LIMIT_REACHED`, `RIDER_NOT_ONLINE`, `DELIVERY_CODE_INVALID`, `COD_AMOUNT_MISMATCH`, `UNDELIVERABLE_PRECONDITION`, `REFUND_EXCEEDS_CAPTURED`, `ZONE_GEOMETRY_INVALID`, `REASON_CODE_INVALID`, `KYC_INCOMPLETE`, `FEATURE_DISABLED` |
 | 426 | `CLIENT_UPGRADE_REQUIRED` (when `X-Rovo-App-Version` < minimum in `/config/client`) |
 | 429 | `RATE_LIMITED`, `OTP_RESEND_TOO_SOON`, `SMS_BUDGET_EXCEEDED`, `TOO_MANY_STREAMS` |
 | 502/503/504 | `PAYMENT_PROVIDER_UNAVAILABLE`, `SERVICE_UNAVAILABLE`, `UPSTREAM_TIMEOUT` (`retryable: true`) |
@@ -153,15 +165,16 @@ Content-Language: en
 
 ### 1.10 Rate limiting
 
-- Edge (WAF) limits plus app limits (12 §2, 19). Responses carry the IETF draft fields `RateLimit-Policy: "default";q=120;w=60` and `RateLimit: "default";r=37;t=21` (draft-ietf-httpapi-ratelimit-headers, still a draft [ASSUMPTION — track the final RFC]). A 429 carries `Retry-After` (seconds).
+- Edge (WAF) limits plus app limits (12 §2, 19). App counters for OTP, auth and money endpoints live in Postgres `rate_limit_buckets`, shared across replicas (R21). Only soft general limits may use per-replica memory. Responses carry the IETF draft fields `RateLimit-Policy: "default";q=120;w=60` and `RateLimit: "default";r=37;t=21` (draft-ietf-httpapi-ratelimit-headers, still a draft [ASSUMPTION — track the final RFC]). A 429 carries `Retry-After` (seconds).
 - Default budgets [ASSUMPTION — tuned in 19/24]:
 
 | Scope | Budget |
 |---|---|
 | public reads | 120 / min / IP |
 | authenticated | 300 / min / user |
-| OTP request | 12 rules (per phone 3 / 15 min, per IP 10 / hour, global budget) |
-| location pings | 6 / min / rider |
+| OTP request | per 12 §2.2 (per phone, per IP, global SMS budget); values are owned there |
+| location pings | 2 / min / rider (batched uploads of 1–10 points every `rider.ping_interval_s`, R27) |
+| restaurant heartbeat | 2 / min / device (every `restaurant.heartbeat_interval_s` = 60 s; SSE presence counts, R27) |
 | quote | 30 / min / user |
 | `POST /orders` | 10 / min / user |
 
@@ -175,8 +188,10 @@ Content-Language: en
 
 | Client | Credential | Notes |
 |---|---|---|
-| Web PWA (customer, partner, admin) | `__Host-rovo_at` access cookie; `__Secure-rovo_rt` refresh cookie (path `/api/v1/auth`) | Unsafe methods require `X-Rovo-Client: customer-web|partner-web|admin-web` + same-origin Fetch-Metadata (12 AUTH-D06) |
-| Future native | `Authorization: Bearer <jwt>` on `api.` host; refresh token in the body of `/auth/refresh` | cookies ignored on `api.` |
+| Web PWA (customer, restaurant, rider, admin) | `__Host-rovo_at` access cookie; `__Secure-rovo_rt` refresh cookie (path `/api/v1/auth`), host-only per app host | Unsafe methods require `X-Rovo-Client: customer-web|restaurant-web|rider-web|admin-web` + same-origin Fetch-Metadata (12 AUTH-D06) |
+| Registered restaurant order-receiver device | as web, but the session is **device-bound** (R44): sliding 30-day idle, 90-day absolute, revocable by owner/admin (`POST /partner/restaurants/{rid}/devices/{deviceId}/register`) | 10 §3.3 `sessions.binding` |
+| Rider PWA | as web; 30-day sliding idle (R44) | |
+| Future native | `Authorization: Bearer <jwt>` on `api.` host (not enabled in V1); refresh token in the body of `/auth/refresh` | cookies ignored on `api.` |
 | PA webhooks | HMAC signature header | no session |
 
 All clients send `X-Rovo-App-Version: customer/1.4.2` (telemetry + `426` gate).

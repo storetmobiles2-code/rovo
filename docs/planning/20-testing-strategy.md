@@ -4,13 +4,22 @@
 |---|---|
 | **Purpose** | Define how rovo proves that it is correct, safe and fast enough to run real money and real food through it in Mahabubnagar: quality goals, risk-based priorities, the test pyramid with concrete tools and conventions, test data, environments and fakes, CI gating, Definition of Done, bug severity, release quality gates and requirement traceability. |
 | **Owner** | QA Architect |
-| **Status** | Draft v1 (Phase 1 — planning only; no test code exists yet) |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48 (plus R49–R54), 2026-10-04 |
 | **Date** | 2026-10-04 |
 | **Depends on** | `00-planning-baseline.md` (vocabulary, provisional decisions P1–P17, commercial defaults) |
 | **Consumes (when available)** | 01 product requirements (requirement IDs, NFR-PERF targets — read 2026-10-04), 17 frontend architecture (four apps — read 2026-10-04), 10 DB schema, 11 API spec, 12 auth/RBAC (role × operation policy), 13 order state machine (transition tables), 14 payment architecture (PA choice, ledger accounts), 15 notifications (OTP/SMS/push providers), 16 delivery zones (serviceability rules), 17/18 frontend + PWA, 19 threat model, 21 CI/CD, 22 deployment, 23 backup/DR, 24 observability, 25 hosting |
 | **Consumed by** | 21 CI/CD (pipeline stages and budgets), 26 repository structure (test folders, fakes, seeds), 27 backlog (test stories), 28 milestones (quality gates), 29 production readiness (release gates), 33 Phase 2 prompt |
 
-> While this draft was written (2026-10-04), docs 01, 04–06, 08, 09, 12, 17 and 25 appeared alongside the baseline. This doc aligns with 01 (requirement ID format, NFR-PERF targets), 17 (four PWAs), and with 08 (PostgreSQL 18, River `InsertTx` as the outbox, SSE as invalidation hints without replay, CAS + `version`, Idempotency-Key semantics, injected `platform/clock` + `platform/idgen`) and 12 (`x-rovo-permission`, `authz/policy.yaml`, 404-not-403, maker-checker, Turnstile on OTP, Postgres-backed auth rate limits). It also follows the **baseline §4a user directive** (local Compose → CI → optional free preview → staging on the same IaC/cloud → production on a managed hyperscaler in India). Everything else is marked `[OPEN]` for the owning doc.
+> This doc aligns with 01 (requirement ID format), 17 (four PWAs, R14), 08 (PostgreSQL **17** per R22, River transactional insert as the outbox with **one job per subscriber, no event table** per R42, SSE as invalidation hints without replay per R10, CAS + `version`, Idempotency-Key semantics, injected `platform/clock` + `platform/idgen` per R19) and 12 (`x-rovo-permission`, `authz/policy.yaml`, 404-not-403, maker-checker per R31, risk-based bot challenge with a fake adapter, Postgres-backed rate limits per R21). Environments follow §4a and **R24**: local Compose → CI → staging on the same IaC/cloud → production on AWS ap-south-1 (R23). Everything else is marked `[OPEN]` for the owning doc.
+
+**Changes in v1.1** (review 31 + rulings R1–R54):
+- **§12.1 is the canonical load model (R45, R48):** pilot ≈ 30 orders/day, month 1 ≈ 80/day, month 3 ≈ 250/day; design point 2,000/day with a 500 orders/h peak; load test at 3× = **1,500 orders/h + 3,000 concurrent SSE**. Per-profile capacity tests for the two IaC profiles `closed-pilot` and `public-launch` (R32). CGNAT scenario added (RV-064).
+- Fee slabs per **R18** (road-adjusted, `[lo,hi)`, to 10 km) with a property test that every serviceable point has exactly one slab (RV-084). Golden Q-001 re-based on R8: fees GST-inclusive, whole-rupee payable with `ROUND_OFF`.
+- **R19** testhooks/fake clock are mandatory from sprint 1; the River fake-clock spike is a week-1 exit criterion, with a defined fallback (RV-061). **R16** `REVOKED` offer status tested.
+- **R42:** no `event_log`/`outbox_events` and no fan-out hop; tests assert per-subscriber job insertion (`InsertManyTx`) in the business transaction, plus a latency budget (RV-002).
+- New tests for missing items: periodic-job **catch-up** and missed-settlement alert (M11), **LISTEN/NOTIFY watchdog** (M12), **CA-signed golden invoices** and PA sample settlement files (M14), **erasure map** (M15), **device-bound sessions** (M10/R44), the audience-header forgery test (RV-025), both IaC profiles, the CERT-In log archive (M1), and the DLT template conformance check (RV-065).
+- Tests for cut features removed: surge (C1), WhatsApp OTP (C2), prerender (C3), ClamAV/PDF KYC (C5), hash-chained audit (C6), maker-checker beyond R31 (C7), Telugu romanisation (C17).
+- Rulings applied: R1/R54 accept-timeout ladder and metric (F-2); R2 cancel window; R5 undeliverable; R6 COD rule; R29 COD compensation; R34 dispatch tiers; R39 delivery code; R49 availability; R50 restore cadence; R51 Gate A sizes; R52 heartbeat 20 s; PG 17 (RV-023); `BotChallenge=fake` (RV-020); device lab ownership (RV-062).
 
 Tags used: `[ASSUMPTION]` unverified premise, `[OPEN]` decision pending elsewhere, `[LEGAL]` needs legal/tax review, `[VERIFY]` external fact to re-check at implementation time.
 
@@ -66,10 +75,10 @@ Tags used: `[ASSUMPTION]` unverified premise, `[OPEN]` decision pending elsewher
 | QA-12 | Chaos-lite | Scripted experiments with `docker compose kill/pause/restart` + **Toxiproxy** locally/CI; managed-service experiments (DB failover/reboot, task kill, rolling deploy, real CDN/LB SSE soak) in staging. No chaos platform. | Proportionate to V1; managed-service behaviour is only observable in the cloud. |
 | QA-13 | DAST | **ZAP baseline (passive) scan** on every `main` merge against the ephemeral E2E stack; ZAP **API scan** (active, using the OpenAPI file) weekly against the ephemeral stack only; passive baseline also against staging after each deploy; never any scan against prod. | Free; passive scan is cheap and safe. |
 | QA-14 | Supply chain | `govulncheck`, `osv-scanner` (Go + pnpm lockfile), Trivy image scan, `gitleaks`, CodeQL (free for public repos), Dependabot/Renovate `[OPEN: 21]`. | Free for public repos. |
-| QA-15 | Time & IDs | All business time via an injected `Clock`; River gets the same clock via `river.Config.Test.Time` in tests; UUIDv7 and order-code generators injectable and seedable. **No business deadline may be computed with SQL `now()`.** | Timeouts (45 s offer, restaurant accept) must be testable without sleeping. |
+| QA-15 | Time & IDs (R19, mandatory from sprint 1) | All business time via an injected `Clock`; River gets the same clock via `river.Config.Test.Time` in tests; UUIDv7 and order-code generators injectable and seedable. **No business deadline may be computed with SQL `now()`.** | Timeouts (45 s offer, restaurant accept) must be testable without sleeping. |
 | QA-16 | Test-control surface | Non-prod-only `/_test/*` API (OTP sink, fake-PA control, clock, seed/reset, push sink) compiled only with build tag `testhooks`, on a separate listener, plus env guard and shared secret. Prod image is built without the tag, and a CI test proves `/_test/*` is absent from it. | E2E needs control; prod must be provably free of it. |
 | QA-17 | Coverage | ≥ 90 % statements for pricing/quote, ledger, order & delivery state machines, coupons, commission/rider pay, payouts; 100 % of transition-table rows; 100 % operations in authz matrix; ≥ 70 % overall Go; ≥ 85 % frontend shared packages (money, cart, i18n utils), ≥ 60 % per frontend app. | Meaningful where money and state live; not vanity elsewhere. |
-| QA-18 | Deploy verification | **Post-deploy smoke + synthetic checks** run automatically after every staging and production deploy (read-only in prod); staging smoke must pass before promotion. **IaC checks** (`terraform`/`tofu fmt -check`, `validate`, `tflint`, `checkov`, `plan` with drift report) gate every PR touching `infra/` and every deploy. | Baseline §4a: same images and IaC across staging and production. |
+| QA-18 | Deploy verification | **Post-deploy smoke + synthetic checks** run automatically after every staging and production deploy (read-only in prod); staging smoke must pass before promotion. **IaC checks** (`tofu fmt -check`, `validate`, `tflint`, `checkov`, `plan` with drift report) for **both profiles `closed-pilot` and `public-launch`** (R32) gate every PR touching `deploy/terraform/` (R23) and every deploy. | Baseline §4a: same images and IaC across staging and production. |
 
 ---
 
@@ -86,7 +95,7 @@ Tags used: `[ASSUMPTION]` unverified premise, `[OPEN]` decision pending elsewher
 | QG-5 | **Serviceability is right** | Customers outside active zones or beyond restaurant radius can never place an order; boundary behaviour matches doc 16. |
 | QG-6 | **Usable in Telugu and English on entry-level Android** | 100 % `te` key coverage, native-speaker sign-off, no truncation in the curated screen set; customer app interactive in < 5 s on emulated low-end device + Slow 4G `[ASSUMPTION: final budget in 18]`. |
 | QG-7 | **Fast enough** | p95 < 300 ms for read APIs, p95 < 800 ms for order create (excluding PA round-trip), SSE event delivered < 2 s after commit, at 3× expected peak. |
-| QG-8 | **Recoverable** | Backup restore verified weekly; worker/DB restarts lose no outbox events or timers. |
+| QG-8 | **Recoverable** | Automated restore-verify weekly and a timed manual drill monthly (R50); worker/DB restarts lose no subscriber jobs or timers; missed periodic runs catch up (M11). |
 
 ### 2.2 Risk register driving test intensity
 
@@ -105,6 +114,8 @@ Likelihood (L) and impact (I) on 1–5; Score = L × I. Tier decides how much te
 | R-AUTH-2 | OTP brute force / SMS pumping (cost attack) | 4 | 4 | 16 | **T1** | Rate-limit tests (§14.4), k6 abuse scenario |
 | R-SVC-1 | Serviceability wrong at zone boundary / polygon holes / radius vs road distance mismatch | 3 | 4 | 12 | **T2** | PostGIS fixture tests (§6.4) |
 | R-RT-1 | SSE dropped behind CDN/proxy; restaurant misses new order | 3 | 4 | 12 | **T2** | SSE integration, staging-through-CDN test, polling fallback E2E, soak |
+| R-RT-2 | A stalled LISTEN connection fills the NOTIFY queue and blocks every committing transaction (RV-003) | 2 | 5 | 10 | **T2** | Watchdog + queue-usage alert tests (§6.8, C-10) |
+| R-JOB-1 | Leader restart at a periodic tick silently skips settlement/recon/retention (RV-004) | 3 | 5 | 15 | **T1** | Catch-up job tests (§6.5), chaos C-11 |
 | R-PWA-1 | Stale service worker serves old app against new API (breaking change) | 3 | 4 | 12 | **T2** | SW update-flow E2E (§11.3), oasdiff gate |
 | R-I18N-1 | Missing/wrong Telugu strings, overflow, unreadable fonts on low-end devices | 4 | 3 | 12 | **T2** | Key parity, pseudo-locale, visual, native review (§16) |
 | R-PERF-1 | Managed prod shape under-sized (burstable DB credits, task CPU, pooler) at dinner peak | 2 | 4 | 8 | **T2** | k6 capacity test on prod shape in staging (§12.4) |
@@ -140,7 +151,7 @@ flowchart TB
     PWA["PWA: SW update, offline, throttled devices"]
   end
   subgraph Mid["Service / contract / integration (Go + real Postgres/PostGIS) ~400-800 tests"]
-    INT["Repos, sqlc, migrations, PostGIS, River jobs, outbox, SSE"]
+    INT["Repos, sqlc, migrations, PostGIS, River jobs per subscriber, SSE"]
     CON["OpenAPI response validation, oasdiff, PA/OTP contracts"]
     AUTHZ["Generated authz matrix + IDOR"]
   end
@@ -188,10 +199,11 @@ Doc 13 owns the transition tables. Tests consume them **as data**:
 
 1. The transition table is defined once in Go as a declarative table (`[]Transition{From, Event, Guard, To, Actor, SideEffects}`).
 2. **Exhaustive matrix test:** for every `(state ∈ all order states) × (event ∈ all events) × (actor ∈ roles+system)` assert either the documented target state or a typed `ErrIllegalTransition`. With 11 order states × ~15 events × 9 actors ≈ 1,500 cases — generated, runs in milliseconds. Same for 9 delivery states and offer states.
+   Offer states are `PENDING | ACCEPTED | DECLINED | EXPIRED | REVOKED` (R16): `REVOKED` is reachable only from `PENDING` by system/admin (reassign, order cancelled), and a late rider accept on a revoked offer returns `409 OFFER_REVOKED`.
 3. **Doc parity test:** a test renders the Go table to Mermaid `stateDiagram-v2` and compares to a committed snapshot; doc 13 embeds the generated diagram, so code and docs cannot drift.
-4. **Side-effect assertions:** each transition returns the domain events/outbox messages it must emit (e.g., `ACCEPTED` → `order.accepted` event + schedule prep reminder; `REJECTED` on a prepaid order → `refund.requested`). Tests assert the event list exactly.
+4. **Side-effect assertions:** each transition returns the domain events / subscriber jobs it must emit (e.g., `ACCEPTED` → `order.accepted` event + schedule prep reminder; `REJECTED` on a prepaid order → `refund.requested`). Tests assert the event list exactly.
 5. **Cross-machine consistency** (order ↔ delivery): table of allowed combinations, e.g. `orders.status = PICKED_UP` ⇒ `deliveries.status ∈ {PICKED_UP, AT_DROP}`; `orders.status = DELIVERED` ⇔ `deliveries.status = DELIVERED`. Checked in unit tests of the coordinator and by a SQL invariant query in integration/E2E (`assertInvariants()` helper, §6.7).
-6. **Guards** tested at boundaries: customer cancel windows (e.g., free cancel before `ACCEPTED`, conditional after — values from doc 13 `[OPEN]`), COD skips `PENDING_PAYMENT`, `UNDELIVERABLE` only from `PICKED_UP`/`AT_DROP`.
+6. **Guards** tested at boundaries: customer cancel free while `PLACED` or within 60 s of placement, incl. `ACCEPTED → CANCELLED` inside the grace (R2; 59.9 s / 60.0 s with the fake clock); rider pickup from `PREPARING` or `READY_FOR_PICKUP` sets `restaurant_skipped_ready` (R4); COD skips `PENDING_PAYMENT`; `UNDELIVERABLE` only from `PICKED_UP`/`AT_DROP` and only with support approval (R5).
 
 ### 4.3 Pricing / quote engine golden tables (T1)
 
@@ -212,24 +224,27 @@ The quote engine is a pure function: `Quote(cart, restaurantPricing, cityPricing
   expect:
     food_subtotal_paise:     42000
     packaging_paise:          1000
-    delivery_fee_paise:       3000     # slab 2–4 km
-    platform_fee_paise:        500
+    delivery_fee_paise:       3000     # slab [2000,4000) road m → ₹30, GST-inclusive (R8, R18)
+    platform_fee_paise:        500     # GST-inclusive (R8 default)
     small_cart_fee_paise:        0     # subtotal >= 14900
     tax_lines:                         # RATES ARE PLACEHOLDERS [LEGAL]
-      - { base: food+packaging, rate_bp: 500,  amount_paise: 2150 }
-      - { base: platform_fee,   rate_bp: 1800, amount_paise:   90 }
-      - { base: delivery_fee,   rate_bp: 1800, amount_paise:  540 }
-    total_paise:             49280
+      - { base: food+packaging, rate_bp: 500,  amount_paise: 2150 }              # menu prices exclusive of 5% GST (R8)
+      - { base: platform_fee,   rate_bp: 1800, taxable_paise: 424,  amount_paise: 76, inclusive: true }   # round(500×100/118)
+      - { base: delivery_fee,   rate_bp: 1800, taxable_paise: 2542, amount_paise: 458, inclusive: true }  # round(3000×100/118)
+    pre_round_total_paise:   48650     # 42000 + 1000 + 2150 + 3000 + 500
+    round_off_paise:            50     # ROUND_OFF bill line, nearest rupee half-up [ASSUMPTION — rule owned by 14]
+    total_paise:             48700     # whole rupee (R8)
 ```
 
-> The GST rates and which party/section each line falls under are **placeholders** pending doc 14 and tax review `[LEGAL]`. The golden file references a config snapshot, so when rates are confirmed only the config and expected values change — the test structure does not.
+> The GST rates and which party/section each line falls under are **placeholders** pending doc 14 and tax review `[LEGAL]`. Fee GST presentation is configurable (R8); the inclusive default is used here. The golden file references a config snapshot, so when rates are confirmed only the config and expected values change — the test structure does not.
 
 **Mandatory case families** (each family = several rows):
 
 | Family | Cases (examples) |
 |---|---|
-| Delivery-fee slabs | road distance 0, 1,999, 2,000, 2,001, 3,999, 4,000, 6,000, 7,999, 8,000 m and > max; **boundary inclusivity pinned** (`[OPEN: 16/14]` — is 2.000 km slab 1 or 2?) |
-| Max radius | straight-line 6,999 / 7,000 / 7,001 m (serviceable / boundary / reject) — and interaction with road factor (see Challenge CH-3) |
+| Delivery-fee slabs (R18) | Road-adjusted distance (straight-line × 1.3), `[lo,hi)`: 0 → ₹20, 1,999 → ₹20, **2,000 → ₹30**, 3,999 → ₹30, 4,000 → ₹40, 5,999 → ₹40, 6,000 → ₹50, 7,999 → ₹50, 8,000 → ₹60, **9,100 (= 7 km straight-line) → ₹60**, 9,999 → ₹60; 10,000 → no slab (config error, unreachable at road factor 1.3) |
+| Max radius (R18) | Checked on **straight-line** distance: 6,999 / 7,000 / 7,001 m (serviceable / serviceable / reject — boundary inclusivity per doc 16) |
+| Round-off (R8) | pre-round totals ending in x.49 / x.50 / x.51 rupees → `ROUND_OFF` line −49 / +50 / +49 paise; payable always a whole rupee |
 | Small-cart fee | subtotal 14,899 / 14,900 / 14,901 paise; after coupon discount (is threshold pre- or post-discount? `[OPEN: 01]`) |
 | Rounding | items with GST producing x.5 paise (e.g., base 1,010 paise × 5 % = 50.5 → 51 half-up), many lines each rounding up (sum-of-rounded vs rounded-sum difference pinned), quantity 1 vs 99 |
 | Coupons | flat, percent with cap, min-order, first-order-only, restaurant-funded vs platform-funded, expired (evaluated in `Asia/Kolkata` at 23:59:59 / 00:00:00 IST), usage-limit reached, coupon making total negative (must clamp at 0, delivery fee handling) |
@@ -250,20 +265,21 @@ The quote engine is a pure function: `Quote(cart, restaurantPricing, cityPricing
 Doc 14 owns the chart of accounts; tests assert structure, not account names:
 
 - **Every journal balances**: `Σ debits == Σ credits` per journal entry, per currency — unit-tested on every journal builder function (and property-tested, §5).
-- **Journal per business event** (golden): `order.paid_online`, `order.cod_collected`, `order.delivered` (revenue recognition), `order.refunded` (full/partial), `commission.accrued`, `rider_pay.accrued`, `cod.deposit_recorded`, `payout.recorded`, `pa_fee.settled`, `adjustment.manual` (admin, with reason + maker-checker `[OPEN: 07/14]`).
+- **Journal per business event** (golden): `order.paid_online`, `order.cod_collected`, `order.delivered` (revenue recognition), `order.refunded` (full/partial; COD manual UPI refund with UTR, R29), `commission.accrued`, `rider_pay.accrued`, `cod.deposit_recorded`, `payout.recorded`, `pa_fee.settled`, `adjustment.manual` (admin, with reason; maker-checker above threshold, R31), `adjustment.rider_peak_bonus` (R30), `adjustment.mg_topup` (R47).
 - **Immutability:** no update/delete of posted entries; corrections are reversing entries — tested in integration (DB-level trigger/permissions `[OPEN: 10]`).
 - Illustrative golden journal for Q-001 (online payment) — account names provisional:
 
 | Entry | Dr (paise) | Cr (paise) |
 |---|---|---|
-| PA clearing | 49,280 | |
+| PA clearing | 48,700 | |
 | Restaurant payable (food + packaging) | | 43,000 |
 | GST payable – food (e-commerce operator, §9(5)) `[LEGAL]` | | 2,150 |
-| Platform-fee revenue | | 500 |
-| GST payable – platform fee `[LEGAL]` | | 90 |
-| Delivery-fee revenue | | 3,000 |
-| GST payable – delivery fee `[LEGAL]` | | 540 |
-| **Σ** | **49,280** | **49,280** |
+| Platform-fee revenue (taxable) | | 424 |
+| GST payable – platform fee `[LEGAL]` | | 76 |
+| Delivery-fee revenue (taxable) | | 2,542 |
+| GST payable – delivery fee `[LEGAL]` | | 458 |
+| Round-off income (`ROUND_OFF`) | | 50 |
+| **Σ** | **48,700** | **48,700** |
 | Restaurant payable (commission 15 % of 42,000 + 18 % GST) | 7,434 | |
 | Commission revenue | | 6,300 |
 | GST payable – commission `[LEGAL]` | | 1,134 |
@@ -276,7 +292,7 @@ Doc 14 owns the chart of accounts; tests assert structure, not account names:
 
 | Area | Notes |
 |---|---|
-| Dispatch ranking | Pure `RankRiders(candidates, restaurant, now, cfg)`: online, location freshness (stale > N s excluded), distance, active jobs, COD-limit exclusion, previously-declined/expired riders excluded for this delivery; deterministic tie-break (by rider ID) so tests are stable. |
+| Dispatch ranking (R34) | Pure `RankRiders(candidates, restaurant, now, cfg)`: **tier 1** = location age ≤ 3 min, ranked by distance; **tier 2** = online with location age ≤ 15 min, offered only when tier 1 is empty and via push + SSE; > 15 min without ping/heartbeat → auto-offline (excluded). Boundaries tested at 2:59/3:00/3:01 and 14:59/15:00 (values are doc 13 `app_config` keys). Also active jobs, COD rule (R6: cash-in-hand + payable ≤ ₹2,000), previously declined/expired/revoked riders excluded for this delivery; deterministic tie-break by rider ID. |
 | Serviceability decision (pure part) | Given distances and zone membership flags → decision + reason codes (shown to user in en/te). |
 | Operating hours | Local wall-clock + day-of-week in `Asia/Kolkata`: open/close boundaries, overnight hours (18:00–02:00), holiday override, "closing in 15 min" cutoff. |
 | Phone/OTP | E.164 normalisation (`9876543210`, `+91 98765 43210`, `09876543210`), reject numbers not starting 6–9; OTP hashing, expiry, attempt counter. |
@@ -303,12 +319,13 @@ Generators produce random carts (1–30 lines, unit price 0–₹5,000, qty 1–
 | INV-L1 | **Every journal balances** (Σ Dr = Σ Cr) for any sequence of events | ledger |
 | INV-L2 | **Σ customer bill = Σ ledger credits** for that order's revenue/payable/tax accounts at order-paid time (before commission/rider entries) | ledger + pricing |
 | INV-L3 | Σ of all account balances across the whole ledger = 0 after any sequence (trial balance) | ledger |
-| INV-L4 | **Refund never exceeds captured amount**: for any sequence of partial/full refunds and duplicate refund webhooks, Σ refunded ≤ Σ captured, and COD orders never produce a PA refund journal | payments + ledger |
+| INV-L4 | **Refund never exceeds captured amount**: for any sequence of partial/full refunds and duplicate refund webhooks, Σ refunded ≤ Σ captured; COD orders never produce a PA refund journal (COD money refunds are `MANUAL` with UTR, R29) | payments + ledger |
 | INV-L5 | Duplicate webhook/event delivery is idempotent: applying event list `E` and `E` with random duplicates/reordering yields identical ledger and order state | payments |
 | INV-L6 | Payout for a party over a period = Σ that party's payable movements in the period (no order counted twice across weeks) | payouts |
-| INV-L7 | Rider COD cash-in-hand = Σ COD collected − Σ deposits ≥ 0; rider is blocked iff cash-in-hand ≥ limit | ledger + dispatch |
+| INV-L7 | Rider COD cash-in-hand = Σ COD collected − Σ deposits ≥ 0; a COD order is offered to a rider iff cash-in-hand + order payable ≤ limit (R6) | ledger + dispatch |
+| INV-P6 | **Slab coverage (R18, RV-084):** for any serviceable point (straight-line ≤ max radius) and any valid config, the road-adjusted distance falls in **exactly one** slab; config validation rejects slab tables that do not cover `max_radius × road_factor` | pricing |
 | INV-S1 | **Model-based state machine** (`rapid.StateMachine`): random commands (place, pay-webhook, accept, reject, ready, offer, offer-expire, rider-accept, pickup, deliver, cancel by each actor) applied to the real aggregate and to a simplified model; after each step the canonical status pair is in the allowed set, terminal states are absorbing, and at most one rider is `ASSIGNED` per delivery | state |
-| INV-D1 | Dispatch ranking never selects an offline, stale-location, already-busy, COD-blocked or previously-expired rider | dispatch |
+| INV-D1 | Dispatch ranking never selects an offline (> 15 min), already-busy, COD-ineligible or previously expired/declined/revoked rider, and never offers tier 2 while a tier-1 rider is eligible (R34) | dispatch |
 
 Run with default 100 checks on PR; nightly with `-rapid.checks=10000`; failing seeds are committed as regression cases (rapid prints a reproducible seed; we copy the minimised failure into a table test).
 
@@ -322,7 +339,7 @@ Webhook payload parser + signature verifier; phone normaliser; address/PIN valid
 
 ### 6.1 Database provisioning and isolation
 
-**Decision:** `testcontainers-go` with the Postgres module, using a `postgis/postgis` image whose **PostgreSQL major (18 per doc 08) and PostGIS minor match the managed production service** (managed providers often lag upstream PostGIS — the test image follows production, not the newest tag; `[OPEN: 22]` pins both). A nightly job also runs the integration suite against a **staging managed-Postgres database** (dedicated test schema/db) to catch managed-service differences: extensions allow-list, `pg_notify`/`LISTEN` through the provider's proxy/pooler, collation, `statement_timeout` defaults. The harness honours `ROVO_TEST_DATABASE_URL`: if set (e.g., a CI service container or a developer's local DB), it is used instead of starting a container.
+**Decision:** `testcontainers-go` with the Postgres module, using a `postgis/postgis` image whose **PostgreSQL major (17 per R22) and PostGIS minor (3.5) match the managed production service** (managed providers often lag upstream PostGIS — the test image follows production, not the newest tag; `[OPEN: 22]` pins both). A nightly job also runs the integration suite against a **staging managed-Postgres database** (dedicated test schema/db) to catch managed-service differences: extensions allow-list, `pg_notify`/`LISTEN` through the provider's proxy/pooler, collation, `statement_timeout` defaults. The harness honours `ROVO_TEST_DATABASE_URL`: if set (e.g., a CI service container or a developer's local DB), it is used instead of starting a container.
 
 ```mermaid
 sequenceDiagram

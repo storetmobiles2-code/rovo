@@ -369,7 +369,8 @@ River OSS periodic jobs are not durable: a leader restart at the tick can skip a
 
 | Job | Trigger | Period / completion marker | Alert |
 |---|---|---|---|
-| `settlement.weekly_statements` | hourly | ISO week (Mon–Sun, city tz) / `payouts` DRAFT batch for `period_end` | **"No settlement run for last week by Mon 09:00 IST"** → ops + finance page |
+| `settlement.rider_weekly`, `settlement.restaurant_weekly` | hourly | previous Mon–Sun (city tz) / `payouts` DRAFT batch for that `period_end`; run days per `payouts.rider.schedule` (Mon) and `payouts.restaurant.schedule` (Tue), owned by 10 §15.3 (R53) | **missed settlement**: no batch by `payouts.missed_run_alert_local_time` on the run day → ops + finance page |
+| `cod.cash_ageing` | hourly | none (idempotent) | flags riders past `cod.cash_ageing_alert_h` / blocks COD offers past `cod.cash_ageing_block_h` (10 §15.3, R53) |
 | `payments.recon_daily` | hourly | D-1 / `pa_settlements` row for that date | no recon for D-1 by 12:00 IST |
 | `retention.sweep` | hourly | day / per-table watermark (10 §14) | sweep lag > 2 days |
 | `ledger.balance_check`, `orders.stuck_report` | hourly | day | missing for > 26 h |

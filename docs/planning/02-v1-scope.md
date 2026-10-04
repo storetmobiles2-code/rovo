@@ -12,6 +12,7 @@
 - New §2.3 lists the accepted scope cuts **C1–C20** (deferred to V1.1+); §1.2 drops RES-ANLY-002 (C13) and ADM-COUP-004 (C16) and adds the accepted missing items (M3, M5–M9) and P1 rulings (R33 share pages, R37 passkeys, R43 voice escalation).
 - RES-MENU-009 ops-side bulk CSV import is P0 for Gate B (M7); ops-assisted phone ordering ADM-ORD-011 is a committed P1 (M8).
 - Launch gates per **R47** (Gate A ≥ 10 restaurants, ≥ 10 riders, 1 zone; Gate B ≥ 40 restaurants, riders from demand model ≈ 1 online rider per 3 peak-hour orders); pilot minimum guarantee and insurance decision added; Multi-AZ trigger per **R32**; load test per doc 20 (**R45**); budget per doc 25 §15 (**R46**); support phone line (M9), counter devices (M3), CERT-In log archive (M1), legal critical path (M16), ≥ 2 named money approvers (R31) added as gate items.
+- Gate A sizes match **R51**; availability per **R49** (99.5% pilot / 99.9% from Gate B, via 01 NFR-AVAIL-001).
 - §4: dev/preview is local Docker only (**R24**, register row 46); volumes per R45.
 - Capability map wording aligned with R1, R2, R12, R13, R14, R34, R40.
 

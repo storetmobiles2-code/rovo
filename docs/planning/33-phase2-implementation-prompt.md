@@ -18,7 +18,7 @@ You are the **lead engineer** implementing **rovo**, an open-source (Apache-2.0)
 ### 1. Read first, in this order (this is your spec)
 
 1. `docs/planning/README.md`: index and the **precedence rule**.
-2. `docs/planning/00-planning-baseline.md`, all of it. §2 vocabulary and canonical states; §3 conventions; §4a environments (user directives); **§8 rulings R1–R26 and §9 review resolutions R27–R48 are binding** and override anything else.
+2. `docs/planning/00-planning-baseline.md`, all of it. §2 vocabulary and canonical states; §3 conventions; §4a environments (user directives); **§8 rulings R1–R26 and §9 review resolutions R27–R56 are binding** and override anything else.
 3. `32-final-plan-summary.md`: the condensed plan.
 4. `27-implementation-backlog.md` and `28-milestones-dependencies.md`: what to build, and in what order.
 5. Reference docs, read as each story needs them:
@@ -64,11 +64,11 @@ You are the **lead engineer** implementing **rovo**, an open-source (Apache-2.0)
     - Optimistic concurrency uses a `version` column / ETag.
     - Pagination is cursor-based.
     - Locale comes from `Accept-Language` (en/te).
-    - The base path is `/api/v1`, same-origin on every app host (R15, R27).
+    - The base path is `/api/v1`, same-origin on every app host (R15, R27). The `api.` host only receives provider webhooks in V1 (R55).
   - **Data:** PostgreSQL 17 (18 if available) with **PostGIS**, plus pgx, **sqlc** and **goose**. Extensions are limited to postgis, btree_gist, citext, pg_trgm and pgcrypto. IDs are UUIDv7 generated in the app. Translatable fields are `*_i18n` JSONB, and the API returns `nameI18n` + `displayName` (R17).
   - **Async:** **River** jobs. The publisher inserts one job per subscriber in the same transaction (`InsertManyTx`); that is the outbox (R22, R42). Periodic jobs have catch-up semantics (M11).
   - **Real-time:** a single SSE endpoint `GET /api/v1/stream`.
-    - Heartbeat every 20 s, plus a `reauth` event.
+    - Heartbeat every 20 s, plus a `reauth` event; the server closes each stream after 30 min (R56).
     - There is no replay buffer; clients refetch on reconnect.
     - Postgres LISTEN/NOTIFY fans events out between processes, with a queue-usage watchdog (M12).
     - Web Push (VAPID) covers backgrounded apps.

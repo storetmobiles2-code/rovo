@@ -12,7 +12,7 @@
 - Restaurant non-response per **R1** (E6, §9.2, §10): "taking longer" at 90 s, `CANCELLED` by `SYSTEM` with `RESTAURANT_UNRESPONSIVE` at 180 s; grace cancel per **R2**; auto-preparing and implicit-ready per **R3/R4** (§9.3).
 - No server cart / guest-cart merge (**R12**, §6.2); quote and order endpoints under `/api/v1` with `quoteId` (§8.3, §17).
 - Address: landmark + pin required, building/street optional, **no "Skip map" pinless path** (**R13**, §8.1, C-12).
-- SSE: single stream, 20 s heartbeat, no `Last-Event-ID` replay — refetch snapshot on reconnect (**R10**, §1.5, E11, §17).
+- SSE: single stream, 20 s heartbeat (**R52**), no `Last-Event-ID` replay — refetch snapshot on reconnect (**R10**, §1.5, E11, §17).
 - Bill example reworked to **R8** (GST on food as its own line, GST-inclusive fees, whole-rupee To pay with round-off line); COD caps per **R6**; COD compensation is the customer's choice of manual UPI refund or coupon (**R29**, §13.2, §17); 2 customer-fault COD failures → COD disabled (**R5**).
 - Delivery OTP for prepaid ≥ ₹300 (**R39**); customer↔rider call window from `PICKED_UP` (01 BR-CONT-001, RV-035); "New" rating threshold per 01; Telugu names via `*_i18n` (**R17**); romanisation search deferred (C17); review moderation queue cut (C14); static-QR at door cut (C19); WhatsApp deferred (C2).
 - Added: staffed support phone line (M9) and ops-assisted phone ordering (M8, §13.5); combined consent + 18+ screen and at-risk-only bot challenge (RV-057/034); reopen pending payment on app start (RV-060). Four apps per **R14**.
@@ -516,7 +516,7 @@ flowchart TD
     D3 --> M3[Select items + photo required]
     M1 --> R{Auto-resolve rules met?}
     M2 --> R
-    R -- Yes --> R1[Instant refund of item value: prepaid to source; COD: customer picks UPI refund or coupon]
+    R -- Yes --> R1[Instant refund of item value - prepaid to source, COD customer picks UPI refund or coupon]
     R -- No --> T
     M3 --> T
     D4 --> T

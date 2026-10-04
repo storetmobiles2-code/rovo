@@ -850,7 +850,7 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 | SEC-004 | OTP compare is constant-time | U, M |
 | SEC-005 | Non-`+91`/non-mobile numbers rejected before provider call | U, I |
 | SEC-006 | Per-phone/IP/subnet/device send limits and cooldowns enforced, **shared across replicas and persistent across restarts** | I (multi-replica + restart test) |
-| SEC-007 | Every OTP request needs a valid bot-challenge token verified server-side (`success`, `hostname`, `action`), single use | I |
+| SEC-007 | When a risk signal fires (RV-034), the OTP request needs a valid bot-challenge token verified server-side (`success`, `hostname`, `action`), single use; local/CI use the `fake` adapter, prod refuses it | I |
 | SEC-008 | SMS budget breaker alerts at 2× and enables strict mode at 4× | I, O |
 | SEC-009 | Send→verify conversion metric exported with alert rule | C, O |
 | SEC-010 | New-device SMS notice; payout-destination change = step-up + 48 h + notices + finance approval | I, E |
@@ -864,11 +864,11 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 | SEC-018 | Admin lockout 10/h; progressive delay; argon2 concurrency ≤ 4 per replica | I, load |
 | SEC-019 | No admin self-signup; admin creation by `ADMIN_SUPER` + maker-checker; setup links 24 h single use | I |
 | SEC-020 | Bootstrap CLI refuses if an `ADMIN_SUPER` exists; never prints the link in prod | I |
-| SEC-021 | Session idle/absolute limits per audience (12 §3.4) | I |
+| SEC-021 | Session idle/absolute limits per audience (12 §3.4), incl. device-bound order-receiver sessions 30 d sliding / 90 d absolute and rider 30 d sliding (R44); device revocation closes streams | I |
 | SEC-022 | Step-up (≤ 5 min) enforced for listed actions | I |
 | SEC-023 | Phone change: OTP to old + new, revoke sessions, notify old | I |
 | SEC-024 | Admins inactive 60 days auto-disabled; monthly access review report | I, O |
-| SEC-025 | WebAuthn mandatory for `ADMIN_SUPER`/`ADMIN_FINANCE` (**V1.1**) | E |
+| SEC-025 | Passkeys (WebAuthn) mandatory for `ADMIN_SUPER`/`ADMIN_FINANCE` (**P1**, R37) | E |
 
 ### 9.2 Sessions, tokens, CSRF, CORS, SSE
 
@@ -883,10 +883,10 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 | SEC-032 | Unsafe methods need `X-Rovo-Client` + JSON (except upload-init) | I |
 | SEC-033 | Cross-origin unsafe requests (incl. sibling subdomains) rejected | I, E |
 | SEC-034 | No `Access-Control-Allow-*` on app hosts; `/api` preflights 403 | I |
-| SEC-035 | Host-only cookies; audience mismatch rejected; `api.` ignores cookies, app hosts ignore `Authorization` | I |
+| SEC-035 | Host-only cookies on the four app hosts; audience mismatch rejected; `api.` ignores cookies, app hosts ignore `Authorization` | I |
 | SEC-036 | No credentials in URLs; Referrer-Policy set | C, I |
 | SEC-037 | New session id at login | I |
-| SEC-038 | SSE topic authorisation; foreign topics 404; `reauth` at expiry; heartbeat ≤ 15 s | I |
+| SEC-038 | SSE topic authorisation; foreign topics 404; `reauth` on session revocation/expiry; 30-min stream cap; heartbeat **20 s** (R10, R52); no replay | I |
 | SEC-039 | Context switch only within principal's restaurant scopes | I |
 | SEC-040 | Logout revokes family and clears cookies; admin `Clear-Site-Data` | I |
 
@@ -903,8 +903,8 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 | SEC-047 | `RIDER` ⟂ `RESTAURANT_*`; no self-dispatch; no self-review | U, I |
 | SEC-048 | Rider PII window; locality-only offers; restaurant never sees customer phone/address | I, E |
 | SEC-049 | Admin PII masked; reveal = step-up + reason + audit | I, E |
-| SEC-050 | PII bulk export needs maker-checker | I |
-| SEC-051 | Maker-checker rules (maker ≠ checker, scope, hash, expiry) | U, I |
+| SEC-050 | **Withdrawn v1.1** (R31/C7: PII export is no longer maker-checker; covered by SEC-049 step-up + audit + next-day review) | — |
+| SEC-051 | Maker-checker rules (maker ≠ checker, scope, hash, expiry) for exactly the five R31 families; actions outside them execute without a checker | U, I |
 | SEC-052 | Bank/UPI change and payout release are maker-checker | I |
 | SEC-053 | Refund thresholds and per-agent daily caps | I |
 | SEC-054 | PII-reveal/KYC-view rate alerts | O |
@@ -915,7 +915,7 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 | ID | Requirement | Verify |
 |---|---|---|
 | SEC-061 | Lint bans `dangerouslySetInnerHTML`/`innerHTML` with UGC | C |
-| SEC-062 | XSS corpus in every UGC field renders inert in all three apps | E |
+| SEC-062 | XSS corpus in every UGC field renders inert in all four apps | E |
 | SEC-063 | CSP per §6.2 on all HTML (via CDN response-headers policy); no `unsafe-eval`; Trusted Types on admin | I, E |
 | SEC-064 | UGC length/charset rules server-side | U, I |
 | SEC-065 | CSP reports collected; spike alert | O |
@@ -945,10 +945,10 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 | SEC-087 | Auto-approval only within configured rules | I |
 | SEC-088 | Refunds to source/platform credit only; total ≤ captured | I |
 | SEC-089 | Payouts to verified destinations only; cooling-off respected | I |
-| SEC-090 | Cash-limit blocks COD offers | I |
-| SEC-091 | Cash ledger append-only; adjustments maker-checker; ageing alerts | I, O |
+| SEC-090 | COD offered only if cash-in-hand + order payable ≤ limit (R6) | I |
+| SEC-091 | Cash ledger append-only; adjustments above threshold maker-checker (R31); ageing alerts per `app_config` (R53) | I, O |
 | SEC-092 | COD max value; COD block after 2 undeliverable | I |
-| SEC-093 | Delivery PIN (5 tries) / geofence rule for `DELIVERED` | I |
+| SEC-093 | Delivery code (5 tries) for prepaid ≥ ₹300, off for COD (R39) / geofence rule for `DELIVERED` | I |
 | SEC-094 | Location plausibility and geofence checks | U, I |
 | SEC-095 | `ITEM_UNAVAILABLE` toggles items; auto-pause threshold | I |
 | SEC-096 | Partner roles only after KYC approval with step-up; probation | I |
@@ -962,15 +962,15 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 | SEC-101 | No API fetches user-supplied URLs; outbound host allowlist in HTTP client | C, I |
 | SEC-102 | Presigned PUT enforces type, size ≤ 5 MB, TTL 5 min | I |
 | SEC-103 | Images re-encoded; no EXIF/GPS; pixel-bomb rejected | I |
-| SEC-104 | Dangerous PDFs rejected; EICAR rejected by scanner path | I |
-| SEC-105 | Media served from a separate host with `nosniff` | I |
+| SEC-104 | **Withdrawn v1.1** (R38/C5: no PDF uploads and no ClamAV; see SEC-190) | — |
+| SEC-105 | Media served from the `/media/*` path with `nosniff` | I |
 | SEC-106 | KYC/backup/log buckets not publicly readable; anonymous GET fails | I, O |
-| SEC-107 | KYC viewable only via API stream (or GET ≤ 60 s) with step-up + audit | I |
+| SEC-107 | KYC viewable only via audited API stream or signed GET ≤ 60 s, with step-up (R38) | I |
 | SEC-108 | WAF rules W1–W8 defined in IaC; staging run in Count mode before Block; rule-set drift check | C, O |
 | SEC-109 | App rate limits, body/time limits, DB `statement_timeout` configured | I |
 | SEC-110 | Public endpoints expose no PII; result caps | I |
 | SEC-111 | SSE caps enforced with 429; autoscaling on connections | I, load |
-| SEC-112 | API LB reachable only from the CDN (prefix list + origin-verify header); direct LB request fails | O (external probe) |
+| SEC-112 | API LB reachable only from CloudFront (prefix list + origin-verify header); direct LB request fails | O (external probe) |
 | SEC-113 | Client IP derived only from trusted proxy hops | U, I |
 
 ### 9.7 Infrastructure, data protection, crypto
@@ -983,10 +983,10 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 | SEC-117 | DB/cache have no public endpoint; isolated subnets; TLS enforced (non-TLS connection refused) | O, I |
 | SEC-118 | DB roles per §7.1; `rovo_app` cannot modify audit/ledger rows or run DDL | I |
 | SEC-119 | `rovo_report` only reads masked views | I |
-| SEC-120 | C1 fields KMS-envelope-encrypted with AAD; DB dump shows ciphertext; storage encrypted with CMKs | I, M |
+| SEC-120 | C1 fields (bank numbers, VPAs, PAN/DL, TOTP secrets) field-level KMS-envelope-encrypted with AAD; DB dump shows ciphertext; storage (incl. KYC bucket SSE-KMS) encrypted with CMKs | I, M |
 | SEC-121 | Secrets only from secrets manager by reference; none in images/repo/IaC state/CI | C, M |
 | SEC-122 | Automated backups + PITR enabled; cross-account India-region copies in locked vault; prod operators cannot delete them | O, M |
-| SEC-123 | Monthly restore drill incl. C1 decryption | O |
+| SEC-123 | Weekly automated restore-verify; monthly timed manual drill incl. C1 decryption and erasure replay; quarterly cross-region after Gate B (R50) | O |
 | SEC-124 | KMS deletion waiting period 30 days; deletion/disable alarmed and guardrail-denied | O, M |
 | SEC-125 | Prod mode refuses dev keys, empty secrets, debug | I |
 
@@ -995,14 +995,14 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 | ID | Requirement | Verify |
 |---|---|---|
 | SEC-126 | Auth events and all admin actions (incl. PII reveals, KYC views, exports) audited | I |
-| SEC-127 | `audit_events` append-only + hash chain; verifier detects tampering | I |
-| SEC-128 | Daily anchor written to WORM bucket in security account | O |
+| SEC-127 | **Withdrawn v1.1** (C6: no hash chain; append-only grants covered by SEC-118) | — |
+| SEC-128 | **Withdrawn v1.1** (C6: no WORM anchor in V1) | — |
 | SEC-129 | No secrets/PII patterns in logs (fixture test) | I, C |
-| SEC-130 | Telemetry/error-tracking scrubbing configured | I, M |
+| SEC-130 | Telemetry and Faro scrubbing configured (no IPs, IDs stripped from URL paths) | I, M |
 | SEC-131 | CDN/LB/access logs omit query strings on sensitive routes | I |
 | SEC-132 | Only redacted telemetry leaves India; authoritative logs in India region | M |
 | SEC-133 | Time source documented and drift monitored | O |
-| SEC-134 | Security/access/cloud-audit logs ≥ 180 days in India; audit/auth ≥ 1 year | O, M |
+| SEC-134 | **CERT-In archive (R36, M1):** app, ALB/CloudFront/WAF, VPC flow (ALL), RDS and CloudTrail logs retained ≥ 180 days in S3 `ap-south-1`; security-event subset ≥ 1 year under Object Lock; retrieval runbook tested before Gate A | O, M |
 | SEC-135 | Alerts: refresh reuse, OTP conversion drop, admin TOTP failures, authz-denial bursts, webhook signature failures, payment anomalies | C, O |
 
 ### 9.9 Supply chain, CI, open source
@@ -1060,11 +1060,11 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 | ID | Requirement | Verify |
 |---|---|---|
 | SEC-171 | `/api/*` CDN behaviour has caching disabled; responses with auth cookies are never cache hits (test via `X-Cache`/`Age` headers) | I |
-| SEC-172 | Separate accounts/projects: prod, staging, security, backup, sandbox; root/org-owner credentials hardware-MFA, unused, alarmed on use | M, O |
+| SEC-172 | Four AWS accounts (C18): mgmt, prod, nonprod, audit/backup; root/org-owner credentials hardware-MFA, unused, alarmed on use | M, O |
 | SEC-173 | No IAM users / long-lived cloud access keys exist (guardrail + periodic scan) | C, O |
 | SEC-174 | Guardrails enforced: India-region lock (documented global exceptions), no public buckets/snapshots/DBs, encryption required, audit logs undisableable; IaC policy scans block violations | C, O |
 | SEC-175 | One workload identity per service with least-privilege policies; resource policies on secrets/keys/buckets name allowed principals; access-analyzer findings zero-high | C, O |
-| SEC-176 | Egress restricted (app host allowlist minimum; network egress filtering `[OPEN]`); metadata endpoints protected (IMDSv2 hop-limit 1 where VMs exist) | I, O |
+| SEC-176 | Egress restricted (SG egress + app host allow-list minimum, SEC-187; network egress filtering `[OPEN]`); metadata endpoints protected (IMDSv2 hop-limit 1 where VMs exist) | I, O |
 | SEC-177 | GitHub OIDC trust policies pin `aud` and exact `sub` per environment; a workflow from another branch/repo/fork fails to assume prod roles (negative test) | O |
 | SEC-178 | Operators use SSO + FIDO2; prod default read-only; elevated access time-bound and approved; break-glass alarmed | M, O |
 | SEC-179 | Terraform state encrypted, versioned, access-restricted; `apply` only from protected environment; PR `plan` read-only | C, M |
@@ -1073,7 +1073,19 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 | SEC-182 | Org-level cloud audit logging (incl. data-access for KMS, secrets, KYC bucket) to WORM storage in security account; integrity validation on; config-change alarms | O, M |
 | SEC-183 | Residency check: inventory shows all data stores in India regions; logging sinks regional | O |
 | SEC-184 | Threat detection (GuardDuty/SCC) enabled in all accounts; high findings page on-call | O |
-| SEC-185 | No production data or secrets in local/dev/preview/free-tier environments; staging uses synthetic or masked data only | M, O |
+| SEC-185 | No production data or secrets in local/dev/demo environments (local Docker only, R24); staging uses synthetic or masked data only | M, O |
+
+### 9.13 Added in v1.1
+
+| ID | Requirement | Verify |
+|---|---|---|
+| SEC-186 | The API derives the audience only from `Host` and only when the CloudFront origin-verify secret is valid; requests without the secret get 403; a client `X-Rovo-Audience` header (with or without the secret) has no effect (RV-025) | I (authz test), O |
+| SEC-187 | Closed-pilot no-NAT controls (R28): task SG ingress only from the ALB SG (external probe of task public IPs fails); SG egress 443 + DB 5432 only; app-level outbound host allow-list; VPC endpoints for S3/ECR/Secrets Manager/KMS/Logs; GuardDuty Runtime Monitoring on. NAT Gateway + private subnets in place **before Gate B** (IaC `public-launch` profile) | C (IaC policy), O |
+| SEC-188 | *(reserved)* | — |
+| SEC-189 | Break-glass self-approval (R31): mandatory reason, immediate alert to all supers + email, `break_glass=true` flag, second-person post-review within 24 h; an unreviewed break-glass blocks that admin's next break-glass. Go-live: ≥ 2 named people can approve money actions | I, O |
+| SEC-190 | KYC uploads accept only JPEG/PNG/WebP (content-type + magic bytes); PDFs and other types rejected; every image decoded with a pixel cap and re-encoded without metadata (R38) | I |
+| SEC-191 | *(reserved)* | — |
+| SEC-192 | Erasure map (M15) covers every table and bucket holding personal data (CI check against the schema snapshot); erasure tests assert delete/anonymise/retain per map; restore drills replay `erasure_requests` | C, I, O |
 
 ---
 
@@ -1083,7 +1095,7 @@ Format: **ID — requirement — verification** (U unit, I integration/API, E e2
 
 | Role | Who | Duties |
 |---|---|---|
-| Incident Commander | On-call engineer → Security lead | Severity, timeline, decisions |
+| Incident Commander | On-call engineer → a **named founder** who is also the CERT-In PoC (named in doc 29; there is no dedicated security lead, RV-036) | Severity, timeline, decisions |
 | Tech lead | Backend/DevOps engineer | Containment, eradication, recovery |
 | Comms & Legal | Operator leadership + counsel | CERT-In, DPB, PA, cloud provider, users, partners |
 | Scribe | Anyone available | Timestamped action log (evidence) |
@@ -1146,7 +1158,8 @@ CERT-In (`incident@cert-in.org.in`, 1800-11-4949; PoC registered), Data Protecti
 | 5 | T-50 Insider PII browsing | M | Legitimate access; detective controls |
 | 6 | T-69 Cloud operator compromise | M | Small team; mitigated by SSO/FIDO2, no standing write, guardrails |
 | 7 | T-04 SIM-swap ATO on partners | M | No telco signal V1 |
-| 8 | T-08 Admin phishing (TOTP) | M → L (V1.1) | WebAuthn planned |
+| 8 | T-08 Admin phishing (TOTP) | M → L (P1) | Passkeys P1 (R37) |
+| 11 | T-98 Public-subnet tasks in the closed pilot | L–M → L at Gate B | No NAT until Gate B (R28) |
 | 9 | T-81 Malicious dependency | M | Ecosystem risk |
 | 10 | T-02 SMS pumping | L–M | Cost exposure persists |
 
@@ -1194,8 +1207,8 @@ CERT-In (`incident@cert-in.org.in`, 1800-11-4949; PoC registered), Data Protecti
 
 ## 13. Challenges to baseline
 
-1. **P7 refinement:** keep SPAs on object storage + CDN, but add a second CDN origin for `/api/*` per app host (same-origin API). This gives per-app cookie isolation, removes CORS and simplifies CSRF. A shared `api.` host for browsers is the fallback (12 §4.1).
-2. **P15 / residency:** India-region log store is authoritative (CERT-In 180 days; DPDP 1 year). On GCP, redirect `_Default` to a regional bucket. Error-tracking SaaS is a cross-border processor: redact, or use cloud-native/self-hosted error reporting `[OPEN]`.
+1. **P7 refinement (ratified by R14/R27):** keep SPAs on object storage + CDN, but add a second CDN origin for `/api/*` per app host (same-origin API). This gives per-app cookie isolation, removes CORS and simplifies CSRF. The browser `api.` fallback is withdrawn.
+2. **P15 / residency:** India-region log store is authoritative (CERT-In 180 days; DPDP 1 year). On GCP, redirect `_Default` to a regional bucket. Resolved by R36: Grafana Cloud + Faro, no Sentry, CERT-In archive in S3 ap-south-1.
 3. **P6:** auth/OTP limits must be shared and durable (Postgres now, managed Redis later), never per-replica memory.
 4. **P9:** hybrid sessions (server-side checks for partner/admin; 5-min admin access TTL). Signing keys in secrets manager under CMK, with an optional KMS-held ES256 path.
 5. **P16:** OIDC trust must pin exact `sub` per environment. The deploy role must not read data or secrets. Terraform `apply` only from a protected environment.

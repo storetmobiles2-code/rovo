@@ -225,3 +225,5 @@ Decisions on the Reviewer's contested points (31 §12). Where the Lead deviates 
 | R52 | SSE heartbeat is **20 s** everywhere (supersedes 15 s / 25 s in 12/19/04). |
 | R53 | Rider payout day, cash-ageing thresholds and similar operational values are `app_config` keys owned by doc 10 (defaults: rider payout weekly on Monday for the previous Mon–Sun; restaurant settlement weekly on Tuesday; COD cash ageing alert at 24 h, block new COD offers at 48 h). Other docs reference the keys. |
 | R54 | M-02 (restaurant acceptance metric) is redefined: share of `PLACED` orders accepted by the restaurant within 180 s; system cancellations with `RESTAURANT_UNRESPONSIVE` count as misses. |
+| R55 | The `api.` host is used in V1 **only for inbound provider webhooks** (payment aggregator, SMS delivery receipts): server-to-server, no cookies, HMAC-verified, optional provider IP allow-list at the WAF. Browser traffic never uses it (R27). Native bearer clients may use it later. |
+| R56 | SSE stream lifetime: the server closes each stream after **30 min** (clients reconnect transparently and refetch); this applies to docs 08, 11, 12, 22. |

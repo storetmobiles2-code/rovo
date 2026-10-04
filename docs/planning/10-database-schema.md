@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| **Purpose** | Authoritative logical and physical data model for rovo V1. It covers tables, columns, types, constraints, indexes, module ownership, PII classification, retention, partitioning, seed data, migration rules and multi-city readiness. |
+| **Purpose** | Authoritative logical and physical data model for rovo V1. It covers tables, columns, types, constraints, indexes, module ownership, PII classification, retention and erasure map, partitioning triggers, seed data and `app_config` defaults, migration rules and multi-city readiness. |
 | **Owner** | Backend Architect |
 | **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
-| **Depends on** | 00 planning baseline (vocabulary, money, IDs, §4a managed cloud); 08 system architecture (module map, boundary rules, outbox via River `InsertTx`, SSE via `NOTIFY`); 12 auth/RBAC (identity model, sessions, maker-checker, audit, KYC storage); 13 order state machine (status values, history rows); 14 payment architecture (PA flows, journal templates, invoices: the detail lives there); 16 delivery zone architecture (geo semantics); 19 threat model (encryption, retention) |
+| **Depends on** | 00 planning baseline (vocabulary, money, IDs, §4a managed cloud); 08 system architecture (module map, boundary rules, events as River jobs via `InsertManyTx` (R42), SSE via `NOTIFY`); 12 auth/RBAC (identity model, sessions, maker-checker, audit, KYC storage); 13 order state machine (status values, history rows); 14 payment architecture (PA flows, journal templates, invoices: the detail lives there); 16 delivery zone architecture (geo semantics); 19 threat model (encryption, retention) |
 | **Consumed by** | 11 API spec, 13, 14, 16, 20 testing, 22/23 deployment/backup, 26 repo structure, 27 backlog |
 
 **Changes in v1.1**
@@ -677,7 +677,7 @@ CREATE TABLE otp_challenges (
   id                    uuid PRIMARY KEY,
   phone_e164            text NOT NULL,
   purpose               text NOT NULL CHECK (purpose IN ('LOGIN','PHONE_CHANGE_OLD','PHONE_CHANGE_NEW','STEP_UP','PARTNER_AGREEMENT')),
-  audience              text NOT NULL CHECK (audience IN ('customer','partner')),
+  audience              text NOT NULL CHECK (audience IN ('customer','restaurant','rider')),   -- R14 hosts
   channel               text NOT NULL CHECK (channel IN ('SMS')),   -- WhatsApp/voice OTP are V1.1 (C2): widen the CHECK then
   code_hmac             bytea NOT NULL,           -- HMAC-SHA-256(pepper, id || code) (12 AUTH-D07)
   attempts              smallint NOT NULL DEFAULT 0,
@@ -2633,11 +2633,17 @@ Legend:
 | Precise home/work location | `customer_addresses.location`, `orders.drop_location`, snapshot | **H** (reveals residence) | AC + redaction after 180 d (§13) | Delivery. Never in analytics exports without coarsening to locality. |
 | Address text, landmark | `customer_addresses.*`, order snapshot | H | AC + redaction after 180 d | |
 | Rider live location & trail | `rider_availability.last_location`, `rider_location_pings` | **H** | AC, 30-day retention, access by `ADMIN_OPS` in scope only | Dispatch, dispute evidence |
-| Date of birth / age | not stored; `users.adult_declared_at` only | — | NS | Minimisation |
+| Date of birth / age | customers: not stored (`users.adult_declared_at` only). Riders: `riders.date_of_birth` | M | AC | Riders only, for gig-worker registration (M5) [LEGAL] |
+| Gender, residence state/district, portal worker id | `riders.gender`, `riders.residential_*`, `riders.ss_portal_id_enc` | M–H | AC; portal id ENC + `_last4` | Gig-worker registration export (M5) [LEGAL] |
+| Delivery handover code | `orders.delivery_code_enc` | L–M | ENC | R39; shown to the customer only |
+| Lead / waitlist contact | `leads.phone_e164`, `waitlist.phone_e164`, `waitlist.location` | M | AC | Sales follow-up / expansion; consent notice recorded |
+| Staff invite phone | `staff_invites.phone_hmac`, `_last4` | L | HASH | |
+| SOS location and note | `sos_events` | H | AC; ops in scope only | Rider safety |
+| Manual refund UPI VPA | `refunds.payee_vpa_enc` | H | ENC + masked | R29 COD compensation |
 | Aadhaar number | **never stored** | — | NS (only a masked Aadhaar image, encrypted) | 00 §3, 12 §6.1 |
 | PAN | `restaurants.pan_enc`, `*_kyc_documents.doc_number_enc` | H | ENC + `_last4` | TDS / KYC [LEGAL] |
 | Driving licence number | `riders.dl_number_enc` | H | ENC + `_last4` | KYC |
-| KYC document images/PDFs | `file_objects` (bucket `kyc`) | **H** | ENC (per-object DEK) + private bucket + audited view | 12 AUTH-D12 |
+| KYC document images | `file_objects` (bucket `kyc`) | **H** | SSE-KMS + private bucket + audited streaming view + ≤ 60 s signed URLs; images only (R38) | 12 AUTH-D12 |
 | Bank account number, UPI VPA | `payout_accounts.*_enc` | **H** | ENC + `_last4` / masked | Payouts; full reveal by Finance only, with step-up |
 | IFSC | `payout_accounts.ifsc` | L | AC | Public bank code |
 | FSSAI no., GSTIN | `restaurants` | L (public business identifiers) | AC | Displayed to customers [LEGAL] |
@@ -2652,7 +2658,7 @@ Legend:
 | Ratings, review text | `ratings`, `reviews` | L–M | AC; reviews moderated for embedded phone numbers/names | |
 | Support messages & attachments | `ticket_messages`, `file_objects` | M–H (free text) | AC; private bucket | |
 | Push endpoints | `push_subscriptions` | L | AC | |
-| Webhook payloads | `payment_events.payload` | M (masked VPA/contact from PA) | AC; 8-year retention under the money class | |
+| Webhook payloads | `payment_events.payload` (redacted), raw body in `webhooks-raw/` | M | AC; contact/email/VPA stripped at ingest; raw body 180 days (RV-030) | Disputes |
 
 **Encryption key handling:** KEKs live in the cloud KMS (AWS KMS / Cloud KMS / Key Vault). The app holds only wrapped DEKs. Column DEKs are per table and per key version. Rotation creates a new `pii_key_id` and re-wraps lazily, with a background re-encrypt job. Blind indexes (`*_hmac`) are not needed in V1, because no encrypted column is searched by value. Admins search by `_last4` plus another attribute.
 
@@ -2660,7 +2666,7 @@ Legend:
 
 ## 13. Data retention policy (per table)
 
-Proposed defaults, **all [LEGAL] pending counsel/CA review**. Basis: DPDP purpose limitation; GST record keeping (books retained for at least 72 months from the due date of the annual return, commonly operationalised as 8 years [LEGAL — verify]); Income-tax/Companies Act books (8 years) [LEGAL]; CERT-In logs (180 days rolling, in India); DPDP Rules log retention for breach investigation (≥ 1 year, per 12 §5.7). Enforcement is by River periodic job `retention.sweep` (daily) plus partition drops.
+Proposed defaults, **all [LEGAL] pending counsel/CA review**. Basis: DPDP purpose limitation; GST record keeping (books retained for at least 72 months from the due date of the annual return, commonly operationalised as 8 years [LEGAL — verify]); Income-tax/Companies Act books (8 years) [LEGAL]; CERT-In logs (180 days rolling, in India); DPDP Rules log retention for breach investigation (≥ 1 year, per 12 §5.7). Enforcement is by the catch-up job `retention.sweep` (hourly trigger, per-table watermark; 13 §5.2), which does batched `DELETE`s of 1–5k rows per transaction by an indexed timestamp. There are no partition drops (C8).
 
 | Table(s) | Retain | Then |
 |---|---|---|
@@ -2669,50 +2675,79 @@ Proposed defaults, **all [LEGAL] pending counsel/CA review**. Basis: DPDP purpos
 | `idempotency_keys` | 24 h (`expires_at`) | hard delete |
 | `quotes` | 24 h | hard delete |
 | `processed_events` | 30 days | hard delete |
-| `outbox_events` | 90 days hot | archive month to the `exports` bucket (gzip JSONL), then drop the partition |
-| `rider_location_pings` | 30 days | drop daily partition |
+| `rate_limit_buckets` | `expires_at` | hard delete |
+| `staff_invites` | 30 days after `expires_at`/acceptance | hard delete |
+| `rider_location_pings` | 30 days | batched delete (BRIN on `recorded_at`) |
+| `contact_tap_log` | 1 year [ASSUMPTION] (contact-policy disputes) | delete |
+| `sos_events` | 3 years [ASSUMPTION] (safety/insurance claims) [LEGAL] | delete |
+| `leads` | 1 year after last update if not converted | delete |
+| `waitlist` | until notified + 90 days, or unsubscribe | delete |
+| `erasure_requests` | 8 years (proof of compliance; no PII) [LEGAL] | delete |
+| `transfers`, `pa_settlements`, `pa_settlement_lines`, `recon_exceptions` | 8 years [LEGAL] | archive |
 | `rider_availability.last_location` | current only | overwritten; cleared when going offline > 24 h |
 | `customer_addresses` | until the user deletes it / account erasure | hard delete |
 | `orders.delivery_address_snapshot`, `orders.drop_location`, order contact phone | 180 days after `closed_at` (dispute window) | **redact**: keep locality, city, PIN and state (place of supply); null the house/landmark/contact; snap the point to the locality centroid |
 | `orders`, `order_items`, `order_charges`, `order_status_history` | 8 years [LEGAL] | delete or archive |
-| `payments`, `payment_attempts`, `payment_events`, `refunds` | 8 years [LEGAL] | delete or archive |
+| `payments`, `payment_attempts`, `payment_events`, `refunds` | 8 years [LEGAL]; `payment_events` raw body 180 days (object lifecycle) | delete or archive |
 | `ledger_*`, `payouts`, `payout_items`, `cod_deposits`, `invoices` | 8 years [LEGAL] | archive |
 | `deliveries`, `delivery_offers`, `delivery_status_history` | 3 years [ASSUMPTION] (rider earnings disputes) | delete; earnings live in the ledger |
-| `rider_shifts` | 3 years [ASSUMPTION] (labour-code claims) [LEGAL] | delete |
 | KYC documents (`*_kyc_documents` + objects) | partnership + 8 years for approved partners [LEGAL]; **90 days after decision** for rejected/abandoned applications (12 §6.2) | delete object + row |
 | `payout_accounts` | partnership + 8 years | delete |
 | `support_tickets`, `ticket_messages`, attachments | 3 years after closure [ASSUMPTION]; money-linked tickets 8 years | delete |
 | `ratings`, `reviews` | life of the restaurant listing; anonymised on user erasure | |
 | `notifications` | 90 days | delete |
 | `notification_deliveries` | 180 days (DLT/SMS dispute window) | delete |
-| `audit_logs` | `SECURITY_1Y` 1 year, `OPS_2Y` 2 years, `MONEY_8Y` 8 years | partition-level: keep partitions ≥ 1 y; money rows copied to a long-term archive table/bucket before the drop |
+| `audit_logs` | `SECURITY_1Y` 1 year, `OPS_2Y` 2 years, `MONEY_8Y` 8 years | batched delete per class (DB-D15) |
 | `user_consents` | life of account + 8 years (proof of consent) [LEGAL] | |
 | `report_exports` + files | 7 days | delete |
 | `users` (erasure request) | anonymise within 30 days [LEGAL]: null phone/email/name, `status='ANONYMIZED'` | rows referenced by financial records are kept (legal-obligation basis) |
 
 ---
 
-## 14. Partitioning plan
+### 13.1 Erasure map (DPDP, M15, RV-031) [LEGAL]
 
-All partitions are created by **River periodic job `platform.partitions_maintain`**. It runs daily, is leader-only, and is idempotent. It calls a `SECURITY DEFINER` function owned by `rovo_owner`, which creates partitions **N ahead** and detaches or drops expired ones. No `pg_partman` dependency, so this works on any managed service (DB-D01).
+Applied by `erasure.execute` for an `erasure_requests` row once no hold applies (open order, open payout, rider cash in hand, dispute, legal hold). Each applied row is appended to `erasure_requests.steps_completed`, so a restore can **replay** it (23 §9). **D** = delete, **A** = anonymise in place, **R** = retain (legal basis noted).
 
-| Table | Strategy | From | Key | Ahead / retention | Why now |
-|---|---|---|---|---|---|
-| `rider_location_pings` | RANGE daily | **day one** | `recorded_at` | 7 ahead / drop > 30 days | Highest row rate. Retention by `DROP` avoids huge `DELETE`s. |
-| `audit_logs` | RANGE monthly | **day one** | `occurred_at` | 3 ahead / per retention class | Append-only and grows forever. Converting later would need a rewrite of an immutable table. |
-| `outbox_events` | RANGE monthly | **day one** | `occurred_at` | 3 ahead / 90-day archive + drop | Same |
-| `order_status_history`, `delivery_status_history` | RANGE monthly (later) | when > 20 M rows or > 20 GB | `occurred_at` | | ~8 rows/order. At 2,000 orders/day that is ~6 M rows/year, so not needed in V1. |
-| `delivery_offers`, `notification_deliveries`, `payment_events`, `ledger_postings` | RANGE monthly (later) | same thresholds | `created_at`/`received_at` | | |
-| `orders` | **not partitioned** | | | | Point lookups by id. Partitioning would force `created_at` into every unique key (`code`, `quote_id`). |
+| Table / bucket | Action | Detail / basis |
+|---|---|---|
+| `users` | A | null phone/email/name, `status='ANONYMIZED'`, `anonymized_at`; row kept as an FK target |
+| `customer_profiles`, `customer_addresses`, `push_subscriptions`, `devices`, `sessions`, `refresh_tokens`, `user_roles` (member roles) | D | convenience/security data |
+| `user_consents` | R | proof of consent (DPDP) for life + 8 y; links to an anonymised user |
+| `otp_challenges`, `rate_limit_buckets`, `staff_invites` | D | (also TTL) |
+| `orders.delivery_address_snapshot`, `drop_location`, `customer_note`, `delivery_instructions`, `delivery_code_enc` | A | keep locality/city/PIN/state (place of supply); snap the point to the locality centroid |
+| `orders`, `order_items`, `order_charges`, `order_status_history` | R | tax/accounting records, 8 y [LEGAL]; the user is already anonymised |
+| `payments`, `payment_attempts`, `refunds` (`payee_vpa_enc` → null), `payment_events` (redacted) | R/A | 8 y money records; the manual-refund VPA is nulled once paid |
+| `coupons` (goodwill owned), `coupon_redemptions` | R | money records |
+| `ratings` | A | keep the score, drop the rater link |
+| `reviews` | D | free text may contain PII |
+| `support_tickets` | A | requester link nulled; money-linked tickets kept 8 y |
+| `ticket_messages` (requester-authored), ticket attachments | D | free text; attachment objects deleted (`tickets` bucket) |
+| `notifications`, `notification_deliveries` | D | |
+| `waitlist`, `leads` (where phone matches) | D | |
+| `audit_logs` | R | security/legal obligation; `changes` already redacts PII (12 §5.7) |
+| River job args (in-flight) | — | events carry ids only, never free-text PII (R42 envelope rule) |
+| **Riders:** `riders` | A | name/DOB/gender/residence/DL/portal id nulled; row kept for ledger links. **R** while the gig-worker registration obligation applies [LEGAL] |
+| `rider_kyc_documents` + `kyc` bucket objects | D / R | rejected: delete after 90 d; approved: partnership + 8 y [LEGAL] |
+| `payout_accounts` | R | 8 y money records (encrypted) |
+| `rider_location_pings`, `contact_tap_log`, `sos_events` | D / R | pings and taps deleted; SOS kept for its retention (safety claims) [LEGAL] |
+| **Restaurant owners/staff:** `restaurant_users`, `restaurant_devices` | D | business entity data in `restaurants` is not personal data, except the owner contact, which is anonymised |
+| Buckets `exports` (report files) | D | 7-day TTL already; regenerated reports exclude anonymised users |
+| Backups / PITR | R → expire | not edited; restore replays `erasure_requests` before serving traffic (23 §9) |
 
-Partitioned-table rules:
-- PK/unique constraints must include the partition key. Hence `(id, occurred_at)`.
-- **No FKs into partitioned tables.** Referrers keep a logical `uuid`.
-- A `DEFAULT` partition exists on each partitioned table to catch clock-skewed rows, and an alert fires if it is non-empty.
+## 14. Retention jobs and partitioning triggers (C8)
 
-Later conversion recipe (expand/contract): create the new partitioned table `x_p`, then dual-write via trigger, then backfill in batches, then swap names in a short lock, then drop the old table.
+**No table is partitioned in V1** (DB-D11). Every high-volume table has an index usable by `retention.sweep` (a BRIN or B-tree on its timestamp) and is deleted in batches by the catch-up job (13 §5.2). The job records a per-table watermark, so a missed run catches up.
 
----
+| Table | Expected V1 volume | Partition when | Strategy then |
+|---|---|---|---|
+| `rider_location_pings` | ~30–170k rows/day | > ~10 M rows, or the sweep can't keep up | RANGE daily on `recorded_at` |
+| `audit_logs` | low | > ~10 M rows | RANGE monthly on `occurred_at` |
+| `order_status_history`, `delivery_status_history`, `delivery_offers`, `notification_deliveries`, `payment_events`, `ledger_postings` | ~8 rows/order | > ~10 M rows or > 20 GB | RANGE monthly |
+| `orders` | — | **never at V1 scale** | Point lookups by id; partitioning would force `created_at` into every unique key (`code`, `quote_id`) |
+
+Rules if and when a table is partitioned: PK/unique constraints must include the partition key; no FKs into partitioned tables; keep a `DEFAULT` partition plus an alert when it is non-empty; create partitions from a catch-up job, never with a plain periodic tick (RV-004).
+
+Conversion recipe (expand/contract): create the new partitioned table `x_p`, then dual-write via trigger, then backfill in batches, then swap names in a short lock, then drop the old table.
 
 ## 15. Seed data plan — Mahabubnagar
 
@@ -2726,17 +2761,38 @@ Seeds are split by purpose. **Reference seeds** are idempotent `INSERT … ON CO
 | Zone | **One** zone `MBNR-CORE` from an ops-drawn polygon (16 §8). Until ops draws it, staging/dev use the **test octagon** (16 §10.1). It is tagged `[ASSUMPTION — fixture, not the real service area]` and never seeded to production. |
 | Localities | ~15–25 named areas with centroids and aliases, **every one tagged [ASSUMPTION – verify with local ops]** except the census-listed ones. Verified as part of the urban agglomeration (Wikipedia, accessed 2026-10-04): **Boyapalle** (census town), **Yenugonda** (census town). Candidate list to verify on the ground: New Town, Old Town, Padmavathi Colony, Christian Colony/Christianpally, Bandameedipally, Shashab Gutta, Rajendra Nagar, Bhagiratha Colony, Srinivasa Colony, Metugadda, Veerannapet, Ramaiah Bowli, Habeeb Nagar, Laxmi Nagar Colony, Teachers Colony, Pillalamarri Road area, Bus Stand area, Clock Tower area. PIN `509001` verified (Wikipedia). Other PINs (e.g. `509002`) [ASSUMPTION]. Centroids are captured by ops on the map, not guessed in code. |
 | Cuisines | BIRYANI, SOUTH_INDIAN, TIFFINS (idli/dosa), NORTH_INDIAN, INDO_CHINESE, ANDHRA_TELANGANA_MEALS, FAST_FOOD, PIZZA, BAKERY, DESSERTS, ICE_CREAM, JUICES_SHAKES, TEA_COFFEE, KEBABS_GRILL, SEAFOOD (en + te labels) |
-| Fee config v1 | City default per 00 §5: slabs ₹20/30/40/50 to 2/4/6/8 km; platform fee ₹5; small cart ₹15 below ₹149; road factor 1.3; COD ≤ ₹1,000 (₹600 on first order); rider ₹25 + ₹6/km beyond 2 km; wait pay after 10 min; cash limit ₹2,000; ETA params (16 §5). `status='DRAFT'` until Finance approves (maker-checker). |
+| Fee config v1 | City default with the values of **16 §6.5** (R48): slabs on road metres `[0,2000)` ₹20 · `[2000,4000)` ₹30 · `[4000,6000)` ₹40 · `[6000,8000)` ₹50 · `[8000,10000)` ₹60 (R18); `max_serviceable_radius_m = 7000` straight-line; platform fee, small-cart fee, road factor, COD caps, rider pay, cash limit and ETA params as listed there. `status='DRAFT'` until Finance approves (maker-checker, R31 family 3). The seed runs the same slab validator as the API (16 §6.1). |
 | Tax rules | §5.3 table, `status` gated by CA sign-off [LEGAL] |
 | Reason codes | full catalogue from 13 §6.3 |
 | Notification templates | en + te per 15; DLT template ids filled after registration [LEGAL] |
-| App config & flags | `ordering.accept_window_s=180`, `ordering.customer_cancel_grace_s=60`, `ordering.auto_preparing_after_s=60`, `payments.pending_timeout_s=900`, `dispatch.offer_ttl_s=45`, `dispatch.radius_steps_m=[2000,4000,7000]`, `dispatch.max_offers=8`, `dispatch.exhaust_after_s=600`, `dispatch.lead_buffer_min=5`, `restaurant.device_offline_pause_s=180`, `dispatch.delivery_code_required=false`, `approvals.thresholds` (§11) |
-| Ledger accounts | Platform accounts for MBNR (§9 codes). Owner accounts are created lazily on restaurant/rider approval. |
+| App config: timers & thresholds | Every key in **13 §5.1** with the default listed there (13 owns the values, R48), including `dispatch.delivery_code_enabled = true` and `dispatch.delivery_code_min_payable_paise = 30000`, i.e. **delivery OTP on for prepaid orders ≥ ₹300, off for COD (R39)**, plus the `approvals.*` thresholds and the R34 tiers (`dispatch.location_fresh_s = 180`, `rider.auto_offline_after_s = 900`). |
+| App config: operational (owned **here**, R53) | See §15.3. |
+| Feature flags | `ops_assisted_orders` (M8, P1) off; `split_settlement` off until the legal opinion (R35); `manual_zone_surge` **absent** (V1.1, R30) |
+| Ledger accounts | Platform accounts for MBNR with the 14 §10.2 codes (§9), `normal_side` per 14, and `GST_*` accounts with `gstin_state='36'`. Owner accounts are created lazily on restaurant/rider approval. |
 | Admin bootstrap | **Not a seed.** It is created by `rovo admin bootstrap --email` (one-time setup link, 12 §3.6). There are no default passwords anywhere. |
 
 ### 15.2 Demo seeds (local/dev/staging only)
 
 The demo set is 8 fictional restaurants ("Demo Biryani House", …) with realistic Telugu/English menus (veg/non-veg/egg, variants Half/Full, addon groups), 4 riders, 5 customers with addresses inside the fixture zone, coupons `WELCOME50` (percent) and `FLAT30`, and one historical delivered order per restaurant. All phones are in a reserved fake range (`+9199999000xx`), which the fake OTP provider accepts with code `000000` in non-prod only. Names and brands are invented. No real businesses are used.
+
+
+### 15.3 Operational `app_config` defaults owned by this doc (R53)
+
+Payout days, cash ageing and similar operational values are owned here (R53). Docs 01, 07, 13, 14 and 19 reference the **keys**. Timer/threshold keys are in 13 §5.1, and fee/commission values in 16 §6.5.
+
+| Key (scope CITY) | Default | Meaning |
+|---|---|---|
+| `payouts.rider.schedule` | `{"frequency":"WEEKLY","runDay":"MON","period":"PREV_MON_SUN"}` | Rider payout run every **Monday** for the previous Mon 00:00 – Sun 23:59:59 (city tz) |
+| `payouts.restaurant.schedule` | `{"frequency":"WEEKLY","runDay":"TUE","period":"PREV_MON_SUN"}` | Restaurant settlement every **Tuesday** for the previous Mon–Sun |
+| `payouts.missed_run_alert_local_time` | `"12:00"` | catch-up alert if the scheduled day's batch is missing by this local time (13 §5.2) |
+| `cod.cash_ageing_alert_h` | 24 | rider cash held > 24 h → alert rider + ops |
+| `cod.cash_ageing_block_h` | 48 | cash held > 48 h → **no new COD offers** to the rider until a deposit is verified |
+| `cod.service_window` | `"SERVICE_HOURS"` | COD offered during the city's service hours (register row 72) |
+| `support.phone_e164` | `[OPEN — M9]` | shown in `/config/client` |
+| `privacy.erasure_due_days` | 30 [LEGAL] | `erasure_requests.due_at` |
+| `retention.*` | §13 values | per-table retention used by `retention.sweep` |
+
+The settlement catch-up jobs (13 §5.2) read `payouts.*.schedule`, so the run day is defined only here.
 
 ---
 
@@ -2759,7 +2815,7 @@ The demo set is 8 fictional restaurants ("Demo Biryani House", …) with realist
 | Change type | Same as rename (new column). |
 | Drop column | Release N stops reading/writing (sqlc queries updated). Release N+1 drops it. |
 | Large backfill | River job with checkpointing. Never inside the migration. |
-| Partition maintenance | Periodic job (§14), not migrations. |
+| Partitioning (only past ~10 M rows, §14) | Expand/contract recipe; partitions created by a catch-up job, never by migrations at runtime. |
 
 **Guardrails in every migration session:** `SET lock_timeout = '3s'; SET statement_timeout = '60s';` and retry with backoff on lock timeout. CI runs:
 - (1) all migrations from empty on PostGIS images for both PG 17 and 18;
@@ -2797,7 +2853,12 @@ The demo set is 8 fictional restaurants ("Demo Biryani House", …) with realist
 | Batching (2 orders per rider) | `ux_deliveries__rider_active` and `active_delivery_count ≤ 1` are the only blockers. Both are documented and droppable. |
 | Postgres RLS | 12 §8. |
 | `h3-pg`, `pg_partman`, `pg_cron` | Portability (DB-D01). H3-style hex analytics can be done in Go (`uber/h3-go`) if ever needed. |
-| Event sourcing | History tables + outbox give the audit trail without ES complexity. |
+| Event sourcing / event table | History tables + audit give the trail; events are River job args (R42). |
+| Surge / rain fee | R30, C1: V1.1 at the earliest. Rider peak bonus = ledger `ADJUSTMENT` (`PEAK_BONUS`). |
+| Rider shifts / `ON_BREAK` | C12: V2+. |
+| Day-one partitioning, hash-chained audit | C8, C6 (§14, DB-D15). |
+| Coupon `SHARED` funding, cuisine/user targets, per-day budgets, bulk codes | C16. |
+| Review moderation queue and replies | C14 (profanity filter + admin hide only). |
 | Separate analytics DB/warehouse | Read replica + `*_report` views (08). |
 
 ---
@@ -2811,7 +2872,10 @@ The demo set is 8 fictional restaurants ("Demo Biryani House", …) with realist
 - `[OPEN]` Rider cancellation compensation % (`fee_configs.rider_cancel_comp_bps`).
 - `[OPEN — Legal]` All retention periods in §13, DPDP erasure vs. 8-year tax retention, and labour-code record keeping for riders.
 - `[OPEN — Ops]` Real zone polygon and locality list for Mahabubnagar (16 §10).
-- `[OPEN — Product]` Delivery handover code default (flag `dispatch.delivery_code_required`, off).
+- ~~Delivery handover code default~~ — resolved by R39 (on for prepaid ≥ ₹300; 13 SM-D13).
+- `[OPEN — Legal]` Final gig-worker portal field list and export format (M5); applicability thresholds for a small aggregator.
+- `[OPEN — Legal]` Erasure map actions in §13.1 (especially rider records vs gig-worker registration, and SOS retention).
+- `[OPEN — Finance]` Whether issued-but-unredeemed goodwill coupons need an accrual account (14 §10.2 has none).
 
 ## 20. Sources (accessed 2026-10-04)
 

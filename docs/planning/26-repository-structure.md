@@ -168,11 +168,12 @@ deploy/
 │   ├── compose.override.example.yaml   # hot reload (Air), debugger ports
 │   ├── env/
 │   │   └── local.env.example    # all ROVO_* vars with safe dev defaults (fakes on)
-│   └── initdb/                  # role creation mirroring prod (app, migrator, readonly), extensions (postgis, pg_trgm)
+│   ├── initdb/                  # role creation mirroring prod (app, migrator, readonly), extensions (postgis, pg_trgm)
+│   └── tiles/                   # small Mahabubnagar PMTiles extract / blank style served by MinIO (offline maps)
 ├── docker/
 │   ├── backend.Dockerfile       # multi-stage: golang:1.27 builder → distroless/static nonroot; multi-arch
 │   ├── postgres-postgis.Dockerfile  # dev/CI multi-arch PG 17 + PostGIS 3.5 image (doc 22 §10, R22)
-│   └── web.Dockerfile           # optional: static build verification / preview only (prod serves from object storage)
+│   └── web.Dockerfile           # optional: static build verification only (prod serves from object storage; no hosted preview, R24)
 ├── terraform/                   # OpenTofu (Terraform-compatible) — ADR-026
 │   ├── modules/
 │   │   ├── network/             # VPC, subnets (public/private/db), NAT toggle (off at closed pilot, one NAT before Gate B, R28), VPC endpoints, flow logs (all traffic)
@@ -209,6 +210,7 @@ deploy/
 tools/                       # separate go.mod so tool deps don't leak into backend
 ├── seedgen/                 # generates the Mahabubnagar demo dataset (zones, localities, restaurants, menus, riders)
 └── tools.go                 # pinned versions of sqlc, goose, oapi-codegen, golangci-lint, go-arch-lint, govulncheck
+                             # (no tableowner/eventschema in V1, C9; no Sentry SDK, R36)
 scripts/
 ├── bootstrap.sh             # checks prerequisites (docker, go, node, pnpm, mise), installs tools
 ├── tunnel.sh                # exposes the local stack for demos / PA sandbox webhooks via a cloudflared quick tunnel (no account, card-free; R24) — dev only
