@@ -155,7 +155,7 @@ A large three-state control at the top of the Orders screen:
 - Order code with the **last 4 characters enlarged** (`RV-7K·3P9Q` → "**3P9Q**") for handover matching.
 - Item lines: qty × name (Telugu name if the device language is `te` and one exists), variant / add-ons on a sub-line, veg markers. Quantities above 1 are bold and highlighted.
 - Customer note ("less spicy") in a yellow box.
-- Item total (restaurant's view: item total + packaging). Payment type is not shown to the restaurant because it is irrelevant to them.
+- Item total (restaurant's view: item total + packaging), plus a payment label: "Prepaid" or "Cash — rider collects". The label tells staff that the **restaurant never collects cash** (aligned with doc 01 RES-ORD-001).
 - Customer first name only. **No phone number or address** (privacy; the rider handles delivery).
 - **Accept countdown:** "Accept in 2:41".
 
