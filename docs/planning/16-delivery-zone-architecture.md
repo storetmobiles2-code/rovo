@@ -317,26 +317,31 @@ Caching (08 §8): the candidate set is cached per `(zone_id, geohash6(P))` for 3
 
 Search (`/public/search?q=`) uses trigram indexes on `restaurants.name`, `menu_items.name`, `menu_items.name_i18n->>'te'`, `localities.name/aliases`, then applies the same serviceability post-filter.
 
-### 7.2 Rider candidate search (dispatch, 13 D-02)
+### 7.2 Rider candidate search (dispatch, 13 D-02; two tiers, R34)
 
 ```sql
-SELECT ra.rider_id, ST_Distance(ra.last_location, :pickup) AS d_m
+-- :now = injected app clock (R19); :fresh_after = :now - dispatch.location_fresh_s (180 s)
+-- :stale_after = :now - rider.auto_offline_after_s (900 s); values owned by 13 §5.1
+SELECT ra.rider_id,
+       ST_Distance(ra.last_location, :pickup) AS d_m,
+       (ra.last_location_at > :fresh_after)   AS is_fresh          -- tier 1 if true, tier 2 otherwise
 FROM rider_availability ra
 JOIN riders r ON r.id = ra.rider_id AND r.status = 'ACTIVE'
 WHERE ra.state = 'AVAILABLE'
   AND ra.city_id = :city_id
-  AND ra.last_location_at > now() - interval '3 minutes'
-  AND ST_DWithin(ra.last_location, :pickup, :radius_step_m)          -- 2000 → 4000 → 7000
+  AND ra.last_location_at > :stale_after                             -- older riders are auto-offlined anyway (13 T-RIDER-STALE)
+  AND ST_DWithin(ra.last_location, :pickup, :radius_step_m)          -- radius steps per 13 §4.2
   AND NOT EXISTS (SELECT 1 FROM delivery_offers o WHERE o.delivery_id = :delivery_id AND o.rider_id = ra.rider_id)
   AND (:cod_amount = 0 OR NOT ra.cod_blocked)                          -- cheap prefilter; exact headroom checked under lock
 ORDER BY ra.last_location <-> :pickup
-LIMIT 10
+LIMIT 20
 FOR UPDATE OF ra SKIP LOCKED;
 ```
 
 - The KNN `<->` on geography uses the partial GiST index (`state='AVAILABLE'`).
-- The top 10 are re-scored in Go: distance + idle-time fairness + acceptance rate.
-- The exact COD headroom (`ledger_account_balances` for `RIDER_CASH_IN_HAND` + cod ≤ limit) is checked for the chosen rider inside the same transaction (ruling 6).
+- Re-scoring in Go: **tier 1 (fresh, ≤ 3 min) always ranks before tier 2 (stale, ≤ 15 min)**. Inside a tier, rank by distance, then idle-time fairness, then acceptance rate. Tier-2 distances are approximate, so they get a staleness penalty proportional to location age [ASSUMPTION — tune from data].
+- Tier-2 riders are usually backgrounded PWAs. Their offer goes out as high-urgency Web Push plus SSE with the same offer TTL (13 D-02).
+- The exact COD headroom (`ledger_account_balances` for `RIDER_CASH_IN_HAND` + COD amount ≤ `rider_cash_limit_paise`) is checked for the chosen rider inside the same transaction (R6).
 
 ### 7.3 Expected plans (verified in CI on seeded data)
 
@@ -356,13 +361,12 @@ FOR UPDATE OF ra SKIP LOCKED;
 |---|---|---|---|
 | Pause zone (reason, message en/te, until) | `POST /api/v1/admin/zones/{id}/pause` | ADMIN_OPS | `paused_until`. Event `ZonePaused` → home banners, discovery cache bust, ops board. In-flight orders unaffected. |
 | Resume | `POST …/resume` | ADMIN_OPS | Clears the pause |
-| Start/stop surge | `PUT …/surge` / `DELETE …/surge` | ADMIN_OPS | §6.2 |
 | Activate/deactivate zone | `POST …/activate`, `…/deactivate` | ADMIN_OPS (+ SUPER for deactivating the last active zone) | `status` |
-| Edit polygon | `PUT /api/v1/admin/zones/{id}` with `If-Match` | ADMIN_OPS | New `version`; audit before/after GeoJSON |
-| Import/export | `POST /api/v1/admin/zones/import?dryRun=true`, `GET /api/v1/admin/zones/export?cityId=` | ADMIN_OPS | GeoJSON FeatureCollection |
-| Live view | `GET /api/v1/admin/geo/live?cityId=` | ADMIN_OPS | Zones, online riders (state, last location age), unassigned deliveries, restaurants paused |
+| Create / edit polygon | `POST /api/v1/admin/zones`, `PUT /api/v1/admin/zones/{id}` with `If-Match` (GeoJSON geometry in the body) | ADMIN_OPS | New `version`; audit before/after GeoJSON |
 
-### 8.2 Server-side validation on save/import (reject with `422 ZONE_GEOMETRY_INVALID` + details)
+**V1.1 (cut, C1/C15/C20):** surge start/stop, bulk GeoJSON import/export, and the `geo/live` map endpoint. In V1 the admin dashboard counters (online riders, unassigned deliveries, paused restaurants/zones; 11 §2.6) replace the live map.
+
+### 8.2 Server-side validation on save (reject with `422 ZONE_GEOMETRY_INVALID` + details)
 
 1. GeoJSON `Polygon`/`MultiPolygon`, RFC 7946 (WGS 84, lon/lat order).
 2. Coordinates within the city's bounding area (the city centroid buffered by 50 km [ASSUMPTION]), so flipped lat/lng is caught.
@@ -371,20 +375,20 @@ FOR UPDATE OF ra SKIP LOCKED;
 5. **No overlap with other `ACTIVE` zones of the city:** `ST_Area(ST_Intersection(a, b)::geography) ≤ 1,000 m²` (shared-edge tolerance). `priority` is only a tie-break for slivers.
 6. Normalised on save: `ST_Multi`, `ST_ForcePolygonCCW` (RFC 7946 exterior ring counter-clockwise on export), and snapping to a 1e-6° grid (≈ 0.1 m).
 
-### 8.3 Impact preview (dry run)
+### 8.3 Save-time checks (V1)
 
-Before saving, the API returns:
-- active restaurants whose zone would change, or that would fall outside every zone (**blocking** unless confirmed);
-- the share of the last 30 days' delivered order drop points that would become unserviceable;
-- addresses (count only, no PII) that would become unserviceable;
-- whether an active fee config exists for the new zone.
+On save, the API checks and returns in the response:
+- active restaurants whose zone would change, or that would fall outside every zone (**blocking**: `422` unless the request carries `confirmOutletImpact: true`, audited);
+- whether an approved fee config covers the zone (a warning; activation is blocked without one).
+
+The analytics dry run (the share of the last 30 days' drop points, the count of affected addresses) is V1.1 (C15).
 
 ### 8.4 Admin map UI (owned by 17; requirements from here)
 
 - **MapLibre GL JS** with a free/open tile source (P13) and a draw plugin. Candidates: **Terra Draw** (MIT, ships a MapLibre adapter) or **@mapbox/mapbox-gl-draw**, which works with MapLibre with minor CSS/class shims. Licences and current MapLibre compatibility to be verified by 17 `[OPEN]`.
-- Layers: zones (colour by status; hatched when paused), restaurants (pin + radius ring on hover), localities (labels), last-30-day drop heat (aggregated hex bins computed in Go; no PII), online riders (ops live view only).
-- Workflow: draw/edit → client-side validation (self-intersection highlighted) → **dry run** → confirm → save (`If-Match`) → audit entry.
-- Import: paste or upload GeoJSON (e.g. drawn in QGIS / geojson.io). Export: FeatureCollection with `properties {code, name, status, priority, version}`.
+- Layers: zones (colour by status; hatched when paused), restaurants (pin + radius ring on hover), localities (labels). The drop heat map and online-rider layer are V1.1 (C15, C20).
+- Workflow: draw/edit → client-side validation (self-intersection highlighted) → save (`If-Match`) → save-time checks (§8.3) → audit entry.
+- Bulk import/export of GeoJSON files is V1.1 (C15). In V1, a polygon drawn in QGIS / geojson.io can be pasted into the editor, which sends it as the geometry body of a normal save.
 
 ---
 
@@ -392,8 +396,8 @@ Before saving, the API returns:
 
 Checklist to launch city #2 (no code changes expected):
 1. Insert a `cities` row (timezone, GST state code, locales, centroid) with `status=PLANNED`.
-2. Ops draw the zones (`DRAFT`). Localities are imported (CSV/GeoJSON) and verified locally.
-3. Approve `fee_configs` (city default + zone overrides) and `tax_rules` if it is a new state [LEGAL]. Create `invoice_sequences` for the new series.
+2. Ops draw the zones (`DRAFT`). Localities are seeded by migration or entered by ops, and verified locally.
+3. Approve `fee_configs` (city default + zone overrides). Seed `tax_rules` by migration if it is a new state [LEGAL]; there is no tax-rule CRUD UI in V1 (C20). Create `invoice_sequences` for the new series.
 4. Seed `app_config`/`reason_codes` overrides if any. Create the city's platform ledger accounts.
 5. Grant admin roles with city scope.
 6. Onboard restaurants and riders (KYC) while the city is `PLANNED`; staging-like test orders by ops.
@@ -435,10 +439,10 @@ The fixture is a regular octagon of ~5 km radius around the Wikipedia city coord
 | R1 (restaurant, radius 7 km) | 78.0035, 16.7488 | inside the zone (centre) |
 | R2 (restaurant, radius 7 km) | 77.9800, 16.7300 | inside |
 | R3 (restaurant, radius 3 km) | 78.0300, 16.7600 | inside; small radius for `TOO_FAR` cases |
-| C1 | 78.0200, 16.7600 | inside; R1 ✓ ₹30; **R2 ✗ TOO_FAR (7,033 m road)** |
-| C2 | 77.9750, 16.7300 | inside; R2 ✓ ₹20; R1 ✓ ₹40 |
+| C1 | 78.0200, 16.7600 | inside; R1 ✓ ₹30; **R2 ✓ ₹50** (5,410 m straight ≤ 7,000; 7,033 m road); R3 ✓ ₹20 |
+| C2 | 77.9750, 16.7300 | inside; R2 ✓ ₹20; R1 ✓ ₹40; **R3 ✗ TOO_FAR** (6,740 m > 3,000 m outlet radius) |
 | C3 | 78.0600, 16.7488 | **outside** → `OUTSIDE_SERVICE_AREA` |
-| C4 | 78.0350, 16.7750 | inside near the edge; R1 ✓ ₹40, rider pay ₹47.65, ETA 45–55 at 19:30 |
+| C4 | 78.0350, 16.7750 | inside near the edge; R1 ✓ ₹40, rider pay ₹47.65, ETA 45–55 at 19:30; **R2 ✗ TOO_FAR** (7,703 m straight) |
 | C5 (vertex) | 78.0505, 16.7488 | **on the boundary** → inside (`ST_Covers`), must not flip with `ST_Contains` |
 | C6 (swapped) | 16.7488, 78.0035 | lat/lng swapped → rejected by validation (lat > 90) |
 
@@ -446,11 +450,14 @@ The fixture is a regular octagon of ~5 km radius around the Wikipedia city coord
 
 1. **Overlap:** a second zone overlapping by more than 1,000 m² is rejected. A sliver below the tolerance is accepted, and `priority` decides.
 2. **Paused zone:** pause the fixture → `ZONE_PAUSED` for C1. Discovery returns restaurants marked unavailable. Quote and order return `422 ZONE_PAUSED`.
-3. **Surge:** set ₹20 RAIN until +1 h → the quote shows the surge line, the ETA uses ×0.8 speed, and rider pay includes the bonus. After expiry the next quote has no surge, while a quote made before expiry keeps it for its TTL.
+3. **No surge (R30):** no quote ever contains a `SURGE_FEE` line (the enum value no longer exists), and rider pay = base + distance + wait only.
 4. **Restaurant outside all zones** cannot be approved (`ACTIVE` blocked).
 5. **Bow-tie polygon** → `ZONE_GEOMETRY_INVALID` with reason "Self-intersection".
 6. **Cross-midnight hours:** opens 18:00, closes 02:00 → open at 01:30 IST, closed at 02:00.
 7. **Property tests:** for random points in the bounding box, the Go haversine agrees with `ST_Distance(geography, use_spheroid := false)` within 0.1%, and the PostGIS prefilter always contains the Go decision set.
+8. **Property: every serviceable point has exactly one slab (R18, RV-084).** For random (restaurant, customer) pairs and random *valid* fee configs (road factor 1.0–3.0, random contiguous slabs), every pair that passes the straight-line radius check matches **exactly one** slab. The fee-config validator (§6.1) rejects every config generated to break the rule (a gap, an overlap, or `radius × factor ≥ last.toM`).
+9. **Boundary goldens:** the §4.2 boundary table (1,999 / 2,000 / 7,999 / 8,000 m road; 7,000 / 7,001 m straight).
+10. **Two-tier dispatch (R34):** with a fresh rider at 3 km and a stale (10 min) rider at 1 km, the fresh rider is offered first. With only the stale rider, it gets the offer via push. A rider whose location is 16 min old is never a candidate.
 
 ---
 
@@ -462,24 +469,25 @@ The fixture is a regular octagon of ~5 km radius around the Wikipedia city coord
 | Boyapalle and Yenugonda are census towns in the urban agglomeration | **Verified** (same source) |
 | Municipal Corporation status upgraded in 2025 | Per Wikipedia (same source). Not otherwise verified. |
 | Named localities (New Town, Padmavathi Colony, Christianpally, Shashab Gutta, Metugadda, etc.), extra PIN codes | **[ASSUMPTION – verify with local ops]** |
-| A single ~5 km core zone covers most demand; the realistic max radius is 7 km | **[ASSUMPTION]**, to be validated with ops and early order data |
-| Two-wheeler speeds by band; rain factor 0.8 | **[ASSUMPTION]**, to calibrate |
+| A single ~5 km core zone covers most demand; the realistic max radius is 7 km straight-line | **[ASSUMPTION]**, to be validated with ops and early order data |
+| Two-wheeler speeds by band | **[ASSUMPTION]**, to calibrate |
 | OSM road coverage quality for routing | **[ASSUMPTION — check before investing in OSRM]** |
 
 ---
 
 ## 12. Not doing in V1
 
-- Automatic or dynamic surge pricing; per-restaurant zones or radius polygons (radius is a circle — per-outlet polygons are a later option via a `delivery_area geometry` column).
+- Surge of any kind (manual, automatic or dynamic) and rain fees: V1.1 at the earliest (R30, C1). Per-restaurant zones or radius polygons (radius is a circle — per-outlet polygons are a later option via a `delivery_area geometry` column).
+- Zone GeoJSON import/export, dry-run impact analytics, drop heat maps, the live geo map endpoint (C15, C20).
 - Live rider map for customers (P12).
 - Paid geocoding or reverse geocoding (address text is user-entered, with a locality picker).
-- H3/hex-based zoning (`h3-pg` is not available on all managed Postgres services, 10 DB-D01). Hex aggregation for heatmaps is done in Go.
+- H3/hex-based zoning (`h3-pg` is not available on all managed Postgres services, 10 DB-D01). Hex aggregation for heatmaps (V1.1) will be done in Go.
 - Batched or multi-drop routing.
 
 ## 13. Open items
 
 - `[OPEN — Ops]` Draw the real `MBNR-CORE` polygon. Confirm the locality list, aliases and PIN codes.
-- `[OPEN — Product]` Surge rider share (100% default) and the surge cap (₹50).
+- `[OPEN — Product/Ops]` Rider peak-bonus policy (amount per window, who announces it) and the pilot `MG_TOPUP` amount (R47, business decision).
 - `[OPEN — 17]` Draw library choice (Terra Draw vs mapbox-gl-draw), tile source terms.
 - `[OPEN — CA]` Delivery fee GST inclusive vs exclusive display (ruling 8).
 - `[OPEN]` Should zone pause also stop pickups from restaurants inside the paused zone when they deliver to a non-paused zone? Current decision: yes (simpler mental model).

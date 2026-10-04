@@ -803,19 +803,22 @@ Designed in from day one (ADR-020):
 | Failure | Detection | Degraded behaviour | Recovery |
 |---|---|---|---|
 | **PA down / high failure rate** (create-order errors over 20% in 5 min or webhook silence plus poll failures) | metrics + circuit breaker in `payments` | Circuit opens → checkout offers **COD only** (where COD is enabled), with a banner. Pending online orders keep polling. Admin sees an alert. | Half-open probe every 60 s. Close after 5 successes. |
-| **PA webhooks delayed** | `payment_intents` stuck in `CREATED` with a client confirmation | Client fast-path confirmation still promotes. The poll job (1, 3, 7, 15 min) queries the PA. | auto |
-| **OTP SMS provider down** | send errors / DLR failure rate | Fallback chain: WhatsApp authentication template → secondary SMS provider → (customers only) voice OTP `[OPEN]` (doc 15 §6) | auto per request |
+| **PA webhooks delayed** | `payments` rows stuck in `CREATED`/`PENDING` with a client confirmation | Client fast-path confirmation still promotes. The poll job (1, 3, 7, 15 min) queries the PA. | auto |
+| **OTP SMS provider down** | send errors / DLR failure rate | Circuit breaker → **secondary SMS aggregator** (doc 15 §5). WhatsApp OTP is deferred to V1.1 (C2). Voice OTP `[OPEN]`. | auto per request |
 | **All OTP channels down** | | Existing sessions keep working (sessions last 30+ days). New logins are blocked with a status message. Admin login unaffected (email+password+TOTP). | ops |
-| **Web Push service errors** | 4xx/5xx from push endpoints | `410 Gone` deletes the subscription. Others are retried. Restaurant alerts escalate to SMS/WhatsApp/phone call by ops. | auto |
+| **Web Push service errors** | 4xx/5xx from push endpoints | `410 Gone` deletes the subscription. Others are retried. Restaurant alerts escalate per R1/R43: owner SMS at 60 s, ops board + manual phone call at 90 s. | auto |
 | **Worker down** | River queue depth / oldest job age metric, heartbeat | API continues taking orders. State changes made via the API still NOTIFY, so SSE works. **Event-driven steps stall:** notifications, dispatch, ledger posting. Alert at oldest job over 60 s. The runtime restarts the task. | Jobs are durable and resume. No data loss. |
 | **API task(s) down** | uptime check, LB health checks | PWAs show an offline banner and queue nothing that involves money (no offline order placement). Riders can't progress milestones. Their app retries with the same Idempotency-Key. | Runtime replaces unhealthy tasks; rollback to the previous task definition/image |
-| **Postgres down** | health checks | Multi-AZ: automatic failover (≈ 1–2 min). In-flight requests fail and clients retry with the same Idempotency-Key. Single-AZ pilot: outage until PITR restore. Static PWAs still load and show a status page. | Managed failover / PITR per doc 23 `[OPEN: DevOps RPO/RTO]` |
-| **LISTEN connection lost** | hub metric | Clients receive `event: degraded` and switch to polling. | auto-reconnect |
+| **Postgres down** | health checks | `public-launch` (Multi-AZ): automatic failover (≈ 1–2 min). In-flight requests fail and clients retry with the same Idempotency-Key. `closed-pilot` (Single-AZ, R32): outage until the instance recovers or PITR restore. Static PWAs still load and show a status page. | Managed failover / PITR; RPO/RTO per doc 23 |
+| **LISTEN connection lost / stalled** | hub metric, watchdog probe (§6.2) | Clients receive `event: degraded` and switch to polling. | watchdog reconnect |
+| **NOTIFY queue filling** (a LISTEN backend not reading) | `pg_notification_queue_usage()` alert > 0.1 (M12) | Before saturation nothing is visible. At saturation every `pg_notify` transaction would fail, so the watchdog recycles stalled LISTEN connections first. | page on-call; if repeated, move NOTIFY post-commit (§6.2) |
+| **Periodic job missed** (leader restart at the tick) | catch-up check (§7.4); missed-settlement alert Mon 09:00 IST (M11) | Next hourly run catches up idempotently. | auto; finance paged if still missing |
 | **Dispatch exhausted (no riders)** | `DispatchExhausted` | Ops board alert. Customer sees "finding a delivery partner". Restaurant is told to hold. After T2 (e.g. 25 min) ops can cancel with full refund. | manual assign |
-| **Restaurant not responding** | accept timeout | Alert loop → escalate to ops after 2 min → auto-reject at 4 min → refund (prepaid) | auto |
-| **Maps tiles provider down** | client errors | Address entry falls back to locality picker plus landmark text. Pin optional for that session, flagged for rider call. | auto |
+| **Restaurant not responding** | `T-ACC-*` timers (doc 13) | R1 ladder: repeat every 30 s → owner SMS at 60 s → ops flag at 90 s (ops may accept on behalf, audited) → at 180 s `CANCELLED` by `SYSTEM`, reason `RESTAURANT_UNRESPONSIVE`, full refund if prepaid, outlet auto-paused 30 min (2 consecutive misses → paused until the owner resumes) | auto |
+| **Restaurant device offline** | no order-receiver heartbeat/SSE presence for 3 min while open | Outlet auto-paused (`DEVICE_OFFLINE`, R1), owner and ops notified | owner resumes |
+| **Maps tiles provider down** | client errors | Self-hosted PMTiles fallback (ADR-015). If no map renders, "Use my current location" sets the pin. **No pinless addresses** (R13: landmark + pin required). | auto |
 | **Object storage down** | errors | Menu shows placeholders. Uploads disabled. | auto |
-| **Clock skew / timezone** | — | All timers are DB-side (`now()`) or River `scheduled_at` (UTC). Restaurant hours are evaluated in the city timezone. | — |
+| **Clock skew / timezone** | — | Business deadlines use the **injected app clock**; no SQL `now()` in business logic (R19). River `scheduled_at` (UTC) is computed from the app clock. Restaurant hours are evaluated in the city timezone. Hosts sync time via the platform (NTP), as CERT-In requires. | — |
 | **Deploy goes bad** | error rate SLO burn | Roll back to the previous image tag. Migrations are expand/contract only, so rollback is safe (doc 21). | scripted |
 
 ---
@@ -831,7 +834,12 @@ Designed in from day one (ADR-020):
 | WebSockets | One-way server push is enough. Client → server goes over REST with idempotency. | Two-way chat or high-frequency rider telemetry |
 | Live GPS map for customers | PWA background location is unavailable. Privacy and cost. | Native rider app |
 | Paid routing / ETA APIs | Cost. Straight-line × road factor is adequate in a compact city. | ETA error complaints exceed threshold |
-| Server-side rendering | No proven SEO need. Cost and hosting constraints (ADR-009). | Organic acquisition becomes a goal |
+| Server-side rendering / build-time prerender | No proven SEO need (R33: prerender cut). Static OG/meta in each SPA's `index.html`; restaurant share pages `/r/{slug}` (HTML with OG tags + redirect to the SPA) come from a small Go handler, P1. | Organic acquisition becomes a goal |
+| Surge pricing | R30: bad weather or rider shortage handled by zone pause + manual rider peak bonus (ledger adjustment) | V1.1+ |
+| WhatsApp OTP / notifications | C2: Meta onboarding and template approval; SMS + secondary aggregator suffice | V1.1 |
+| Event table, fan-out hop, day-one partitioning | R42/C8: subscriber jobs inserted directly; retention jobs instead of partitions | a table passes ~10M rows |
+| Per-row hash-chained audit log | C6: append-only table with DB grants (no UPDATE/DELETE for the app role) | tamper evidence required (hourly batch sealing) |
+| Sentry, identity-aware proxy for admin | R36 (Grafana Faro instead), R37 (TOTP + WAF rules; passkeys P1) | after pilot review |
 | Event sourcing | Events are an integration mechanism, not the system of record | never planned |
 | Elasticsearch / OpenSearch | Postgres FTS + `pg_trgm` is enough for one city's catalog | > ~50k items or relevance complaints |
 
@@ -842,7 +850,7 @@ Designed in from day one (ADR-020):
 | Component | Version to pin at Phase 2 start | Source (accessed 2026-10-04) |
 |---|---|---|
 | Go | 1.27.x (1.27.1 released 2026-09-01; 1.26 still supported) | https://go.dev/doc/devel/release |
-| PostgreSQL | 18.x preferred (18.6 current minor) if the managed service offers it GA with PostGIS; else 17.x (doc 22 plans 17 on RDS). Same major in local, CI and prod. | https://www.postgresql.org/support/versioning/ , https://www.postgresql.org/docs/18/functions-uuid.html |
+| PostgreSQL | **17.x on RDS** (R22); 18.x only if RDS offers it with PostGIS; no 18-only features. Same major in local, CI and prod. | https://www.postgresql.org/support/versioning/ |
 | River | v0.48.0 (2026-10-01). Pre-1.0, so pin exactly and read changelogs. Supports Go 1.26/1.27. | https://proxy.golang.org/github.com/riverqueue/river/@latest , https://github.com/riverqueue/river/releases |
 | pgx | v5.11.0 | proxy.golang.org |
 | sqlc | v1.31.1 | proxy.golang.org |
@@ -854,15 +862,22 @@ Designed in from day one (ADR-020):
 | openapi-typescript | 7.13.0 | registry.npmjs.org |
 | Vite | 8.3.2 | registry.npmjs.org |
 | pnpm | 12.9.1 | registry.npmjs.org |
-| PostGIS | 3.x matching the PG18 image (exact minor unverified) | unverified |
+| PostGIS | 3.5 with PG 17 (local/CI image per doc 22; RDS minor unverified) | unverified |
 
 ---
 
 ## 14. Open items raised by this document
 
-- `[OPEN]` Product: payment-pending timeout N (proposed 15 min) and restaurant accept timeout (proposed 4 min with escalation at 2 min).
-- Resolved with Frontend Architect: `partner` is split into `restaurant` and `rider` PWAs (doc 17 F2). Doc 12's host table still lists a single `partner.` host, so doc 12 needs to align `[OPEN → Security Architect]`.
-- `[OPEN]` Backend Architect: confirm table names and the "no cross-module FKs except `cities`/`users`" rule in doc 10. Adopt the `version` column on `orders` and `deliveries`.
-- `[OPEN]` UX: a delivery handover OTP (customer reads a 4-digit code to the rider) for prepaid orders above ₹X. It reduces "not delivered" disputes.
-- `[OPEN]` DevOps (docs 22/25): choose the hyperscaler and the managed container runtime that satisfies always-on API + worker and long-lived SSE. Set LB/edge idle timeouts ≥ 120 s. Make sure the LISTEN connection bypasses any transaction pooler. Decide single-AZ vs Multi-AZ at pilot. Run the S3-compatibility check of the chosen object store (ADR-025).
-- Aligned with doc 12: EdDSA JWT access + opaque rotating refresh + server-side session checks for partner/admin (ADR-011).
+Resolved in v1.1 (kept for history):
+- ~~Restaurant accept timeout (proposed 4 min with escalation at 2 min)~~ → **R1**: 180 s, owner SMS 60 s, ops 90 s, `CANCELLED`/`RESTAURANT_UNRESPONSIVE`. Values owned by doc 13.
+- ~~`partner` split and doc 12 host table~~ → **R14**: four hosts `app.`, `restaurant.`, `rider.`, `admin.`.
+- ~~No cross-module FKs~~ → **R41** (money-path FKs to `orders`). Table names follow doc 10 §1.5.
+- ~~Delivery handover OTP~~ → **R39**: on for prepaid ≥ ₹300, off for COD.
+- ~~Hyperscaler, single-AZ vs Multi-AZ~~ → **R23/R32**: AWS `ap-south-1`, Single-AZ closed pilot, Multi-AZ before Gate B or > 100 orders/day.
+
+Still open:
+- `[OPEN → Product]` Payment-pending timeout `T-PAY` (15 min proposed; doc 13 owns the key).
+- `[OPEN → Security + DevOps]` One SSE lifetime rule (§6.2 proposal: 30-min cap, `reauth` only on session revocation) across docs 11, 12 and 22 (register row 29).
+- `[OPEN → DevOps]` Confirm the webhook host (`api.<domain>/api/v1/webhooks/*`) and that LB/edge idle timeouts are ≥ 120 s; make sure the LISTEN connection bypasses any transaction pooler. Run the S3-compatibility check of the chosen object store (ADR-025).
+- `[OPEN → QA]` Week-1 River fake-clock spike (doc 20 §10.2) and the latency-budget test in §7.3.
+- Aligned with doc 12: EdDSA JWT access + opaque rotating refresh + server-side session checks for partner/admin (ADR-011); device-bound sessions for order-receiver devices (R44).

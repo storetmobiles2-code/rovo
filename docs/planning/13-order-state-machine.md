@@ -4,11 +4,25 @@
 |---|---|
 | **Purpose** | The canonical, testable definition of how orders, deliveries, delivery offers and rider availability change state. It covers every transition (who may trigger it, guards, side effects), timers, cancellation and refund rules, how the order and delivery machines interact, concurrency and idempotency, the event catalogue, and Go implementation guidance. |
 | **Owner** | Backend Architect |
-| **Status** | Draft v1 (2026-10-04). Incorporates the Lead Architect rulings of 2026-10-04 (accept window, cancel grace, auto-preparing, implicit ready, undeliverable approval, COD caps, dispatch timing, round-off, goodwill coupons, SSE). |
-| **Depends on** | 00 baseline §2 (status names, unchanged); 08 system architecture (events via outbox + River, CAS, `NOTIFY` real-time); 10 database schema (`orders`, `deliveries`, `delivery_offers`, `rider_availability`, `*_status_history`, `reason_codes`); 12 auth/RBAC (roles, maker-checker); 14 payment architecture (journal templates, refund mechanics); 15 notifications (templates, escalation channels); 04/05/06/07 UX workflows |
-| **Consumed by** | 11 API (command endpoints, error codes), 15, 20 testing (transition tables as data), 27 backlog |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
+| **Depends on** | 00 baseline §2 (status names), §8 R1–R26, §9 R27–R48; 08 system architecture (events as River jobs, CAS, `NOTIFY` real-time); 10 database schema (`orders`, `deliveries`, `delivery_offers`, `rider_availability`, `*_status_history`, `reason_codes`, `app_config`); 12 auth/RBAC (roles, maker-checker); 14 payment architecture (journal templates, refund mechanics); 15 notifications (templates, escalation channels); 16 (fee/rider-pay defaults); 04/05/06/07 UX workflows |
+| **Consumed by** | 11 API (command endpoints, error codes), 15, 16, 20 testing (transition tables as data), 27 backlog |
 
 Status names are exactly those in 00 §2 and are not renamed here. Each transition has an ID (`O-nn` order, `D-nn` delivery) that tests and code comments reference (`// SM: O-07`).
+
+**Changes in v1.1**
+- **R48 / RV-086:** this doc is the **single owner of every timer and threshold**. §5.1 is the parameter registry (`app_config` keys + defaults). Other docs cite keys, not values.
+- **R16 (register row 34):** delivery offers get a fifth status, `REVOKED` (§4.1). D-06/D-15 and rider-offline revocations now use it. `close_reason` keeps the detail.
+- **R34 / RV-055 (row 51):** two-tier dispatch (fresh ≤ 3 min; stale ≤ 15 min via push + SSE) and auto-offline at 15 min without any ping/heartbeat (D-02, §4.2, T-RIDER-STALE).
+- **C12 (row 50):** `ON_BREAK` removed from rider availability.
+- **R42 / RV-002:** no `outbox_events` table. Each transition inserts one River job per subscriber with `InsertManyTx` in the same transaction (SM-D09, §7.1, §8).
+- **R29 / RV-047:** COD compensation is the customer's choice of a manual UPI refund (UTR recorded) or a single-user coupon, never coupon-only (SM-D11, §6.2).
+- **R39 / RV-049:** delivery handover code is on for prepaid orders with payable ≥ ₹300. The code is stored (encrypted) so the customer app can show it (SM-D13).
+- **R40 / D14 (row 60):** no restaurant self-cancel after accept. The restaurant raises an urgent issue and ops cancels (SM-D12).
+- **R31:** maker-checker references narrowed to the five action families (D-06 cash-limit override is now audit-only).
+- **M11 / RV-004:** catch-up semantics for periodic jobs and a missed-settlement alert (§5.2).
+- **R27:** restaurant heartbeat every 60 s, and SSE presence counts as a heartbeat (T-DEVICE-HB).
+- **Row 65:** SSE topic names aligned with 11 §4.2 (`inbox:{rid}`, `rider:{id}`, `ops:{cityId}`). **Row 58:** prep time 5–90 min. **Row 66:** ledger account codes per 14 §10.2.
 
 ---
 
@@ -24,9 +38,12 @@ Status names are exactly those in 00 §2 and are not renamed here. Each transiti
 | SM-D06 | **Rider "Picked up" is allowed from `PREPARING` or `READY_FOR_PICKUP`.** From `PREPARING`, the order passes through an implicit `READY_FOR_PICKUP` (two history rows), and `deliveries.restaurant_skipped_ready = true` is set (ruling 4). |
 | SM-D07 | **`UNDELIVERABLE` needs support approval.** The rider *requests* it from `AT_DROP`, which creates an urgent ticket. `ADMIN_SUPPORT`/`ADMIN_OPS` confirms, which moves the delivery to `FAILED` and the order to `UNDELIVERABLE`. A COD undeliverable adds a COD strike; 2 strikes disable COD (ruling 5). |
 | SM-D08 | **Nothing auto-completes to `DELIVERED`.** Stuck orders escalate to ops (§5). Money never moves on a guess. |
-| SM-D09 | **Transitions are pure functions over data tables.** They are persisted with CAS on `(status, version)`, together with a history row, outbox event and River jobs **in the same transaction**. Commands are idempotent by `command_id`. |
+| SM-D09 | **Transitions are pure functions over data tables.** They are persisted with CAS on `(status, version)`, together with a history row and River jobs **in the same transaction**: timers, plus **one job per event subscriber** inserted with `InsertManyTx` from the static subscription table (R42; River is the outbox, R22). There is no event table and no fan-out hop. Commands are idempotent by `command_id`. |
 | SM-D10 | Late payment capture after `PAYMENT_FAILED`/`CANCELLED` **never revives** the order. It triggers an automatic refund. |
-| SM-D11 | Compensation without money movement (goodwill, COD-order compensation) is a **single-user goodwill coupon**, never a wallet (ruling 9). |
+| SM-D11 | **Compensation.** Goodwill without a money debt is a **single-user goodwill coupon**, never a wallet (R9). **COD-order compensation for a paid-for failure** (missing/wrong items, not delivered after payment) is the **customer's choice** (R29): a **manual UPI refund** that finance pays and records with its UTR (`refunds.channel = MANUAL_UPI`, ledger entry), **or** a single-user coupon. It is never coupon-only `[LEGAL]`. |
+| SM-D12 | **No restaurant self-cancel after `ACCEPTED`** (R40). The restaurant raises an urgent `RESTAURANT_CANNOT_FULFIL` issue; ops cancels with fault attribution (O-11/O-13/O-16). |
+| SM-D13 | **Delivery handover code (R39).** `orders.requires_delivery_code = (payment_method = ONLINE AND total_paise ≥ dispatch.delivery_code_min_payable_paise)` (default ₹300), and off for COD. A 4-digit code is generated at placement and stored encrypted (`orders.delivery_code_enc`), so the customer app can display it. The rider must enter it at D-10, with up to 5 attempts (`dispatch.delivery_code_max_attempts`). |
+| SM-D14 | **Parameter ownership (R48).** Every timer and threshold used by these machines (and the maker-checker amount thresholds) is an `app_config` key whose default lives **only** in §5.1. Business logic reads `now` from the injected app clock, never SQL `now()` (R19). |
 
 ---
 
@@ -76,28 +93,28 @@ Actors:
 
 | ID | From → To | Command | Actors | Guards / preconditions | Side effects (same tx unless marked ⟶ async) |
 |---|---|---|---|---|---|
-| O-01 | ∅ → `PENDING_PAYMENT` | `Place` (method ONLINE) | CUST | Quote valid, unexpired, owned by caller, `is_orderable`. Re-validation passes (restaurant ACTIVE, accepting, open now, not paused; zone ACTIVE and not paused; serviceable; items available; `menu_version` unchanged or price-equal). Coupon reservable. Idempotency-Key fresh. | Insert order (v1), items, charges, history. Quote consumed. Coupon `RESERVED`. `payments` row `CREATED` with `expires_at = now + 15 min`. Event `OrderCreated`. Timer **T-PAY** scheduled. ⟶ PA order created outside the tx (08 §5.1). No restaurant notification yet. |
-| O-02 | ∅ → `PLACED` | `Place` (method COD) | CUST | All of O-01, plus: `fee_configs.cod_enabled`; `total ≤ cod_max_order_paise` (₹1,000), or `≤ cod_first_order_max_paise` (₹600) if `delivered_order_count = 0`; `customer_profiles.cod_status = ENABLED` (ruling 6) | As O-01 but `payments(provider=COD, status=COD_PENDING)`, `payment_status=COD_DUE`, `placed_at=now`. Event `OrderPlaced`. Timers **T-ACC-\*** set. Notify restaurant (SSE ring + push + escalation ladder, 15). |
-| O-03 | `PENDING_PAYMENT` → `PLACED` | `PaymentCaptured` | PA / SYS | Payment CAS `CREATED/AUTHORIZED → CAPTURED` succeeded; amount = `total_paise` and currency matches. | `payment_status=PAID`, `placed_at=now`. Ledger `payment_captured.v1` (Dr PG clearing / Cr customer advances). Event `OrderPlaced`. Clear T-PAY. Set T-ACC-\*. Notify restaurant + customer ("Order placed"). |
+| O-01 | ∅ → `PENDING_PAYMENT` | `Place` (method ONLINE) | CUST | Quote valid, unexpired, owned by caller, `is_orderable`. Re-validation passes (restaurant ACTIVE, accepting, open now, not paused; zone ACTIVE and not paused; serviceable; items available; `menu_version` unchanged or price-equal). Coupon reservable. Idempotency-Key fresh. | Insert order (v1), items, charges, history. Quote consumed. Coupon `RESERVED`. `requires_delivery_code` set and code generated (SM-D13). `payments` row `CREATED` with `expires_at = now + payments.pending_timeout_s`. Event `OrderCreated`. Timer **T-PAY** scheduled. ⟶ PA order created outside the tx (08 §5.1). No restaurant notification yet. |
+| O-02 | ∅ → `PLACED` | `Place` (method COD) | CUST | All of O-01, plus: `fee_configs.cod_enabled`; `total ≤ cod_max_order_paise` (₹1,000), or `≤ cod_first_order_max_paise` (₹600) if `delivered_order_count = 0`; `customer_profiles.cod_status = ENABLED` (ruling 6) | As O-01 but `payments(provider=COD, status=COD_PENDING)`, `payment_status=COD_DUE`, `placed_at=now`, `requires_delivery_code=false`. Event `OrderPlaced`. Timers **T-ACC-\*** set. Notify restaurant (SSE ring + push + escalation ladder, 15). |
+| O-03 | `PENDING_PAYMENT` → `PLACED` | `PaymentCaptured` | PA / SYS | Payment CAS `CREATED/AUTHORIZED → CAPTURED` succeeded; amount = `total_paise` and currency matches. | `payment_status=PAID`, `placed_at=now`. Ledger `payment_captured.v1` (Dr `PA_CLEARING` / Cr `CUSTOMER_ADVANCES`, 14 §10.2). Event `OrderPlaced`. Clear T-PAY. Set T-ACC-\*. Notify restaurant + customer ("Order placed"). |
 | O-04 | `PENDING_PAYMENT` → `PAYMENT_FAILED` | `PaymentTimeout` | SYS | T-PAY fired **and** a server-side fetch of the PA order shows no captured payment. If a capture is found, run O-03 instead. | `payment_status=UNPAID`, reason `PAYMENT_TIMEOUT`, actor SYSTEM. Coupon `RELEASED`. Payment `EXPIRED`. Event `OrderPaymentFailed`. Notify customer ("Payment not completed — your cart is saved"). |
 | O-05 | `PENDING_PAYMENT` → `CANCELLED` | `Cancel` | CUST, OPS, SUP | Not yet captured (payment CAS to `EXPIRED` succeeds) | Reason `CUSTOMER_ABANDONED_PAYMENT` or admin reason. Coupon released. Event `OrderCancelled`. A later capture triggers **auto-refund** (SM-D10). |
-| O-06 | `PLACED` → `ACCEPTED` | `Accept{prepTimeMin ∈ [5,90]}` | REST; OPS on behalf (reason required, audited; ruling 1) | `now < placed_at + 180 s` (the accept window; ops acting after it are rejected because the order is already cancelled) | `accepted_at`, `prep_time_min`, `eta_at` recomputed (16 §5). `restaurants.consecutive_missed_orders=0` (⟶ via event). Event `OrderAccepted` ⟶ dispatch creates the delivery (D-01) with `dispatch_after`. Clear T-ACC-\*. Set **T-PREP-AUTO** (+60 s) and **T-PREP-DUE**. Notify customer ("Accepted · ready in ~N min"). |
+| O-06 | `PLACED` → `ACCEPTED` | `Accept{prepTimeMin ∈ [5,90]}` | REST; OPS on behalf (reason required, audited; ruling 1) | `now < placed_at + ordering.accept_window_s` (180 s) (the accept window; ops acting after it are rejected because the order is already cancelled) | `accepted_at`, `prep_time_min`, `eta_at` recomputed (16 §5). `restaurants.consecutive_missed_orders=0` (⟶ via event). Event `OrderAccepted` ⟶ dispatch creates the delivery (D-01) with `dispatch_after`. Clear T-ACC-\*. Set **T-PREP-AUTO** (+60 s) and **T-PREP-DUE**. Notify customer ("Accepted · ready in ~N min"). |
 | O-07 | `PLACED` → `REJECTED` | `Reject{reasonCode}` | REST | reason ∈ `ORDER_REJECT` catalogue; within the window | Reason recorded, fault RESTAURANT. ⟶ Full refund if PAID (refund key `order:<id>:full`). Coupon released. If `ITEMS_OUT_OF_STOCK`: listed items marked unavailable (05 §4.3). If `TOO_BUSY` with the pause flag: restaurant paused. Event `OrderRejected`. Notify customer (friendly reason + similar restaurants). |
-| O-08 | `PLACED` → `CANCELLED` | `AcceptTimeout` | SYS | T-ACC-TIMEOUT fired; still `PLACED` (CAS) | `cancelled_by=SYSTEM`, reason **`RESTAURANT_UNRESPONSIVE`**, fault RESTAURANT. ⟶ Full refund if PAID. Coupon released. `consecutive_missed_orders += 1`. **1 → pause 30 min; ≥ 2 → `paused_until='infinity'`** (owner must resume), with an owner SMS. Event `OrderCancelled`. Notify customer. |
+| O-08 | `PLACED` → `CANCELLED` | `AcceptTimeout` | SYS | T-ACC-TIMEOUT fired; still `PLACED` (CAS) | `cancelled_by=SYSTEM`, reason **`RESTAURANT_UNRESPONSIVE`**, fault RESTAURANT. ⟶ Full refund if PAID. Coupon released. `consecutive_missed_orders += 1`. **1 → pause `ordering.missed_order_pause_s` (30 min); ≥ 2 → `paused_until='infinity'`** (owner must resume), with an owner SMS. Event `OrderCancelled`. Notify customer. |
 | O-09 | `PLACED` → `CANCELLED` | `Cancel` | CUST (always free in PLACED); OPS, SUP | — | Reason (customer list or admin), fault per reason. ⟶ Full refund if PAID. Coupon released. Clear T-ACC-\*. Restaurant gets an "order cancelled" alert (SSE). Event `OrderCancelled`. |
 | O-10 | `ACCEPTED` → `PREPARING` | `StartPreparing` / `AutoPreparing` | REST / SYS (T-PREP-AUTO at `accepted_at + 60 s`) | — | `preparing_at`. Event `OrderPreparing`. Notify customer (silent update). |
-| O-11 | `ACCEPTED` → `CANCELLED` | `Cancel` | CUST **only if `now ≤ placed_at + 60 s`** (grace); OPS, SUP with fault party | Grace check for CUST; admin needs reason + fault | Per cancellation matrix §6. Restaurant: full-screen "CANCELLED — do not prepare" alert (05 §4.4). Event `OrderCancelled` ⟶ delivery cancelled (D-15), rider freed and compensated per §6.2. |
+| O-11 | `ACCEPTED` → `CANCELLED` | `Cancel` | CUST **only if `now ≤ placed_at + 60 s`** (grace); OPS, SUP with fault party | Grace check for CUST; admin needs reason + fault | Per cancellation matrix §6. Restaurant: full-screen "CANCELLED — do not prepare" alert (05 §4.4). A restaurant `CANNOT_FULFIL` issue lands here via ops (SM-D12). Event `OrderCancelled` ⟶ delivery cancelled (D-15), rider freed and compensated per §6.2. |
 | O-12 | `PREPARING` → `READY_FOR_PICKUP` | `MarkReady` | REST; OPS on behalf | — (also allowed from `ACCEPTED`, which writes the implicit `PREPARING` row first) | `ready_at`. Event `OrderReadyForPickup` ⟶ rider notified ("Food is ready"); rider waiting-pay clock runs from `max(at_restaurant_at, ready_at)`. Clear T-PREP-DUE. Set **T-READY-WAIT**. |
 | O-13 | `PREPARING` → `CANCELLED` | `Cancel` | CUST only within grace (60 s from placement); OPS, SUP | As O-11 | §6 (food charged / restaurant compensated depending on fault). |
 | O-14 | `READY_FOR_PICKUP` → `PICKED_UP` | `RiderPickedUp` (from event `DeliveryPickedUp`) | RIDER (via dispatch) | Delivery is `PICKED_UP` for this order (event payload) | `picked_up_at`. Event `OrderPickedUp`. Notify customer ("On the way", rider first name). Clear T-READY-WAIT. Set **T-DELIVERY-LATE**. |
 | O-15 | `PREPARING` → `READY_FOR_PICKUP` → `PICKED_UP` | `RiderPickedUp` with implicit ready | RIDER | As O-14; order is `PREPARING` | **Two** history rows: `READY_FOR_PICKUP` (actor RIDER, metadata `{"implicit":true,"restaurantSkippedReady":true}`), then `PICKED_UP`. The flag feeds restaurant quality metrics. |
 | O-16 | `READY_FOR_PICKUP` → `CANCELLED` | `Cancel` | OPS, SUP | Reason + fault required | §6. The rider (if assigned) is told to hand the food back / not collect. |
 | O-17 | `PICKED_UP` → `DELIVERED` | `RiderDelivered` (from `DeliveryDelivered`) | RIDER (via dispatch); OPS on behalf (D-10a) | Delivery `DELIVERED` | `delivered_at`. COD: `payment_status=COD_COLLECTED`. Ledger ⟶ `order_settled.v1` (restaurant payable, commission + GST, fees, food GST §9(5), TDS) + `rider_earning.v1` + COD `cod_collected.v1` (Dr rider cash in hand). Coupon `APPLIED`. `delivered_order_count += 1`. Invoice issued (14). Event `OrderDelivered`. Notify customer (receipt). Set **T-RATE-PROMPT**. |
-| O-18 | `PICKED_UP` → `UNDELIVERABLE` | `ConfirmUndeliverable{reasonCode, faultParty}` | SUP, OPS (on the rider's request ticket) | Delivery has an open undeliverable request (`undeliverable_requested_at` set) | Delivery `AT_DROP → FAILED` (D-12) via event. Charges per §6 (customer fault: no refund for prepaid; COD: **strike +1**, 2 → COD disabled). Restaurant still settled. Rider paid in full. Event `OrderUndeliverable`. Ticket resolved. |
+| O-18 | `PICKED_UP` → `UNDELIVERABLE` | `ConfirmUndeliverable{reasonCode, faultParty}` | SUP, OPS (on the rider's request ticket) | Delivery has an open undeliverable request (`undeliverable_requested_at` set) | Delivery `AT_DROP → FAILED` (D-12) via event. Charges per §6 (customer fault: no refund for prepaid; COD: **strike +1**, `cod.strikes_to_disable` (2) → COD disabled). Coupon redemption is **burned** (stays `APPLIED`) on customer-fault undeliverable; any other non-delivered terminal state releases it (RV-048). Restaurant still settled. Rider paid in full. Event `OrderUndeliverable`. Ticket resolved. |
 | O-19 | `PICKED_UP` → `CANCELLED` | `Cancel` | OPS, SUPER only (exceptional: accident, fraud, food destroyed) | Reason + fault required; step-up (12) | Delivery `CANCELLED`. Rider paid in full. Refund/compensation per §6. |
 
 **Not transitions (explicitly illegal; tests assert `ErrIllegalTransition`):**
-- the restaurant cancelling after `ACCEPTED` — it raises a ticket `RESTAURANT_CANNOT_FULFIL` and ops cancels (05 §4.5);
+- the restaurant cancelling after `ACCEPTED` — it raises a ticket `RESTAURANT_CANNOT_FULFIL` and ops cancels (05 §4.5; R40);
 - a customer cancelling after the grace window, or from `READY_FOR_PICKUP` or later;
 - any transition out of a terminal state;
 - `PICKED_UP` from `ACCEPTED`;
@@ -146,24 +163,24 @@ stateDiagram-v2
 
 | ID | From → To | Command | Actors | Guards | Side effects |
 |---|---|---|---|---|---|
-| D-01 | ∅ → `UNASSIGNED` | `Create` | SYS (handler of `OrderAccepted`) | One delivery per order (`UNIQUE(order_id)`); idempotent on event id | `dispatch_after = accepted_at + max(0, prep_time − rider_approach_min − lead_buffer_min)`. Defaults: `rider_approach_min = 8` [ASSUMPTION — compact city, calibrate from data] and `lead_buffer_min = 5`, so prep ≤ 13 min dispatches immediately. `cod_amount_paise = total` if COD. `requires_delivery_code` from the flag. Event `DeliveryCreated`. River job **T-DISPATCH** at `dispatch_after`. |
-| D-02 | `UNASSIGNED` → `OFFERED` | `Offer` | SYS (dispatcher) | `now ≥ dispatch_after`. Best candidate (16 §7): `rider_availability.state = AVAILABLE`, location age < 3 min, rider `ACTIVE`, same city, not previously offered this delivery in this round, within radius step r (2 → 4 → 7 km). **COD: `cash_in_hand + cod_amount ≤ cash_limit`** (ruling 6), checked against `ledger_account_balances`. Not the customer themself (12 AUTH-D02 guard). Rider row locked `FOR UPDATE SKIP LOCKED`. | Insert offer `PENDING` (`expires_at = now + 45 s`, `est_earnings_paise`). `dispatch_round += 1`. Event `DeliveryOffered`. ⟶ SSE `offer.new` + high-urgency Web Push. Timer **T-OFFER** (+45 s). |
-| D-03 | `OFFERED` → `ASSIGNED` | `OfferAccept` | RIDER (offer's rider) | Offer `PENDING` and `now < expires_at + 2 s` grace; rider still `AVAILABLE`; COD headroom re-checked; delivery not cancelled | Offer `ACCEPTED`. `rider_id`, `assigned_at`. Rider `state=ON_DELIVERY`, `active_delivery_count=1`, `consecutive_missed_offers=0`. Event `DeliveryAssigned`. Notify restaurant ("Rider X assigned") + customer. Clear T-OFFER. |
-| D-04 | `OFFERED` → `UNASSIGNED` | `OfferDecline{reasonCode}` | RIDER | Offer `PENDING` | Offer `DECLINED`. Rider `consecutive_missed_offers += 1` (decline counts as half a miss [ASSUMPTION]; 3 misses → auto-offline). Immediately enqueue **D-02** for the next candidate (no wait). |
-| D-05 | `OFFERED` → `UNASSIGNED` | `OfferExpire` | SYS (T-OFFER) | Offer still `PENDING` (CAS) | Offer `EXPIRED`, `close_reason=TIMEOUT`. Miss counter +1. **3 consecutive misses → rider auto-`OFFLINE` (`MISSED_OFFERS`)** + notification (08 §5.4). Re-dispatch immediately. |
-| D-06 | `UNASSIGNED`/`OFFERED` → `ASSIGNED` | `ManualAssign{riderId, reason}` | OPS | Target rider `ACTIVE`, online (or ops override flag with reason), no active delivery, COD headroom (override → maker-checker `RIDER_CASH_LIMIT_OVERRIDE`) | A pending offer becomes `EXPIRED` (`REVOKED_MANUAL_ASSIGN`). Then as D-03. Audited. |
+| D-01 | ∅ → `UNASSIGNED` | `Create` | SYS (handler of `OrderAccepted`) | One delivery per order (`UNIQUE(order_id)`); idempotent on event id | `dispatch_after = accepted_at + max(0, prep_time − rider_approach_min − lead_buffer_min)`. Keys `dispatch.rider_approach_min` (8) [ASSUMPTION — compact city, calibrate from data] and `dispatch.lead_buffer_min` (5), so prep ≤ 13 min dispatches immediately. `cod_amount_paise = total` if COD. `requires_delivery_code` copied from the order (SM-D13). Event `DeliveryCreated`. River job **T-DISPATCH** at `dispatch_after`. |
+| D-02 | `UNASSIGNED` → `OFFERED` | `Offer` | SYS (dispatcher) | `now ≥ dispatch_after`. Best candidate (16 §7.2), **two tiers (R34)**: `rider_availability.state = AVAILABLE`, rider `ACTIVE`, same city, not previously offered this delivery in this round, within radius step r (`dispatch.radius_steps_m`). **Tier 1:** location age ≤ `dispatch.location_fresh_s` (3 min), ranked by distance. **Tier 2:** location age ≤ `rider.auto_offline_after_s` (15 min); used when tier 1 has no eligible rider at the current step, reached by high-urgency push + SSE. **COD: `cash_in_hand + cod_amount ≤ rider_cash_limit_paise`** (R6; 16 §6.5), checked against `ledger_account_balances`. Not the customer themself (12 AUTH-D02 guard). Rider row locked `FOR UPDATE SKIP LOCKED`. | Insert offer `PENDING` (`expires_at = now + dispatch.offer_ttl_s` (45 s), `est_earnings_paise`, `tier`). `dispatch_round += 1`. Event `DeliveryOffered`. ⟶ SSE `offer.new` + high-urgency Web Push (TTL = offer TTL). Timer **T-OFFER**. |
+| D-03 | `OFFERED` → `ASSIGNED` | `OfferAccept` | RIDER (offer's rider) | Offer `PENDING` and `now < expires_at + dispatch.offer_accept_grace_s` (2 s); rider still `AVAILABLE`; COD headroom re-checked; delivery not cancelled | Offer `ACCEPTED`. `rider_id`, `assigned_at`. Rider `state=ON_DELIVERY`, `active_delivery_count=1`, `consecutive_missed_offers=0`. Event `DeliveryAssigned`. Notify restaurant ("Rider X assigned") + customer. Clear T-OFFER. |
+| D-04 | `OFFERED` → `UNASSIGNED` | `OfferDecline{reasonCode}` | RIDER | Offer `PENDING` | Offer `DECLINED`. Rider `consecutive_missed_offers += 1` (decline counts as half a miss [ASSUMPTION]; `dispatch.missed_offers_to_offline` (3) misses → auto-offline). Immediately enqueue **D-02** for the next candidate (no wait). |
+| D-05 | `OFFERED` → `UNASSIGNED` | `OfferExpire` | SYS (T-OFFER) | Offer still `PENDING` (CAS) | Offer `EXPIRED`, `close_reason=TIMEOUT`. Miss counter +1. **`dispatch.missed_offers_to_offline` (3) consecutive misses → rider auto-`OFFLINE` (`MISSED_OFFERS`)** + notification (08 §5.4). Re-dispatch immediately. |
+| D-06 | `UNASSIGNED`/`OFFERED` → `ASSIGNED` | `ManualAssign{riderId, reason}` | OPS | Target rider `ACTIVE`, online (or ops override flag with reason), no active delivery, COD headroom (an override needs a reason and is audited and listed in the next-day review report; not maker-checker, R31) | A pending offer becomes **`REVOKED`** (`close_reason = REVOKED_MANUAL_ASSIGN`, R16) + SSE `offer.revoked`. Then as D-03. Audited. |
 | D-07 | `ASSIGNED` → `AT_RESTAURANT` | `ArriveRestaurant{location}` | RIDER; OPS on behalf | Soft geofence: ≤ 200 m from pickup → `geofence_ok`. Outside it is **accepted but flagged** [ASSUMPTION — GPS accuracy in PWAs] | `at_restaurant_at`. Waiting clock starts. Event `DeliveryAtRestaurant` ⟶ restaurant "Rider arrived". |
 | D-08 | `AT_RESTAURANT` → `PICKED_UP` | `PickUp{location}` | RIDER; OPS on behalf | **Order status ∈ {`PREPARING`, `READY_FOR_PICKUP`}** (read through `ordering.Reader` in the tx; ruling 4). Optional pickup PIN if `pickup_pin_required` (05 §6). | `picked_up_at`. `waiting_seconds = picked_up_at − max(at_restaurant_at, ready_at or at_restaurant_at)`. If the order was `PREPARING` → `restaurant_skipped_ready = true`. Event `DeliveryPickedUp` ⟶ order O-14/O-15. |
 | D-08b | `ASSIGNED` → `PICKED_UP` | `PickUp` (rider skipped "arrived") | RIDER | As D-08 | Implicit `AT_RESTAURANT` history row (`metadata.implicit=true`, `at_restaurant_at = picked_up_at`). |
 | D-09 | `PICKED_UP` → `AT_DROP` | `ArriveDrop{location}` | RIDER | Soft geofence ≤ 300 m of the drop pin, flagged otherwise | `at_drop_at`. Event `DeliveryAtDrop` ⟶ customer push "Your order has arrived" + call/handover hint. Set **T-DROP-WAIT**. |
-| D-10 | `AT_DROP` → `DELIVERED` | `Deliver{location, codCollected?, deliveryCode?}` | RIDER | If COD: `codCollected = cod_amount_paise` exactly (mismatch → `COD_AMOUNT_MISMATCH`, rider must call support). If `requires_delivery_code`: code verifies (5 attempts). No open undeliverable request. | `delivered_at`. `cod_collected_paise`. Rider pay computed (16 §6.4; fee config snapshot). Rider `state=AVAILABLE` (if still online), `active_delivery_count=0`. Event `DeliveryDelivered` ⟶ order O-17, ledger, rider cash cache refresh; if `cash_in_hand ≥ limit` → `cod_blocked=true` + event `RiderCashLimitReached`. |
+| D-10 | `AT_DROP` → `DELIVERED` | `Deliver{location, codCollected?, deliveryCode?}` | RIDER | If COD: `codCollected = cod_amount_paise` exactly (mismatch → `COD_AMOUNT_MISMATCH`, rider must call support). If `requires_delivery_code`: code verifies (`dispatch.delivery_code_max_attempts`, 5; then the rider must call support, D-10a). No open undeliverable request. | `delivered_at`. `cod_collected_paise`. Rider pay computed (16 §6.4; fee config snapshot). Rider `state=AVAILABLE` (if still online), `active_delivery_count=0`. Event `DeliveryDelivered` ⟶ order O-17, ledger, rider cash cache refresh; if `cash_in_hand ≥ limit` (no headroom left) → `cod_blocked=true` + event `RiderCashLimitReached`. `cod_blocked` is only a prefilter; eligibility for a given COD order is always `cash_in_hand + cod ≤ limit` (R6). |
 | D-10a | `AT_DROP`/`PICKED_UP` → `DELIVERED` | `Deliver` on behalf | OPS (rider app failure; customer confirmed by phone) | Reason required; COD amount confirmed by rider via phone | Same as D-10; audited. |
 | D-10b | `PICKED_UP` → `DELIVERED` | `Deliver` (rider skipped "arrived") | RIDER | As D-10 | Implicit `AT_DROP` row. |
-| D-11 | `AT_DROP` → `AT_DROP` | `RequestUndeliverable{reasonCode, note}` | RIDER | Reason ∈ `DELIVERY_FAIL`. For `CUSTOMER_UNREACHABLE`: `now − at_drop_at ≥ 10 min` and `call_attempts ≥ 2` (configurable). `CUSTOMER_REFUSED`/`UNSAFE_LOCATION`: no wait. No request already open. | Sets `undeliverable_requested_at`, reason. Creates an **URGENT** support ticket `UNDELIVERABLE_REQUEST` (ruling 5). Event `DeliveryUndeliverableRequested` ⟶ ops SSE alert + push. Timer **T-UNDELIV-SLA** (5 min). The rider stays at the drop or nearby; status unchanged. |
+| D-11 | `AT_DROP` → `AT_DROP` | `RequestUndeliverable{reasonCode, note}` | RIDER | Reason ∈ `DELIVERY_FAIL`. For `CUSTOMER_UNREACHABLE`: `now − at_drop_at ≥ delivery.drop_wait_s` (10 min) and `call_attempts ≥ delivery.undeliverable_min_calls` (2); each call tap is logged in `contact_tap_log`. `CUSTOMER_REFUSED`/`UNSAFE_LOCATION`: no wait. No request already open. | Sets `undeliverable_requested_at`, reason. Creates an **URGENT** support ticket `UNDELIVERABLE_REQUEST` (ruling 5). Event `DeliveryUndeliverableRequested` ⟶ ops SSE alert + push. Timer **T-UNDELIV-SLA**. The rider stays at the drop or nearby; status unchanged. |
 | D-11r | (request) → cleared | `RejectUndeliverableRequest{note}` | SUP, OPS | Request open | Clears the request fields; ticket note. Rider told to retry (e.g. support reached the customer). |
 | D-12 | `AT_DROP` → `FAILED` | `ConfirmUndeliverable` | SUP, OPS | Request open | `failed_at`. Rider paid in full (+ waiting pay at drop [OPEN]). Rider `AVAILABLE`. Food disposal instruction (no return-to-restaurant flow in V1). Event `DeliveryFailed` ⟶ order O-18. |
 | D-13 | `ASSIGNED`/`AT_RESTAURANT` → `UNASSIGNED` | `Release{reasonCode}` (rider) / `Unassign{reason}` (ops) | RIDER, OPS | Not yet picked up | `rider_id = NULL`. Rider freed (`AVAILABLE`, or `OFFLINE` if the reason is `VEHICLE_BREAKDOWN`/`ACCIDENT`). Release metric. **Immediate re-dispatch** with priority (`dispatch_after = now`). Event `DeliveryUnassigned`. Restaurant + customer informed if they had been told a rider name. |
-| D-15 | any non-terminal → `CANCELLED` | `CancelForOrder` | SYS (handler of `OrderCancelled`/`OrderRejected`) | Order terminal-cancelled | Pending offer → `EXPIRED` (`REVOKED_ORDER_CANCELLED`) + SSE `offer.revoked`. Rider freed. Rider cancellation compensation (§6.2) journal. Event `DeliveryCancelled`. |
+| D-15 | any non-terminal → `CANCELLED` | `CancelForOrder` | SYS (handler of `OrderCancelled`/`OrderRejected`) | Order terminal-cancelled | Pending offer → **`REVOKED`** (`REVOKED_ORDER_CANCELLED`) + SSE `offer.revoked`. Rider freed. Rider cancellation compensation (§6.2) journal. Event `DeliveryCancelled`. |
 
 ---
 
@@ -203,7 +220,7 @@ sequenceDiagram
 1. **Only `ordering` writes `orders`; only `dispatch` writes `deliveries`.** Cross-effects travel as domain events: `OrderAccepted`, `OrderCancelled`, `OrderRejected` → dispatch; `DeliveryPickedUp`, `DeliveryDelivered`, `DeliveryFailed` → ordering.
 2. **Guards that need the other aggregate read it through the owner's read port** (`ordering.Reader.Snapshot`) inside the command transaction, e.g. D-08 checks the order is `PREPARING`/`READY_FOR_PICKUP`. This is a read without a lock; the race is handled by rule 3.
 3. **Race policy:** if an event arrives for an order that has meanwhile become terminal (e.g. `DeliveryPickedUp` for an order an admin just cancelled), the ordering handler does **not** transition. It emits `OrderDeliveryConflict` → an ops alert, and dispatch has already received `OrderCancelled` → D-15. The outcome is deterministic: **the order's terminal state wins**, and money follows the order (§6).
-4. Event delivery is at-least-once with handler dedupe (`processed_events`). The latency between a delivery milestone and the order mirror is typically < 1 s (River fan-out).
+4. Event delivery is at-least-once with handler dedupe (`processed_events`). The latency between a delivery milestone and the order mirror is typically < 1 s (one River job per subscriber, inserted in the emitting transaction; no fan-out hop, R42).
 
 ### 3.3 Allowed status pairs (invariant; checked by tests and by a 1-min reconciler)
 
@@ -233,23 +250,27 @@ stateDiagram-v2
     [*] --> PENDING : D-02
     PENDING --> ACCEPTED : rider accepts (D-03)
     PENDING --> DECLINED : rider declines (D-04)
-    PENDING --> EXPIRED : 45 s timeout / revoked / rider offline (D-05, D-06, D-15)
+    PENDING --> EXPIRED : 45 s timeout (D-05)
+    PENDING --> REVOKED : manual assign / order cancelled / rider offline (D-06, D-15, §4.3)
     ACCEPTED --> [*]
     DECLINED --> [*]
     EXPIRED --> [*]
+    REVOKED --> [*]
 ```
 
-The baseline keeps four offer statuses. Revocations are `EXPIRED` with `close_reason ∈ {REVOKED_MANUAL_ASSIGN, REVOKED_ORDER_CANCELLED, RIDER_WENT_OFFLINE}`. Invariants (DB-enforced, 10 §8.2): at most **one `PENDING` offer per delivery** and **one per rider**. V1 offers are sequential, not broadcast.
+Offers have **five** statuses (R16): `PENDING | ACCEPTED | DECLINED | EXPIRED | REVOKED`. `EXPIRED` means only the rider's TTL ran out (`close_reason = TIMEOUT`), which counts as a missed offer. `REVOKED` means the system or an admin withdrew the offer, which never counts against the rider. `close_reason` keeps the detail: `REVOKED_MANUAL_ASSIGN`, `REVOKED_ORDER_CANCELLED`, `RIDER_WENT_OFFLINE` (10 §8.2 enforces the status ↔ reason pairing). Invariants (DB-enforced, 10 §8.2): at most **one `PENDING` offer per delivery** and **one per rider**. V1 offers are sequential, not broadcast.
 
-### 4.2 Dispatch cascade parameters (per city, `app_config`)
+### 4.2 Dispatch cascade parameters (keys in §5.1)
 
-| Param | Default |
-|---|---|
-| Offer TTL | 45 s (P11) |
-| Radius steps | 2 km → 4 km → 7 km (advance when no eligible candidate at the current step) |
-| Candidate order | nearest by `<->` KNN, then tie-break: longest idle since last delivery (fairness), then higher acceptance rate |
-| Exhaustion | 8 offers or 10 min since `dispatch_after` → `DispatchExhausted` event → ops alert. The cascade **continues** every 60 s at max radius until assigned or cancelled. |
-| Missed offers → offline | 3 consecutive |
+| Param | Key | Default |
+|---|---|---|
+| Offer TTL | `dispatch.offer_ttl_s` | 45 s (P11) |
+| Radius steps | `dispatch.radius_steps_m` | 2 km → 4 km → 7 km (advance when no eligible candidate in either tier at the current step) |
+| Tier 1 (fresh location) | `dispatch.location_fresh_s` | ≤ 3 min, ranked by distance (R34) |
+| Tier 2 (stale location, push + SSE) | `rider.auto_offline_after_s` | ≤ 15 min; tried at a step only when tier 1 is empty there (R34) |
+| Candidate order | — | tier, then nearest by `<->` KNN, then tie-break: longest idle since last delivery (fairness), then higher acceptance rate |
+| Exhaustion | `dispatch.max_offers`, `dispatch.exhaust_after_s` | 8 offers or 10 min since `dispatch_after` → `DispatchExhausted` event → ops alert. The cascade **continues** every `dispatch.retry_interval_s` (60 s) at max radius until assigned or cancelled. |
+| Missed offers → offline | `dispatch.missed_offers_to_offline` | 3 consecutive |
 
 ### 4.3 Rider availability (`rider_availability.state`, ruling 11)
 
@@ -257,20 +278,17 @@ The baseline keeps four offer statuses. Revocations are `EXPIRED` with `close_re
 stateDiagram-v2
     [*] --> OFFLINE
     OFFLINE --> AVAILABLE : GoOnline (ACTIVE, KYC VERIFIED, location fix)
-    AVAILABLE --> OFFLINE : GoOffline / stale location 10 min / 3 missed offers / admin / suspended
-    AVAILABLE --> ON_BREAK : StartBreak
-    ON_BREAK --> AVAILABLE : EndBreak
-    ON_BREAK --> OFFLINE : GoOffline / break > 60 min
+    AVAILABLE --> OFFLINE : GoOffline / no ping or heartbeat 15 min / 3 missed offers / admin / suspended
     AVAILABLE --> ON_DELIVERY : D-03 / D-06
     ON_DELIVERY --> AVAILABLE : D-10 / D-12 / D-13 / D-15
     ON_DELIVERY --> OFFLINE : D-13 with ACCIDENT/VEHICLE_BREAKDOWN
 ```
 
+- **No `ON_BREAK` state in V1** (C12). A rider who wants a break goes `OFFLINE`. Rider shifts are V2+.
 - `GoOffline` while `ON_DELIVERY` is refused (`RIDER_HAS_ACTIVE_DELIVERY`). The rider must finish or release.
-- A pending offer to a rider who goes offline → `EXPIRED (RIDER_WENT_OFFLINE)`.
+- A pending offer to a rider who goes offline → **`REVOKED`** (`RIDER_WENT_OFFLINE`).
+- "Stale" is not a state. It is derived from `last_location_at`: fresh (tier 1), stale (tier 2), or auto-offline at 15 min (`last_seen_at`, which any location ping, batched ping upload or SSE presence refreshes; R27, R34).
 - `cod_blocked` is an orthogonal flag, not a state. A COD-blocked rider is still `AVAILABLE` for prepaid orders.
-
----
 
 ## 5. Timers
 

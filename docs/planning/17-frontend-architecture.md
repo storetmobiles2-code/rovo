@@ -4,11 +4,23 @@
 |---|---|
 | **Purpose** | Define how rovo's web frontends are built: framework decision (challenge of baseline P7), app/package layout, routing, state, real-time, auth handling, forms, design system, i18n, images, performance, accessibility, analytics, error tracking, maps, configuration, build and deploy outputs. |
 | **Owner** | Frontend Architect |
-| **Status** | Draft v1 (2026-10-04) |
-| **Depends on** | `00-planning-baseline.md` (P2, P3, P7, P8, P9, P12, P13, P17), `04`–`07` (UX workflows → route lists), `11-api-specification.md` (OpenAPI, SSE event names, error format), `12-auth-rbac.md` (cookies, CSRF, roles), `13-order-state-machine.md`, `14-payment-architecture.md` (checkout and CSP domains), `15-notification-architecture.md` (Web Push, SMS escalation), `16-delivery-zone-architecture.md` (pin-drop, serviceability), `00` §4a (production on a hyperscaler in an India region; free hosting only for dev/preview), `08-system-architecture.md` (single SSE stream, no replay buffer), `22-deployment-architecture.md` (CDN + object storage, path routing), `25-free-hosting-comparison.md` (preview hosting only), `24-observability-strategy.md` (Sentry, RUM) |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
+| **Depends on** | `00-planning-baseline.md` (P2, P3, P7, P8, P9, P12, P13, P17; rulings R10, R12, R14, R17, R24, R27, R33, R36, R37, R44), `04`–`07` (UX workflows → route lists), `11-api-specification.md` (OpenAPI, SSE event names, error format), `12-auth-rbac.md` (cookies, CSRF, roles), `13-order-state-machine.md`, `14-payment-architecture.md` (checkout and CSP domains), `15-notification-architecture.md` (Web Push, SMS escalation), `16-delivery-zone-architecture.md` (pin-drop, serviceability), `00` §4a (production on a hyperscaler in an India region; free hosting only for dev/preview), `08-system-architecture.md` (single SSE stream, no replay buffer), `22-deployment-architecture.md` (CDN + object storage, path routing), `25-free-hosting-comparison.md` (preview hosting only), `24-observability-strategy.md` (Grafana Faro for frontend errors/RUM, R36) |
 | **Companion** | `18-mobile-pwa-strategy.md` (service worker, offline, push, native path) |
 
 Tags: `[ASSUMPTION]` = believed true, verify; `[OPEN]` = decision pending; `[LEGAL]` = needs legal review. All web sources were accessed **2026-10-04** unless stated otherwise.
+
+**Changes in v1.1** (review 31 + rulings R1–R48):
+- **Build-time prerendering cut** (R33, C3, RV-080): no TanStack Start, no nightly rebuild and no CI dependency on production data. Static OG/meta tags go in each SPA's `index.html`. Restaurant share links `/r/{slug}` get a small **Go-served HTML page** with OG tags plus a redirect into the SPA (**P1**) (§1.3, §3.1, §15).
+- Four apps under **`web/`** (R14): `web/apps/{customer,restaurant,rider,admin}` and `web/packages/*` (§2).
+- Same-origin `/api/v1` on every host via CloudFront; no CORS and no browser `api.` host (R27). Doc 12 now splits the audience into `restaurant`/`rider`, which closes the §6 `[OPEN]` (§6, §15.1).
+- SSE: no `Last-Event-ID`; `reauth` only on session revocation; 30-min stream cap; reconnect jitter 2–10 s (R10, RV-011, RV-038) (§5).
+- Translatable fields: API returns `nameI18n` + resolved `displayName` (R17); `name_te` usage replaced (§3.2, §4.2, §10).
+- Quote/order contract per R12: `quoteId` + `Idempotency-Key` only; `409 QUOTE_CHANGED` / `QUOTE_EXPIRED` (§4.3).
+- Frontend errors and RUM go to **Grafana Faro**; **no Sentry in V1** (R36, C11) (§13.3).
+- Admin edge: TOTP + WAF rate and geo-IN rules; **no identity-aware proxy** (R37, C4) (F3, §1.4).
+- Restaurant counter devices get device-bound sessions (30 d sliding / 90 d absolute); riders 30 d sliding (R44) (§6).
+- Rider offline queue limited to pickup/deliver (C12); no Telugu romanisation in search (C17); no pinless addresses (R13, RV-056); dev/preview is local Docker only (R24, RV-019); local PMTiles stub (RV-021).
 
 ---
 
@@ -16,16 +28,16 @@ Tags: `[ASSUMPTION]` = believed true, verify; `[OPEN]` = decision pending; `[LEG
 
 | # | Decision | Status vs baseline |
 |---|---|---|
-| F1 | **Vite + React 19 + TypeScript SPA/PWA**, static output only, no frontend server runtime. In production the files are served from **object storage + the cloud CDN** (e.g. S3 + CloudFront or GCS + Cloud CDN), with Cloudflare optional in front. Customer app adds **build-time static prerendering of public pages** (home, city, restaurant menu pages) for SEO and WhatsApp link previews. | **P7 CONFIRMED, with an amendment** (prerendering of public pages) |
-| F2 | **Four apps, not three**: `apps/customer`, `apps/restaurant`, `apps/rider`, `apps/admin`. The baseline "partner" app is split into restaurant and rider apps. | **P7 CHANGED** (app split) |
-| F3 | **Admin is deployed separately** on its own origin (`admin.<domain>`). It has no service worker and gets a stricter CSP. An **edge access gate** sits in front of the app's own email + password + TOTP login: a WAF IP allowlist on the CDN, or an identity-aware proxy (Cloudflare Access if Cloudflare is in front; otherwise the cloud's equivalent) [OPEN – DevOps/Security pick]. | New |
-| F4 | **Every app calls the API on its own origin under `/api`.** The CDN routes `/api/*` to the API origin and everything else to the bucket. Cross-origin calls are avoided so that patchy 4G does not pay for CORS preflights, and cookies stay host-only. | Aligned with doc 12 AUTH-D03. **Requirement on DevOps** (§15) |
+| F1 | **Vite + React 19 + TypeScript SPA/PWA**, static output only, no frontend server runtime. In production the files are served from **object storage + CloudFront** (S3 + CloudFront, R23). **No build-time prerendering** (R33, C3): each SPA's `index.html` carries static OG/meta tags, and restaurant share links `/r/{slug}` are served by a small Go handler in the API with per-restaurant OG tags plus a redirect into the SPA (**P1**). | **P7 CONFIRMED** (v1 prerender amendment withdrawn) |
+| F2 | **Four apps, not three** (R14): `web/apps/customer`, `web/apps/restaurant`, `web/apps/rider`, `web/apps/admin` on hosts `app.`, `restaurant.`, `rider.`, `admin.`. The baseline "partner" app is split into restaurant and rider apps. | **P7 CHANGED** (app split; ratified by R14) |
+| F3 | **Admin is deployed separately** on its own origin (`admin.<domain>`). It has no service worker and gets a stricter CSP. Edge protection is AWS WAF **rate rules plus a geo = India rule** on the admin host, in front of the app's own email + password + **mandatory TOTP** login; passkeys are P1. **No identity-aware proxy in V1** (R37, C4). | New (R37) |
+| F4 | **Every app calls the API on its own origin under `/api/v1`** (R15, R27). CloudFront routes `/api/*` to the API ALB and everything else to the bucket. Cross-origin calls are avoided so that patchy 4G does not pay for CORS preflights, and cookies stay host-only. There is no browser-facing `api.` host and no CORS in V1. | Aligned with doc 12 AUTH-D03. **Requirement on DevOps** (§15) |
 | F5 | TanStack Router + TanStack Query, Tailwind, Radix primitives (shadcn-style, copied in), i18next, vite-plugin-pwa, openapi-typescript + openapi-fetch. | P8 CONFIRMED |
 | F6 | **No server-side cart in V1.** The cart is held on the client (one restaurant per cart) and persisted in `localStorage`. A stateless server **quote** endpoint returns the authoritative totals. | Decision (Backend to confirm) |
-| F7 | One SSE connection per app tab (`GET /api/v1/stream?topics=…`, doc 08), using a small fetch-based client with reconnect, backoff, `reauth` handling and `Last-Event-ID`. On every reconnect the client refetches active queries, because there is no replay buffer. Each event **invalidates TanStack Query keys**; it does not patch the cache. Polling is the fallback. | P3 CONFIRMED |
+| F7 | One SSE connection per app tab (`GET /api/v1/stream?topics=…`, R10), using a small fetch-based client with reconnect, jittered backoff and `reauth` handling. **No `Last-Event-ID`, no replay** (R10): on every reconnect the client refetches the active order/inbox/offer queries. Each event **invalidates TanStack Query keys**; it does not patch the cache. Polling is the fallback. | P3 CONFIRMED |
 | F8 | Self-hosted fonts: system font for Latin text, **Noto Sans Telugu subset** loaded only when Telugu glyphs are on the page. | New |
-| F9 | Images are **resized into variants by a resize-on-upload worker job** and stored in S3-compatible object storage behind the CDN. The cloud's on-the-fly image service is the alternative. | New (requirement on Backend; amends doc 08 "no server-side image pipeline") |
-| F10 | MapLibre GL JS with the **OpenFreeMap** public instance for V1. A **self-hosted Protomaps PMTiles extract** for Telangana in S3-compatible object storage behind the CDN is plan B. The map is lazy-loaded only on address screens and in admin zone editing. | P13 CONFIRMED |
+| F9 | Images are **resized into variants by a resize-on-upload worker job** and stored in S3-compatible object storage behind the CDN. The cloud's on-the-fly image service is the alternative. `[OPEN — review 31 minor drift: Go has no stdlib WebP encoder, so a server pipeline needs cgo/libvips. Reviewer proposal: the client produces the WebP variants and the server validates and re-encodes JPEG only. Decide with doc 08 in Phase 2 week 1.]` | New (requirement on Backend; amends doc 08 "no server-side image pipeline") |
+| F10 | MapLibre GL JS. Production: a **self-hosted Protomaps PMTiles extract** in S3 behind the CDN (§14). Local Compose: a small Mahabubnagar PMTiles extract served by MinIO, so dev runs offline (RV-021). OpenFreeMap only as a configurable emergency fallback. The map is lazy-loaded only on address screens and in admin zone editing. | P13 CONFIRMED |
 
 ---
 

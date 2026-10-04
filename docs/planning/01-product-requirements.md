@@ -94,7 +94,7 @@ The V1 golden flow that must work end-to-end, every time:
 |---|---|---|
 | G1 | The golden flow works reliably for both **UPI/online** and **COD** orders. | Order completion rate, cancellation rate |
 | G2 | Orders are delivered fast and predictably in a compact city. | Delivery time p50/p90, ETA accuracy |
-| G3 | Restaurants with low digital literacy can accept and fulfil orders without missing them. | Acceptance rate, time-to-accept, auto-reject rate |
+| G3 | Restaurants with low digital literacy can accept and fulfil orders without missing them. | Acceptance rate, time-to-accept, unresponsive-cancel rate (M-02) |
 | G4 | Money is right: every rupee (online, COD, refunds, commissions, payouts) reconciles. | COD reconciliation accuracy, settlement accuracy |
 | G5 | Usable by Telugu-first and low-end-device users. | Crash-free sessions, performance budgets, accessibility audit, Telugu usage share |
 | G6 | Compliant at launch with Indian consumer, food-safety, tax, privacy and telecom rules. | Legal checklist (LEG-*) closed |
@@ -102,7 +102,7 @@ The V1 golden flow that must work end-to-end, every time:
 
 ### 3.2 Non-goals (V1) — see `02-v1-scope.md` for the full list and justifications
 
-Multi-city operations; AI recommendations; loyalty, subscriptions, referrals; advanced analytics/BI; complex route optimisation and order batching; live GPS fleet/customer map tracking; native mobile apps; microservices; scheduled, group or multi-restaurant orders; wallets/stored value; tipping (V1.1); masked calling (V1.1); automated payouts (V1.1); grocery/pharmacy/pick-and-drop; dine-in; alcohol; surge pricing; sponsored listings.
+Multi-city operations; AI recommendations; loyalty, subscriptions, referrals; advanced analytics/BI; complex route optimisation and order batching; live GPS fleet/customer map tracking; native mobile apps; microservices; scheduled, group or multi-restaurant orders; wallets/stored value; tipping (V1.1); masked calling (V1.1); automated payouts (V1.1); grocery/pharmacy/pick-and-drop; dine-in; alcohol; surge pricing (R30); sponsored listings; WhatsApp OTP/notifications; the other accepted scope cuts C1–C20 (`02-v1-scope.md` §2.3).
 
 ## 4. Success metrics and V1 targets
 
@@ -113,7 +113,7 @@ Definitions are normative: Analytics/Backend must compute them exactly as define
 | ID | Metric | Definition | Pilot gate | V1 target |
 |---|---|---|---|---|
 | M-01 | **Restaurant acceptance rate** | `ACCEPTED / (orders that reached PLACED − orders cancelled by customer while PLACED)` | ≥ 90% | **≥ 95%** |
-| M-02 | **Auto-reject (timeout) rate** | Orders `REJECTED` with reason `RESTAURANT_TIMEOUT` / orders reaching `PLACED` | ≤ 4% | **≤ 2%** |
+| M-02 | **Restaurant-unresponsive cancel rate** | Orders `CANCELLED` with `cancelled_by=SYSTEM`, reason `RESTAURANT_UNRESPONSIVE` (R1, 180 s accept window) / orders reaching `PLACED` | ≤ 4% | **≤ 2%** |
 | M-03 | **Time-to-accept** | `ACCEPTED.at − PLACED.at` | p50 ≤ 90 s | **p50 ≤ 60 s, p90 ≤ 150 s** |
 | M-04 | **Rider assignment time** | first `OFFERED` → `ASSIGNED` for the delivery | p90 ≤ 8 min | **p50 ≤ 90 s, p90 ≤ 5 min** |
 | M-05 | **Offer acceptance rate** | `ACCEPTED offers / (ACCEPTED+DECLINED+EXPIRED offers)` | ≥ 60% | **≥ 70%** |
@@ -121,7 +121,7 @@ Definitions are normative: Analytics/Backend must compute them exactly as define
 | M-07 | **Last-mile time** | `DELIVERED.at − PICKED_UP.at` | — | **p50 ≤ 12 min, p90 ≤ 20 min** |
 | M-08 | **ETA accuracy** | % delivered at or before the upper bound of the ETA range shown at order placement | ≥ 70% | **≥ 85%** |
 | M-09 | **Cancellation rate (all causes)** | `(CANCELLED + REJECTED + UNDELIVERABLE) / orders reaching PLACED` | ≤ 10% | **≤ 6%** |
-| M-10 | of which restaurant-caused | `REJECTED` + `CANCELLED` with `cancelled_by=restaurant` | ≤ 5% | **≤ 2.5%** |
+| M-10 | of which restaurant-caused | `REJECTED` + `CANCELLED` with fault attribution `restaurant` (incl. `RESTAURANT_UNRESPONSIVE` and ops-mediated `RESTAURANT_CANNOT_FULFIL`, R40) | ≤ 5% | **≤ 2.5%** |
 | M-11 | of which no-rider-caused | `CANCELLED` with reason `NO_RIDER_AVAILABLE` | ≤ 3% | **≤ 1%** |
 | M-12 | **Order completion rate** | `DELIVERED / orders reaching PLACED` | ≥ 88% | **≥ 93%** |
 
@@ -141,7 +141,7 @@ Definitions are normative: Analytics/Backend must compute them exactly as define
 
 | ID | Metric | Definition | V1 target |
 |---|---|---|---|
-| M-30 | **Crash-free sessions** | % of sessions (per app: customer, partner, admin) without a fatal client error (unhandled exception or error boundary render that blocks the current flow) as reported to error tracking | **≥ 99.5%** customer & partner; ≥ 99% admin |
+| M-30 | **Crash-free sessions** | % of sessions (per app: customer, restaurant, rider, admin — R14) without a fatal client error (unhandled exception or error boundary render that blocks the current flow) as reported to frontend error tracking (Grafana Faro, R36) | **≥ 99.5%** customer, restaurant & rider; ≥ 99% admin |
 | M-31 | Order placement error rate | Checkout submissions returning 5xx or failing client-side after retries | **≤ 0.5%** |
 | M-32 | Core Web Vitals (customer app, field data, p75, mobile) | LCP / INP / CLS | **LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1** |
 | M-33 | Availability (production) | See NFR-AVAIL-001/002 | **≥ 99.9% ordering critical path; ≥ 99.5% other surfaces** (monthly) |
@@ -153,9 +153,9 @@ Definitions are normative: Analytics/Backend must compute them exactly as define
 | ID | Metric | Definition | V1 target |
 |---|---|---|---|
 | M-40 | Restaurant rating (platform avg) | mean of restaurant ratings, last 30 days | **≥ 4.0 / 5** |
-| M-41 | Delivery rating (platform avg) | mean of delivery ratings, last 30 days | **≥ 4.3 / 5** |
+| M-41 | Delivery rating (platform) | share of delivery ratings that are 👍 (thumbs + tags, CUS-RATE-001), last 30 days | **≥ 90% thumbs-up** |
 | M-42 | Rating submission rate | rated orders / delivered orders | **≥ 25%** |
-| M-43 | Support first response | ticket created → first human response, in service hours | **p90 ≤ 10 min** |
+| M-43 | Support first response | ticket created → first human response, in service hours | **p90 ≤ 10 min** — measured in the pilot, not a launch gate; depends on the staffed support line (M9, CUS-SUPP-003) |
 | M-44 | Grievance acknowledgement | complaints acknowledged within 48 h (LEG-CP-003) | **100%** |
 | M-45 | Ticket resolution | created → resolved | **p90 ≤ 72 h**; 100% ≤ 30 days (legal) |
 | M-46 | Order-issue rate | orders with a ticket of category missing/wrong/quality | **≤ 3%** |
@@ -164,29 +164,29 @@ Definitions are normative: Analytics/Backend must compute them exactly as define
 
 | ID | Metric | V1 target `[ASSUMPTION]` |
 |---|---|---|
-| M-50 | Orders/day | Month 1 avg ≥ 80; Month 3 avg ≥ 250 |
+| M-50 | Orders/day | Closed pilot ≈ 30; Month 1 avg ≥ 80; Month 3 avg ≥ 250 (planning volumes per R45; doc 20 §12.1 owns the load model) |
 | M-51 | 30-day customer repeat rate | ≥ 35% of first-time customers order again within 30 days |
 | M-52 | Sign-up → first order conversion | ≥ 40% |
 | M-53 | Weekly active restaurants | ≥ 85% of live restaurants receive ≥ 1 order/week |
-| M-54 | Rider earnings per online hour (median) | ≥ ₹100/h at peaks (rider retention lever) |
+| M-54 | Rider earnings per online hour (median) | ≥ ₹100/h at peaks (rider retention lever); pilot floor via minimum guarantee (RDR-EARN-007, M6) |
 | M-55 | Rider 30-day retention | ≥ 60% of approved riders active in their 5th week |
-| M-56 | Item-unavailability rejections | `REJECTED` with `ITEM_OUT_OF_STOCK` / `PLACED` ≤ 1% |
+| M-56 | Item-unavailability rejections | `REJECTED` with `ITEMS_OUT_OF_STOCK` (doc 13 §6.3) / `PLACED` ≤ 1% |
 
 ### 4.6 Running cost (business line item)
 
-Production runs on paid managed cloud (baseline §4a), so infrastructure is a real cost of goods sold, tracked like rider pay. Definitions and budgets in BR-COST.
+Production runs on paid managed cloud (baseline §4a), so infrastructure is a real cost of goods sold, tracked like rider pay. Definitions in BR-COST; **budget figures are owned by doc 25 §15 (R46), quoted ex-GST**, with a `closed-pilot` and a `public-launch` infrastructure profile (R32). Pilot cloud cost per order is expected to exceed the M-60 target until volume reaches month-3 levels (31 §2.1); M-60 is therefore a month-3 target, not a pilot gate.
 
 | ID | Metric | Definition | V1 target `[ASSUMPTION]` |
 |---|---|---|---|
 | M-60 | **Cloud cost per delivered order** | (production + staging cloud bill for the month, incl. DB, compute, CDN, storage, logs, WAF, egress, backups) / delivered orders in the month | **≤ ₹6 by month 3** (≈ 7,500 orders/month); ≤ ₹3 at 1,000 orders/day |
 | M-61 | **Total tech opex per delivered order** | M-60 + SMS/OTP + PA fees not recovered from customers + error tracking/observability SaaS + telephony + maps/tiles + domains/email | **≤ ₹10 by month 3** |
-| M-62 | Cloud budget adherence | Actual monthly cloud spend vs approved budget | ≤ 100%; alerts at 50/80/100% (doc 22/24) |
+| M-62 | Cloud budget adherence | Actual monthly cloud spend vs approved budget (doc 25 §15) | ≤ 100%; alerts at 50/80/100% (doc 22/24) |
 
 ---
 
 ## 5. Functional requirements — Customer (CUS-*)
 
-Customer app = `customer` PWA (baseline P7). Role `CUSTOMER`.
+Customer app = `customer` PWA served at the `app.` host (baseline P7, R14). Role `CUSTOMER`.
 
 ### 5.1 CUS-AUTH — Registration, login, profile, account
 
@@ -196,21 +196,22 @@ Customer app = `customer` PWA (baseline P7). Role `CUSTOMER`.
   - AC: Web OTP API / SMS auto-read used where the browser supports it; manual entry always works.
   - AC: Phone stored in E.164; leading `0`/`+91` pasted forms are normalised.
 - **CUS-AUTH-002 (P0) Minimal profile.** After first verification ask only for **name** (required) and **email** (optional, for receipts). No date of birth, gender, etc.
-- **CUS-AUTH-003 (P0) Consent & notices at sign-up.** Show privacy notice (en/te) and terms; a separate, unticked opt-in for marketing messages; user confirms they are 18+ (see LEG-DPDP-006). Consent record (version, timestamp, channel) stored.
+- **CUS-AUTH-003 (P0) Consent & notices at sign-up.** Show privacy notice (en/te) and terms; a separate, unticked opt-in for marketing messages; user confirms they are 18+ (see LEG-DPDP-006). Notice, consent and 18+ declaration are presented on **one combined screen** to keep first checkout short (RV-057). Consent record (version, timestamp, channel) stored.
 - **CUS-AUTH-004 (P0) Language choice.** On first launch, default to device language if `te`/`en`, else `en`; a language switcher is reachable from the header/profile on every screen; choice persists on the account and device.
 - **CUS-AUTH-005 (P0) Session persistence.** Stay signed in on the device (refresh-token rotation per baseline P9) for up to 30 days of inactivity [ASSUMPTION – doc 12 owns]; sign-out available; "sign out of all devices" (P1).
 - **CUS-AUTH-006 (P0) Browse before login.** Discovery, menus and cart work without login; login is required at checkout (cart preserved through login).
 - **CUS-AUTH-007 (P0) Account deletion.** User can request deletion in-app; confirmation by OTP; account deactivated immediately, PII erased/anonymised within 30 days except data under legal retention (NFR-RET); blocked while an order is in progress.
 - **CUS-AUTH-008 (P1) Change phone number.** Verify new number by OTP; old number receives notification.
 - **CUS-AUTH-009 (P1) Data access request.** User can download a summary of their personal data (profile, addresses, orders) as JSON/CSV or request it via support (DPDP right to information).
-- **CUS-AUTH-010 (P2) WhatsApp OTP channel** as alternative to SMS.
+- **CUS-AUTH-010 (P2) WhatsApp OTP channel** as alternative to SMS (deferred to V1.1+, C2; V1 fallback is a secondary SMS aggregator).
 
 ### 5.2 CUS-ADDR — Location and addresses
 
 - **CUS-ADDR-001 (P0) Set delivery location on first use.** Options: "Use my current location" (browser geolocation, permission prompt explained beforehand) or "Search locality" (from seeded `locality` list) or "Pick on map".
   - AC: *Given* location permission is denied *then* the user can still proceed by choosing a locality and then dropping a pin.
-- **CUS-ADDR-002 (P0) Address form (India).** Fields per baseline §3: house/flat no. (required), building/street (required), locality (required; pick from list, "Other" allowed with free text), landmark (strongly encouraged; the form nudges once if empty), PIN (6 digits, prefilled from locality), label (Home/Work/Other), contact name/phone override (optional, "ordering for someone else"), **map pin (required)**.
+- **CUS-ADDR-002 (P0) Address form (India) — R13.** Fields per baseline §3: house/flat no. (required), building/street (**optional**), locality (required; pick from list, "Other" allowed with free text), **landmark (required)**, PIN (6 digits, prefilled from locality), label (Home/Work/Other), contact name/phone override (optional, "ordering for someone else"), **map pin (required)**.
   - AC: An address cannot be saved without lat/lng from a pin; pin defaults to geolocation or locality centroid; the user must confirm the pin ("Move the pin to your gate").
+  - AC: There is **no pinless address path**. If map tiles fail, the user can set the pin with "Use my current location" (GPS fix) or on a lightweight fallback (static locality image); a locality centroid alone is never saved as a delivery pin (register row 30).
 - **CUS-ADDR-003 (P0) Serviceability check.** On selecting/saving an address, show whether it is serviceable (inside an active zone). Non-serviceable → clear message "We don't deliver here yet" + option to register interest (stored, P1).
 - **CUS-ADDR-004 (P0) Saved addresses.** List, add, edit, delete, set default. Max 10 per user. Editing an address does not alter past orders (orders snapshot the address).
 - **CUS-ADDR-005 (P0) Delivery instructions.** Optional free text per address (≤ 200 chars, e.g. "Call on arrival, 2nd floor, blue gate") shown to the rider.
@@ -242,7 +243,7 @@ Customer app = `customer` PWA (baseline P7). Role `CUSTOMER`.
 ### 5.5 CUS-MENU — Restaurant and menu page
 
 - **CUS-MENU-001 (P0) Restaurant header.** Name, cuisines, locality, rating + count, ETA range, delivery fee, cost for two, open hours today, **FSSAI licence/registration number** (LEG-FSSAI-002), pure-veg badge.
-- **CUS-MENU-002 (P0) Menu.** Categories in restaurant-defined order with sticky category navigator; each item shows name (te shown under en, or vice versa per locale, when `name_te` exists), description, price, **dietary marker (VEG / EGG / NON_VEG)** per BR-MENU-001, image if present, "Customisable" hint, bestseller tag (P1), out-of-stock state.
+- **CUS-MENU-002 (P0) Menu.** Categories in restaurant-defined order with sticky category navigator; each item shows name (te shown under en, or vice versa per locale, when a Telugu name exists — stored in `name_i18n` JSONB, exposed as `nameI18n` + resolved `displayName`, R17), description, price, **dietary marker (VEG / EGG / NON_VEG)** per BR-MENU-001, image if present, "Customisable" hint, bestseller tag (P1), out-of-stock state.
 - **CUS-MENU-003 (P0) Veg-only toggle** on the menu page.
 - **CUS-MENU-004 (P0) Out-of-stock items** are shown greyed with "Not available now" (not hidden) and cannot be added; items in hidden categories or outside their availability window are not shown.
 - **CUS-MENU-005 (P0) Price display.** Item prices displayed as entered by the restaurant, which are **exclusive of GST** (BR-FEE-007); the menu header carries a one-line note "Prices exclude 5% GST; packaging charges may apply".
@@ -266,7 +267,7 @@ Customer app = `customer` PWA (baseline P7). Role `CUSTOMER`.
 
 - **CUS-CART-001 (P0) Single-restaurant cart rule.** A cart holds items from exactly one restaurant.
   - AC: *Given* a cart with items from Restaurant A *when* the user adds an item from Restaurant B *then* a dialog "Replace cart? Your cart has items from A" offers **Replace** (clears and adds) or **Cancel**; no silent replacement.
-- **CUS-CART-002 (P0) Persistence.** Cart persists on device (survives reload/offline) and, once logged in, server-side for 24 h; price/availability re-validated on open and at checkout.
+- **CUS-CART-002 (P0) Persistence.** Cart persists **on the device only** (survives reload/offline); there is **no server-side cart** (R12). Price/availability are re-validated on open and at checkout through `POST /api/v1/cart/quote`.
 - **CUS-CART-003 (P0) Bill preview.** Cart shows the full bill breakdown per BR-FEE-008 (item total, packaging, GST on food, delivery fee, platform fee, small-cart fee if any, discount, round-off, **To pay**) for the selected address before payment.
 - **CUS-CART-004 (P0) Change detection.** If an item became unavailable or a price/fee changed since being added, the cart flags the line ("Price updated from ₹120 to ₹130" / "No longer available — remove") and blocks checkout until acknowledged.
 - **CUS-CART-005 (P0) Small-cart nudge.** If subtotal < small-cart threshold, show "Add ₹X more to avoid ₹15 small-cart fee".
@@ -276,7 +277,7 @@ Customer app = `customer` PWA (baseline P7). Role `CUSTOMER`.
 ### 5.8 CUS-CHK — Checkout
 
 - **CUS-CHK-001 (P0) Checkout screen** = address selector (serviceable addresses only), delivery instructions, coupon field, payment method selector, full bill, cancellation/refund policy summary link (LEG-CP-004), and a single "Place order"/"Pay ₹X" button whose amount equals **To pay**.
-- **CUS-CHK-002 (P0) Server-side quote.** The client never computes authoritative prices; the server returns a priced quote (with a quote ID valid ≤ 10 min [ASSUMPTION]) and order placement references it; if anything changed, placement is rejected with the new quote for user confirmation.
+- **CUS-CHK-002 (P0) Server-side quote (R12).** The client never computes authoritative prices; `POST /api/v1/cart/quote` returns a priced quote with a signed `quoteId` (stored quote, 10-min validity); order placement needs `quoteId` + `Idempotency-Key`; a stale or changed quote is rejected with `409` and a machine-readable diff for user confirmation.
 - **CUS-CHK-003 (P0) Idempotent placement.** Order placement carries a client idempotency key; retries after network loss never create duplicate orders or duplicate charges.
   - AC: *Given* the user taps "Place order" and the connection drops *when* the app retries (automatically or on tap) *then* exactly one order exists and the user lands on its tracking page.
 - **CUS-CHK-004 (P0) Pre-placement validation** (server): restaurant open & accepting; platform within service hours; address serviceable for this restaurant; items available; quantities within limits; coupon valid; COD eligibility (BR-COD-*); order total ≥ ₹1.
@@ -303,8 +304,8 @@ Customer app = `customer` PWA (baseline P7). Role `CUSTOMER`.
   - AC: Status changes reach an open tracking page within 5 s p95 (SSE; polling fallback every 15 s, baseline P3).
 - **CUS-TRK-002 (P0) ETA updates.** ETA range recalculated at each milestone; if the order is running late by > 10 min vs the original upper bound, show an apology line and a "Get help" entry.
 - **CUS-TRK-003 (P0) Rider details.** Once a rider is `ASSIGNED`: first name, vehicle type, photo (if provided), rating band not shown. Phone call button shown from `PICKED_UP` until `DELIVERED` + 15 min (BR-CONT-001).
-- **CUS-TRK-004 (P0) Delivery OTP display** (when BR-OTP applies): 4-digit code visible on the tracking page and in the order push notification.
-- **CUS-TRK-005 (P0) Cancel button** visible only while cancellation is self-service (BR-CAN-001), with the refund consequence stated.
+- **CUS-TRK-004 (P0) Delivery OTP display** (when BR-OTP applies — prepaid ≥ ₹300, R39): 4-digit code visible on the tracking page and in the order push notification; the server stores the code (encrypted) so the app can re-display it.
+- **CUS-TRK-005 (P0) Cancel button** visible only while cancellation is self-service — `PLACED`, or within 60 s of placement even if `ACCEPTED`/`PREPARING` (R2, BR-CAN-001) — with the refund consequence stated.
 - **CUS-TRK-006 (P0) Background notifications** via Web Push (if permitted) for: accepted, rejected, picked up, delivered, cancelled, refund initiated (see NOT-*).
 - **CUS-TRK-007 (P2) Live rider map** — deferred (baseline P12).
 
@@ -317,11 +318,11 @@ Customer app = `customer` PWA (baseline P7). Role `CUSTOMER`.
 
 ### 5.12 CUS-RATE — Ratings and reviews
 
-- **CUS-RATE-001 (P0) Separate ratings.** After `DELIVERED`, customer can rate **restaurant/food** (1–5 stars + optional tags + optional text ≤ 500 chars) and **delivery** (1–5 stars + optional tags, e.g. "Polite", "Late", "Food spilled", "Asked for extra cash") independently; either may be skipped.
+- **CUS-RATE-001 (P0) Separate ratings.** After `DELIVERED`, customer can rate **restaurant/food** (1–5 stars + optional tags + optional text ≤ 500 chars) and **delivery** (👍/👎 + optional tags, e.g. "Polite", "Late", "Food spilled", "Asked for extra cash") independently; either may be skipped. (Delivery rating is thumbs + tags, matching docs 04/10/11; M-41 uses thumbs-up share.)
 - **CUS-RATE-002 (P0) Rating window** — BR-RATE-001 (7 days). One rating per order per target; editable until the window closes.
 - **CUS-RATE-003 (P0) Prompt.** Rating prompt on next app open after delivery (dismissible, not blocking), and within order details.
 - **CUS-RATE-004 (P0) Low-rating follow-up.** Rating ≤ 2 with tag "Missing item"/"Wrong item"/"Quality" offers "Report a problem" (CUS-SUPP-001) prefilled.
-- **CUS-RATE-005 (P1) Public text reviews** on the restaurant page (latest 20, after moderation rules BR-RATE-004).
+- **CUS-RATE-005 (P1) Public text reviews** on the restaurant page (latest 20), shown after the automatic filter in BR-RATE-004 with admin hide/unhide; **no moderation queue and no review replies in V1** (C14).
 - **CUS-RATE-006 (P2) Restaurant replies to reviews; photo reviews; dish-level ratings.**
 
 ### 5.13 CUS-COUP — Coupons and offers
@@ -339,8 +340,8 @@ Customer app = `customer` PWA (baseline P7). Role `CUSTOMER`.
 - **CUS-SUPP-001 (P0) Order help.** From any order (active or past ≤ 7 days), "Get help" offers categories: Order is late; Cancel my order; Missing item(s); Wrong item(s); Food quality/spilled; Payment issue (charged but no order / refund not received); Delivery partner behaviour; Other. Creates a ticket (ADM-TKT) linked to the order.
   - AC: Missing/wrong/quality categories require selecting affected items and allow 1–3 photos (client-compressed ≤ 300 KB each); must be raised within 24 h of delivery [ASSUMPTION].
   - AC: Creation shows a ticket number and the acknowledgement promise; auto-acknowledgement notification sent immediately (LEG-CP-003).
-- **CUS-SUPP-002 (P0) Ticket status** visible in app (Open / In progress / Awaiting your reply / Resolved) with agent replies (async messages, not live chat).
-- **CUS-SUPP-003 (P0) Help centre.** Static FAQs (en/te) for fees, refunds, cancellation, COD, privacy; support phone number (tap-to-call) and service hours; **grievance officer name, designation and contact** (LEG-CP-002).
+- **CUS-SUPP-002 (P0) Ticket status** visible in app (Open / In progress / Awaiting your reply / Resolved) with agent replies (async messages, not live chat). Customer-facing labels map onto the canonical ticket statuses of doc 10 (`OPEN`, `IN_PROGRESS`, `AWAITING_REQUESTER`, `AWAITING_APPROVAL`, `RESOLVED`, `CLOSED`, `REOPENED`).
+- **CUS-SUPP-003 (P0) Help centre.** Static FAQs (en/te) for fees, refunds, cancellation, COD, privacy; **support phone line** (tap-to-call; a business number/IVR staffed by Telugu- and English-speaking agents across all service hours in ≥ 2 shifts, call-recording consent announced — M9) and service hours; **grievance officer name, designation and contact** (LEG-CP-002).
 - **CUS-SUPP-004 (P1) Customer can reopen** a resolved ticket within 7 days.
 - **CUS-SUPP-005 (P2) Live chat / WhatsApp support integration.**
 
@@ -348,7 +349,7 @@ Customer app = `customer` PWA (baseline P7). Role `CUSTOMER`.
 
 ## 6. Functional requirements — Restaurant partner (RES-*)
 
-Restaurant UI lives in the `partner` PWA (restaurant mode). Roles `RESTAURANT_OWNER` (full) and `RESTAURANT_STAFF` (orders + availability only). One `restaurant` row = one physical outlet; an owner may own several outlets (multi-outlet switcher P1).
+Restaurant UI is the `restaurant` app at the `restaurant.` host (R14). Roles `RESTAURANT_OWNER` (full) and `RESTAURANT_STAFF` (orders + availability only). One `restaurant` row = one physical outlet; an owner may own several outlets (multi-outlet switcher P1).
 
 ### 6.1 RES-ONB — Onboarding and approval
 
@@ -357,19 +358,20 @@ Restaurant UI lives in the `partner` PWA (restaurant mode). Roles `RESTAURANT_OW
 - **RES-ONB-003 (P0) KYC documents.**
   | Document | Required | Captured |
   |---|---|---|
-  | FSSAI licence/registration | **Yes** | 14-digit number, type (registration/state/central licence), expiry date, certificate image/PDF |
+  | FSSAI licence/registration | **Yes** | 14-digit number, type (registration/state/central licence), expiry date, certificate image |
   | PAN (owner or entity) | **Yes** | PAN number, name as per PAN, image |
   | Bank account | **Yes** (or UPI ID, see below) | Account holder name, account no. (entered twice), IFSC, cancelled cheque/passbook image |
   | UPI ID for payouts | Optional alternative | VPA |
   | GSTIN | Optional | 15-char GSTIN, legal name (validated format; PAN embedded in GSTIN must match PAN if both given) |
   | Shop photo (front) | Yes | image |
   | Signed agreement | **Yes** | click-accept of partner terms incl. commission %, timestamp, IP, version |
-  - AC: Uploads accept JPEG/PNG/PDF ≤ 5 MB, client-side image compression; documents stored privately (never public URLs), visible only to the owner and admins with KYC permission.
+  - AC: Uploads accept **images only** (JPEG/PNG/WebP; the client converts PDFs/photos to images and compresses them), re-encoded by the server, SSE-KMS at rest, audited streaming view via short-TTL signed URLs (R38; no PDF/ClamAV path, C5); documents stored privately (never public URLs), visible only to the owner and admins with KYC permission.
   - AC: FSSAI number format validated (14 digits); expired FSSAI blocks submission.
 - **RES-ONB-004 (P0) Application status.** `DRAFT → SUBMITTED → UNDER_REVIEW → APPROVED | CHANGES_REQUESTED | REJECTED`; owner sees status and admin comments; notified on change. (Status names here are onboarding-application statuses, not order statuses; doc 10 owns the enum.)
-- **RES-ONB-005 (P0) Go-live checklist.** A restaurant can go live only when: approved, ≥ 1 category with ≥ 5 available items [ASSUMPTION], operating hours set, prep time set, commission/terms effective, payout account verified (manually in V1).
+- **RES-ONB-005 (P0) Go-live checklist.** A restaurant can go live only when: approved, ≥ 1 category with ≥ 5 available items [ASSUMPTION], operating hours set, prep time set, commission/terms effective, payout account verified (manually in V1), **an order-receiver device registered and its sound/push test passed** (RES-ONB-008), and — only if the PA split-settlement model is chosen (R25/R35) — **PA linked-account KYC complete** [LEGAL].
 - **RES-ONB-006 (P1) Bank account verification by penny-drop** via PA API.
 - **RES-ONB-007 (P1) FSSAI expiry reminders** at 30/15/7 days; on expiry the restaurant is automatically paused (BR-RES-004).
+- **RES-ONB-008 (P0) Counter-device provisioning (M3).** Restaurants without a suitable dedicated device get a **pre-configured budget Android counter device** from rovo ops (app installed, notifications and sound tested, battery-optimisation exemptions set, registered as order-receiver with a device-bound session per X-006). Ops records the device (model, serial) against the outlet and can revoke it. Device and device-lab budget owned by docs 25/29.
 
 ### 6.2 RES-PROF — Profile
 
@@ -385,7 +387,7 @@ Restaurant UI lives in the `partner` PWA (restaurant mode). Roles `RESTAURANT_OW
 - **RES-HOUR-003 (P0) Temporary pause** ("Stop taking orders") for 15 / 30 / 60 min / until next slot / until I resume; auto-resumes; status visible to admin.
   - AC: *Given* restaurant pauses for 30 min *then* it immediately disappears from orderable state for customers (closed card), existing in-progress orders are unaffected, and it auto-resumes at T+30 min with a notification to the restaurant.
 - **RES-HOUR-004 (P0) Last-order buffer.** Ordering closes N minutes before slot end (default 15, configurable per restaurant).
-- **RES-HOUR-005 (P0) Effective open state** = within a slot AND not holiday AND not paused AND not suspended AND FSSAI valid AND platform within service hours AND (P1) restaurant device seen online within last 10 min [ASSUMPTION — "heartbeat gating" prevents orders to restaurants whose app is closed; ops-configurable].
+- **RES-HOUR-005 (P0) Effective open state** = within a slot AND not holiday AND not paused AND not suspended AND FSSAI valid AND platform within service hours AND an order-receiver device alive. **No restaurant-device heartbeat for 3 min while open → auto-pause** (`DEVICE_OFFLINE`, R1; threshold `restaurant.device_offline_pause_s`, doc 13 T-DEVICE-HB). Heartbeat every 60 s; an open SSE connection counts as presence (R27).
 
 ### 6.4 RES-MENU — Menu management
 
@@ -394,10 +396,10 @@ Restaurant UI lives in the `partner` PWA (restaurant mode). Roles `RESTAURANT_OW
 - **RES-MENU-003 (P0) Variants.** One variant group per item, 2..10 variants, each with name (en/te) and absolute price; exactly one default.
 - **RES-MENU-004 (P0) Add-on groups.** Reusable add-on groups (name, min, max, options with price ≥ 0 and dietary marker) attachable to many items; validation `0 ≤ min ≤ max ≤ #options`, max 10 groups per item, 30 options per group [ASSUMPTION].
 - **RES-MENU-005 (P0) Images.** Upload from camera/gallery; client resizes to ≤ 1200 px and compresses; server generates thumbnails (WebP); max 2 MB upload; restaurant attests they own the image rights.
-- **RES-MENU-006 (P0) Telugu names.** Every user-visible menu text has an optional Telugu field; UI shows completeness ("12 of 40 items have Telugu names"). Admin can bulk-edit Telugu names (assisted translation).
+- **RES-MENU-006 (P0) Telugu names.** Every user-visible menu text has an optional Telugu value (`*_i18n` JSONB, R17); UI shows completeness ("12 of 40 items have Telugu names"). Admin can bulk-edit Telugu names (assisted translation).
 - **RES-MENU-007 (P0) Price change rules.** Price changes take effect immediately for new carts; carts with old prices are re-validated (CUS-CART-004); in-flight orders keep their snapshot price. Price history retained (audit).
 - **RES-MENU-008 (P0) Admin moderation.** New items and price increases > 30% [ASSUMPTION] go live immediately but are flagged for admin review; admin can hide an item with a reason.
-- **RES-MENU-009 (P1) Menu bulk import** via CSV template (admin & owner).
+- **RES-MENU-009 (P0 for Gate B — ops-side; owner-side P1) Menu bulk import** via CSV template (categories, items, variants, add-ons, prices, dietary markers, Telugu names), with dry-run validation report before commit and audit (M7). Ops uses it to digitise paper menus during assisted onboarding (≈ 1 restaurant per ops person per day).
 - **RES-MENU-010 (P1) Duplicate item / copy menu to another outlet.**
 - **RES-MENU-011 (P2) Combos/meal builders, item-level schedules beyond category windows, nutritional/allergen info** (allergen text field P1 as free text).
 
@@ -410,13 +412,13 @@ Restaurant UI lives in the `partner` PWA (restaurant mode). Roles `RESTAURANT_OW
 
 ### 6.6 RES-ORD — Order management
 
-- **RES-ORD-001 (P0) New-order alert that cannot be missed.** On `PLACED`: full-screen new-order card, **looping loud sound** (until acknowledged), vibration, and Web Push when backgrounded; works with screen locked if the PWA is open and push is allowed. Alert content: order code, items with customisations (big text, te names when present), dietary markers, special request, order total and **payment type label ("Prepaid" — restaurant never collects cash)**, customer first name only.
+- **RES-ORD-001 (P0) New-order alert that cannot be missed.** On `PLACED`: full-screen new-order card, **looping loud sound** (until acknowledged), vibration, and Web Push when backgrounded, **repeated every 30 s** until accepted/rejected (R1; escalation per BR-TIME-002); works with screen locked if the PWA is open and push is allowed. Alert content: order code, items with customisations (big text, te names when present), dietary markers, special request, order total and **payment type label ("Prepaid" — restaurant never collects cash)**, customer first name only.
   - AC: *Given* the partner app is open on the orders screen *when* an order is `PLACED` *then* the alert renders within 5 s p95.
 - **RES-ORD-002 (P0) Accept with prep time.** Accept button with prep-time choice (default = restaurant default prep time; quick options 10/15/20/30/45 min).
-- **RES-ORD-003 (P0) Reject with reason.** Reasons: `ITEM_OUT_OF_STOCK` (must select the items → they are auto-marked out of stock), `TOO_BUSY`, `CLOSING_SOON`, `KITCHEN_ISSUE`, `OTHER` (text). Rejection triggers full refund (BR-REF-001).
-- **RES-ORD-004 (P0) Timeout.** If not accepted within the auto-reject timeout (BR-TIME-001, default 180 s) the order is auto-rejected (`RESTAURANT_TIMEOUT`); escalation per BR-TIME-002.
+- **RES-ORD-003 (P0) Reject with reason.** Reasons (doc 13 §6.3 `ORDER_REJECT`): `ITEMS_OUT_OF_STOCK` (must select the items → they are auto-marked out of stock), `TOO_BUSY`, `CLOSING_SOON`, `KITCHEN_ISSUE`, `RESTAURANT_OTHER` (text). Rejection triggers full refund (BR-REF-001).
+- **RES-ORD-004 (P0) Timeout (R1).** If not accepted within the 180 s accept window (BR-TIME-001) the order is **auto-cancelled**: `CANCELLED`, `cancelled_by=SYSTEM`, reason `RESTAURANT_UNRESPONSIVE` (not `REJECTED`), prepaid fully refunded; escalation per BR-TIME-002; auto-pause per BR-TIME-003.
 - **RES-ORD-005 (P0) Order board.** Tabs/columns: New, Preparing, Ready, Picked up (today), Past; each card shows elapsed time vs promised prep time, rider status (`not assigned` / name + "arriving in ~N min" (estimate) / "at restaurant").
-- **RES-ORD-006 (P0) Restaurant cannot-fulfil after accept.** "Can't fulfil this order" with reason → order `CANCELLED` (`cancelled_by=restaurant`), full refund, ops alerted; counted against restaurant quality metrics.
+- **RES-ORD-006 (P0) Restaurant cannot-fulfil after accept — ops-mediated (R40).** The restaurant **cannot self-cancel** after accepting. "Can't make this order" raises an **urgent ops issue** (ticket, priority P2) with a reason; ops contacts the customer and cancels via ADM-ORD-006 with reason `RESTAURANT_CANNOT_FULFIL` and fault `restaurant` (`cancelled_by=ADMIN`), full refund; counted against restaurant quality metrics (M-10).
 - **RES-ORD-007 (P0) Handover.** Restaurant sees rider name and the **order code** to match; rider marks picked up (RDR-FLOW-004). Restaurant may mark "Handed over" too (either side completes pickup; first wins; conflicts logged).
 - **RES-ORD-008 (P0) No customer contact details.** Restaurant sees customer first name and order notes only; no phone or address (data minimisation, LEG-DPDP-004); issues go via rider or support.
 - **RES-ORD-009 (P1) Printable KOT** (browser print, 58/80 mm-friendly layout).
@@ -424,7 +426,7 @@ Restaurant UI lives in the `partner` PWA (restaurant mode). Roles `RESTAURANT_OW
 
 ### 6.7 RES-PREP — Preparation status and prep time
 
-- **RES-PREP-001 (P0) Status progression.** On accept the order is `ACCEPTED`; the restaurant moves it to `PREPARING` (one tap, or automatically 1 min after accept [ASSUMPTION – reduces taps for low-literacy users; doc 13 decides]) and then `READY_FOR_PICKUP` ("Food is ready").
+- **RES-PREP-001 (P0) Status progression.** On accept the order is `ACCEPTED`; it moves to `PREPARING` on a restaurant tap **or automatically 60 s after accept** (R3; `ordering.auto_preparing_after_s`); prep time is chosen at accept; then `READY_FOR_PICKUP` ("Food is ready"). If the restaurant never marks ready, the rider's pickup is allowed from `PREPARING` and the order is flagged `restaurant_skipped_ready` (R4).
 - **RES-PREP-002 (P0) Prep-time extension.** Restaurant can add +5/+10 min once (max 2 extensions per order, total ≤ +20 min); customer ETA updates; extension reason optional.
 - **RES-PREP-003 (P0) Default prep time** per restaurant (default 15 min) and per-order override at accept.
 - **RES-PREP-004 (P0) Ready reminder.** If prep time elapsed + 5 min and not `READY_FOR_PICKUP` while rider is `AT_RESTAURANT`, prompt the restaurant "Is the food ready?".
@@ -432,7 +434,7 @@ Restaurant UI lives in the `partner` PWA (restaurant mode). Roles `RESTAURANT_OW
 ### 6.8 RES-ANLY — Basic analytics
 
 - **RES-ANLY-001 (P0) Today/this week summary.** Orders (delivered, rejected, cancelled), gross food sales, net payable estimate, average rating (last 30 days).
-- **RES-ANLY-002 (P1) 7/30-day trends.** Orders per day, revenue per day, top 10 items by quantity and revenue, rejection & timeout counts, average accept time, average prep time vs promised, ratings distribution with recent comments.
+- **RES-ANLY-002 (P2 — was P1; deferred to V1.1 per C13) 7/30-day trends.** Orders per day, revenue per day, top 10 items by quantity and revenue, rejection & timeout counts, average accept time, average prep time vs promised, ratings distribution with recent comments.
 - **RES-ANLY-003 (P1) CSV export** of orders for a date range (no customer PII).
 - **RES-ANLY-004 (P2) Peak-hour heatmaps, customer repeat analytics, menu engineering** — deferred (advanced analytics).
 
@@ -448,7 +450,7 @@ Restaurant UI lives in the `partner` PWA (restaurant mode). Roles `RESTAURANT_OW
 
 ## 7. Functional requirements — Delivery partner (RDR-*)
 
-Rider UI lives in the `partner` PWA (rider mode). Role `RIDER`. Optimised for one-handed use outdoors (NFR-A11Y-005).
+Rider UI is the `rider` app at the `rider.` host (R14). Role `RIDER`. Optimised for one-handed use outdoors (NFR-A11Y-005).
 
 ### 7.1 RDR-ONB — Registration and KYC
 
@@ -463,24 +465,25 @@ Rider UI lives in the `partner` PWA (rider mode). Role `RIDER`. Optimised for on
   | Bank account and/or UPI ID | **Yes** (one of) | holder name, account no., IFSC / VPA |
   | Aadhaar | **Not collected** | — (never store full Aadhaar, baseline §3; DL serves as identity + address proof) |
   | Police verification certificate | [OPEN – ops/legal decide; recommended P1] | image |
-  - AC: Documents stored privately (as RES-ONB-003); low-speed EVs not requiring DL/RC are out of scope V1.
+  - AC: Documents stored privately as images only (as RES-ONB-003, R38); low-speed EVs not requiring DL/RC are out of scope V1.
 - **RDR-ONB-003 (P0) Application review** by `ADMIN_OPS`: `SUBMITTED → UNDER_REVIEW → APPROVED | CHANGES_REQUESTED | REJECTED`; approval requires completed **in-person or video induction** (checkbox + date recorded by admin) covering app usage, COD handling, food safety & hygiene, road safety.
 - **RDR-ONB-004 (P0) Rider agreement** click-accept (independent partner terms, pay structure version, COD responsibilities, code of conduct), with version and timestamp.
 - **RDR-ONB-005 (P1) Document expiry tracking** (DL, insurance) with reminders; expired → rider blocked from going online.
 - **RDR-ONB-006 (P1) Kit issuance record** (bag, T-shirt, deposit amount if any) [OPEN – ops].
+- **RDR-ONB-007 (P0) Gig-worker registration data (M5) [LEGAL].** Capture the rider fields the Social Security Code aggregator portal requires (LEG-GIG-001), e.g. gender, permanent address with state, date of joining/last active date, bank account, and an e-Shram/UAN number if the rider has one — **never full Aadhaar**. Exact field list confirmed by counsel; exported via ADM-RPT-005.
 
 ### 7.2 RDR-AVAIL — Availability (online/offline)
 
-- **RDR-AVAIL-001 (P0) Go online/offline toggle.** Going online requires: approved, not suspended, documents valid, location permission granted and a location fix ≤ 2 min old, and (for COD eligibility) cash-in-hand under limit (BR-COD-006). Status persists; server shows rider as online only while heartbeats arrive.
+- **RDR-AVAIL-001 (P0) Go online/offline toggle.** Going online requires: approved, not suspended, documents valid, location permission granted and a fresh location fix, and (for COD eligibility) cash-in-hand within limit (BR-COD-006). Status persists; availability states per doc 13 §4.3 (`OFFLINE`, `AVAILABLE`, `ON_DELIVERY`; location freshness and `cod_blocked` are flags, not states; no `ON_BREAK`, C12). Rider sessions use a 30-day sliding expiry (R44).
 - **RDR-AVAIL-002 (P0) Foreground location while online.** The app sends location every 30–60 s while open and online (baseline P12); it shows a persistent "Keep rovo open while online" banner and uses Screen Wake Lock where available.
-  - AC: *Given* no location ping for 3 min *then* the rider is treated as unavailable for new offers (not forced offline); *given* no ping for 15 min *then* the rider is set offline with a notification.
+  - AC (R34 dispatch tiers): location ≤ 3 min old → **tier 1** (ranked by distance); stale but ≤ 15 min → **tier 2**, still offered orders, reached via Web Push (`Urgency: high`) + SSE and ranked after tier 1; *given* no ping/heartbeat for 15 min *then* the rider is set offline with a notification. Thresholds are `app_config` keys owned by doc 13.
 - **RDR-AVAIL-003 (P0) Auto-offline on ignored offers.** 3 consecutive **expired** (not declined) offers → rider set offline with a push "We set you offline because you missed 3 orders" (BR-DISP-004).
 - **RDR-AVAIL-004 (P1) Planned shifts / slot booking** — P2 (deferred); V1 uses free online/offline.
 
 ### 7.3 RDR-ASSIGN — Order offers and assignment
 
 - **RDR-ASSIGN-001 (P0) Offer card.** Shows: restaurant name & locality, pickup distance from rider (approx.), drop locality (not exact address) and approx. drop distance, **estimated earning for this delivery**, payment type (**COD: collect ₹X** / Prepaid), prep status/ready ETA, countdown timer.
-- **RDR-ASSIGN-002 (P0) Offer timeout and cascade.** Offer expires after 45 s (baseline P11, configurable); one rider offered at a time; on decline/expiry the next best rider is offered (BR-DISP-001..003).
+- **RDR-ASSIGN-002 (P0) Offer timeout and cascade.** Offer expires after 45 s (baseline P11; `dispatch.offer_ttl_s`, doc 13 §4.2); an offer withdrawn by system/admin becomes `REVOKED` (R16); one rider offered at a time; on decline/expiry the next best rider is offered (BR-DISP-001..003).
   - AC: *Given* an offer is `PENDING` *when* 45 s elapse without response *then* the offer becomes `EXPIRED`, the rider's screen dismisses it, and the next candidate receives an offer within 5 s.
 - **RDR-ASSIGN-003 (P0) Accept/decline.** Accept → delivery `ASSIGNED`, full pickup details revealed; Decline with optional reason (Too far, Vehicle issue, Ending shift, Other). Declines are not penalised in V1 but tracked (M-05).
 - **RDR-ASSIGN-004 (P0) One active delivery per rider** (baseline P11). No batching.
@@ -493,21 +496,21 @@ Rider UI lives in the `partner` PWA (rider mode). Role `RIDER`. Optimised for on
 - **RDR-FLOW-001 (P0) Navigate to restaurant.** "Navigate" opens the device's map app via a geo/maps URL with the restaurant pin (no in-app routing, no paid API).
 - **RDR-FLOW-002 (P0) Arrived at restaurant** button → delivery `AT_RESTAURANT` (soft geofence: warn if > 300 m from restaurant pin; allow with reason). Starts waiting-time clock (BR-RPAY-003).
 - **RDR-FLOW-003 (P0) Order verification at pickup.** Rider sees order code + item count + item list to match with the restaurant's packed order.
-- **RDR-FLOW-004 (P0) Picked up** button → delivery `PICKED_UP` and order `PICKED_UP`; allowed only when order is `READY_FOR_PICKUP`, or with a confirmation "Restaurant handed over food but didn't mark ready" (then system moves order through `READY_FOR_PICKUP` → `PICKED_UP` with actor = rider, logged).
+- **RDR-FLOW-004 (P0) Picked up** button → delivery `PICKED_UP` and order `PICKED_UP`; allowed when the order is `READY_FOR_PICKUP` **or `PREPARING`** (R4) — in the latter case with a confirmation "Restaurant handed over food but didn't mark ready" and the order flagged `restaurant_skipped_ready` (actor = rider, logged; exact transition per doc 13).
 - **RDR-FLOW-005 (P0) Drop details revealed after pickup**: customer/recipient first name, full address incl. landmark, delivery instructions, pin; "Navigate" to drop pin; call button (BR-CONT-001).
 - **RDR-FLOW-006 (P0) Arrived at drop** → delivery `AT_DROP` (soft geofence 300 m); notifies the customer "Your delivery partner has arrived".
-- **RDR-FLOW-007 (P0) Delivery OTP (when required, BR-OTP-001).** Rider enters the customer's 4-digit OTP; 5 attempts; fallback "Customer can't find OTP" → shows OTP is in customer's app/push; second fallback "Call support" where an `ADMIN_OPS`/`ADMIN_SUPPORT` can authorise completion (audit-logged).
+- **RDR-FLOW-007 (P0) Delivery OTP (when required, BR-OTP-001 / R39: prepaid ≥ ₹300, off for COD).** Rider enters the customer's 4-digit OTP; 5 attempts; fallback "Customer can't find OTP" → shows OTP is in customer's app/push; second fallback "Call support" where an `ADMIN_OPS`/`ADMIN_SUPPORT` can authorise completion (audit-logged).
 - **RDR-FLOW-008 (P0) Mark delivered.** For COD, rider must first confirm **"Collected ₹X cash"** (exact total; no partial in V1); then `DELIVERED`. Records timestamp + location.
   - AC: *Given* COD order total ₹405 *when* rider taps Delivered *then* the app requires the confirmation "I collected ₹405" before completing, and a cash-collected ledger entry of ₹405 is written atomically with the status change.
-- **RDR-FLOW-009 (P0) Undeliverable flow.** Rider can mark "Can't deliver" only from `AT_DROP` after **≥ 10 min waiting and ≥ 2 call attempts** (logged as call-button taps) [ASSUMPTION], choosing reason (`CUSTOMER_UNREACHABLE`, `CUSTOMER_REFUSED`, `WRONG_ADDRESS`, `UNSAFE_LOCATION`, `OTHER`); requires ops confirmation (ops tries calling the customer) before order → `UNDELIVERABLE`, delivery → `FAILED`. Food disposition instruction shown (default: rider does not return to restaurant; follow ops instruction) [OPEN – ops].
+- **RDR-FLOW-009 (P0) Undeliverable flow.** Rider can mark "Can't deliver" only from `AT_DROP` after **≥ 10 min waiting and ≥ 2 call attempts** (logged as call-button taps) [ASSUMPTION], choosing reason (`CUSTOMER_UNREACHABLE`, `CUSTOMER_REFUSED`, `WRONG_ADDRESS`, `UNSAFE_LOCATION`, `OTHER`); requires **support/ops approval** (ops tries calling the customer) before order → `UNDELIVERABLE`, delivery → `FAILED` (R5); there is **no rider self-mark** — an unanswered request escalates to the ops lead after 5 min (doc 13 T-UNDELIV-SLA). Food disposition instruction shown (default: rider does not return to restaurant; follow ops instruction) [OPEN – ops].
 - **RDR-FLOW-010 (P0) Resilient actions.** Every rider action (arrived, picked up, delivered, collected cash) is retried automatically on network failure with an idempotency key and shows a "Syncing…" state; the device timestamp is sent and stored alongside server time.
 - **RDR-FLOW-011 (P1) Offline action queue** (actions persisted locally and replayed in order when back online).
 - **RDR-FLOW-012 (P1) Proof-of-delivery photo** optional for prepaid orders without OTP ("left at door" on customer instruction).
-- **RDR-FLOW-013 (P1) SOS button**: one tap to dial 112 and alert ops with last location.
+- **RDR-FLOW-013 (P1) SOS button**: one tap to dial 112 and alert ops with last location (stored as `sos_events`, M4).
 
 ### 7.5 RDR-CONT — Contacting customer and restaurant
 
-V1 approach (masked calling deferred; see BR-CONT-*): **direct calling via `tel:` links, numbers revealed only to the parties of an active delivery, only for the window they need it, and every call-button tap is logged.**
+V1 approach (masked calling deferred; see BR-CONT-*): **direct calling via `tel:` links, numbers revealed only to the parties of an active delivery, only for the window they need it, and every call-button tap is logged** (`contact_tap_log`, M4). A `tel:` link discloses the number in the dialler and call log; the privacy notice says so plainly (RV-035).
 - **RDR-CONT-001 (P0)** Rider → restaurant call button from `ASSIGNED` until `PICKED_UP` + 15 min (restaurant's business phone, not owner's personal number unless that is the only one).
 - **RDR-CONT-002 (P0)** Rider → customer call button from `PICKED_UP` until `DELIVERED`/`FAILED` + 15 min; the number is the order's recipient/override phone; the app shows the number only inside the dialler handoff (not as copyable text on screen) — a deterrent, not a guarantee [ASSUMPTION].
 - **RDR-CONT-003 (P0)** Rider → support call button always (ops helpline).
@@ -526,19 +529,21 @@ V1 approach (masked calling deferred; see BR-CONT-*): **direct calling via `tel:
 - **RDR-EARN-003 (P0) Deposit recording.** Rider can declare a deposit (UPI transfer to the company collection account or cash handed at ops desk) with reference/UTR; it is **pending** until finance/ops confirms (ADM-PAYO-005); confirmed deposits reduce cash-in-hand.
 - **RDR-EARN-004 (P0) Payout statement** per cycle: earnings − cash-in-hand netted (BR-COD-008) = net payout (or net amount due from rider), status and UTR.
 - **RDR-EARN-005 (P1) On-demand payout request** (min ₹200, max 1/day), processed manually by finance within 1 business day.
-- **RDR-EARN-006 (P2) Incentives (peak-hour bonus, milestone bonus), tips** — deferred.
+- **RDR-EARN-006 (P2) Incentives (automated peak-hour/milestone bonus schemes), tips** — deferred. V1 exception: ops may grant a **manual rider peak bonus** as a ledger adjustment when supply is short (R30, ADM-PAYO-006).
+- **RDR-EARN-007 (P0 — ops) Pilot minimum guarantee (M6, R47).** For scheduled pilot peak slots, a rider who was online for the slot and met the agreed conditions (acceptance, no rider-fault failures) is topped up to a guaranteed amount via an `MG_TOPUP` ledger adjustment, shown as its own line in earnings and the payout statement. Amount, slots and eligibility are a business decision [OPEN]; posted through ADM-PAYO-006 (maker-checker above threshold, R31).
 
 ---
 
 ## 8. Functional requirements — Admin (ADM-*)
 
-Admin UI = `admin` web app (desktop-first, works on tablet). Roles: `ADMIN_SUPER`, `ADMIN_OPS`, `ADMIN_SUPPORT`, `ADMIN_FINANCE`, city-scoped (baseline §2). Product-level permission intent per area is given as **[S/O/Sp/F]** = which roles may *act* (all admin roles may *view* unless stated). Doc 12 owns the authoritative RBAC matrix.
+Admin UI = `admin` web app at the `admin.` host (R14; desktop-first, works on tablet). Roles: `ADMIN_SUPER`, `ADMIN_OPS`, `ADMIN_SUPPORT`, `ADMIN_FINANCE`, city-scoped (baseline §2). Product-level permission intent per area is given as **[S/O/Sp/F]** = which roles may *act* (all admin roles may *view* unless stated). Doc 12 owns the authoritative RBAC matrix.
 
 ### 8.1 ADM-AUTH — Admin access
 
-- **ADM-AUTH-001 (P0)** Email + password + mandatory TOTP (baseline P9); admin accounts created only by `ADMIN_SUPER`; no self-signup.
+- **ADM-AUTH-001 (P0)** Email + password + mandatory TOTP for all admins (baseline P9, R37); admin accounts are **separate identities** from consumer/partner accounts (R26); admin accounts created only by `ADMIN_SUPER` (role grant needs a second approver, R31 family 5); no self-signup. WAF rate + geo (India) rules on the admin host; no identity-aware proxy in V1 (C4).
 - **ADM-AUTH-002 (P0)** Role and city scope assignment; deactivation takes effect within 1 min (sessions revoked).
 - **ADM-AUTH-003 (P0)** Sensitive data reveal (full phone, KYC document view, bank details) requires a reason prompt and is audit-logged.
+- **ADM-AUTH-004 (P1) Passkeys (WebAuthn)** for admins, first for `ADMIN_SUPER`/`ADMIN_FINANCE` (R37).
 
 ### 8.2 ADM-DASH — Dashboard
 
@@ -566,7 +571,7 @@ Admin UI = `admin` web app (desktop-first, works on tablet). Roles: `ADMIN_SUPER
 
 - **ADM-RDR-001 (P0)** Application queue with document viewer; approve (requires induction recorded) / request changes / reject.
 - **ADM-RDR-002 (P0)** Suspend / reinstate (reason; suspended riders forced offline; active delivery must be reassigned first).
-- **ADM-RDR-003 (P0)** Rider list with live state (offline / online-idle / on delivery + delivery status), last location time and distance to a chosen restaurant (no map required), cash-in-hand, today's deliveries.
+- **ADM-RDR-003 (P0)** Rider list with live state (offline / available tier 1 fresh / available tier 2 stale / on delivery + delivery status, R34), last location time and distance to a chosen restaurant (no map required), cash-in-hand, today's deliveries.
 - **ADM-RDR-004 (P0)** Rider performance: offers accepted/declined/expired, deliveries, avg last-mile time, ratings, undeliverables, cash ageing.
 - **ADM-RDR-005 (P2)** Map of riders' last-known positions (static, not live tracking).
 
@@ -574,32 +579,33 @@ Admin UI = `admin` web app (desktop-first, works on tablet). Roles: `ADMIN_SUPER
 
 - **ADM-ORD-001 (P0) Live order board.** All active orders with columns by stage (Placed → Accepted/Preparing → Ready → Picked up → At drop), each card showing order code, restaurant, locality, payment type, elapsed time vs SLA with colour state, rider, flags (late, unaccepted, unassigned, OTP issue, undeliverable request). Filters (zone, restaurant, rider, flag), search by order code/phone. Updates live (SSE).
 - **ADM-ORD-002 (P0) Order detail** with full timeline (every status change: from→to, actor, timestamp, reason), payment events, offers history, call-tap log, notes, tickets.
-- **ADM-ORD-003 (P0) Accept on behalf of restaurant** after phoning the restaurant (reason "Confirmed by phone" required; prep time required) — essential for low-digital-maturity partners. [S/O]
+- **ADM-ORD-003 (P0) Accept on behalf of restaurant** after phoning the restaurant — the order is flagged at 90 s and ops call manually (R1/R43; ops desk staffed during service hours) (reason "Confirmed by phone" required; prep time required; audited) — essential for low-digital-maturity partners. [S/O]
 - **ADM-ORD-004 (P0) Update status on behalf** (mark ready, picked up, delivered, undeliverable) with mandatory reason — exception handling only, audit-logged, flagged in reports. [S/O]
 - **ADM-ORD-005 (P0) Manual assign / reassign rider.** Choose from eligible riders sorted by distance-to-restaurant with their state; reassigning cancels the current rider's assignment (rider notified, reason recorded) and, if pickup already happened, requires confirmation of handover between riders. [S/O]
-- **ADM-ORD-006 (P0) Cancel order** with reason code and **refund decision** (full / partial amount / none, per BR-CAN and BR-REF), fault attribution (`customer`, `restaurant`, `rider`, `platform`) driving settlement (BR-REF-005). [S/O; Sp up to refund limit]
+- **ADM-ORD-006 (P0) Cancel order** with reason code (doc 13 §6.3) and **refund decision** (full / partial amount / none, per BR-CAN and BR-REF), fault attribution (`customer`, `restaurant`, `rider`, `platform`) driving settlement (BR-REF-005). This is also the path for restaurant "can't fulfil" after accept (R40). For COD orders needing compensation, the customer chooses a manual UPI refund or a coupon (R29, BR-REF-004). [S/O; Sp up to refund limit]
 - **ADM-ORD-007 (P0) Refund (post-delivery)** full/partial/by item, with reason; refunds above ₹500 [ASSUMPTION] require a second approver (`ADMIN_FINANCE` or `ADMIN_SUPER`) — maker-checker. [Sp/O create; F/S approve above limit]
 - **ADM-ORD-008 (P0) Internal notes** on orders (visible to admins only).
 - **ADM-ORD-009 (P0) Contact shortcuts**: call customer / restaurant / rider (`tel:`), each tap logged.
-- **ADM-ORD-010 (P1) Bulk actions in an incident** (e.g. pause all restaurants in a zone; disable COD city-wide; banner message to customers).
+- **ADM-ORD-010 (P1) Bulk actions in an incident** (e.g. pause all restaurants in a zone; disable COD city-wide; city-wide in-app banner, ADM-CFG-003). No push/SMS admin broadcasts in V1 (C20).
+- **ADM-ORD-011 (P1) Ops-assisted phone ordering (M8).** An `ADMIN_OPS`/`ADMIN_SUPPORT` agent places a **COD** order for a customer who calls the support line (e.g. persona P3): finds or creates the customer by phone (OTP to the customer's phone or recorded verbal consent [LEGAL]), selects a restaurant and items, confirms the address pin with the customer, reads out the full bill, and places the order through the same quote/placement rules (BR-COD limits apply). The customer receives an SMS with the order code; the order is tagged `assisted` and audited.
 
 ### 8.7 ADM-COMM — Commissions [act: S/F]
 
-- **ADM-COMM-001 (P0)** Per-restaurant commission % with effective-from date (history retained; never retroactive to past orders); city default (15%); allowed range 0–30% hard bounds [ASSUMPTION].
+- **ADM-COMM-001 (P0)** Per-restaurant commission % with effective-from date (history retained; never retroactive to past orders); city default (15%); allowed range 0–30% hard bounds (`commission_bps` CHECK 0–3000, doc 10). Changes need a second approver (R31 family 3).
 - **ADM-COMM-002 (P0)** Commission snapshot stored on each order at placement (the rate in effect at `PLACED`).
 - **ADM-COMM-003 (P1)** Promotional commission (e.g. 0% for first 30 days for new restaurants) via effective-dated rate.
 
 ### 8.8 ADM-COUP — Coupons [act: S/O; F for funding approval]
 
-- **ADM-COUP-001 (P0) Create/edit/deactivate coupons** with: code (unique per city, uppercase alnum 4–16), title & terms (en/te), type (`FLAT`, `PERCENT` with max cap, `FREE_DELIVERY`), value, min subtotal, validity window, total redemption cap, per-user cap, first-order-only flag, payment-method restriction (any/online/COD), scope (all restaurants / list; zones), funding (`PLATFORM` | `RESTAURANT` with restaurant consent record), display on listing flag.
+- **ADM-COUP-001 (P0) Create/edit/deactivate coupons** with: code (globally unique, uppercase alnum 4–16; RV-052), title & terms (en/te), type (`FLAT`, `PERCENT` with max cap, `FREE_DELIVERY`), value, min subtotal, validity window, total redemption cap, per-user cap, first-order-only flag, payment-method restriction (any/online/COD), scope (all restaurants / list; zones), funding (`PLATFORM` | `RESTAURANT` with restaurant consent record; no `SHARED` funding, no cuisine/user targets, no per-day budgets in V1 — C16), display on listing flag.
 - **ADM-COUP-002 (P0) Coupon report**: redemptions, discount given, orders, by restaurant; CSV.
 - **ADM-COUP-003 (P0) Validation preview** ("test this coupon against cart X").
-- **ADM-COUP-004 (P1) Bulk unique codes** (e.g. 500 single-use codes for a college fest).
+- **ADM-COUP-004 (P2 — was P1; deferred per C16) Bulk unique codes** (e.g. 500 single-use codes for a college fest). Single-user goodwill coupons (R9) remain V1.
 
 ### 8.9 ADM-TKT — Disputes and tickets [act: Sp/O; F for payment tickets]
 
-- **ADM-TKT-001 (P0) Ticket inbox**: sources customer (CUS-SUPP), restaurant (RES-PAYO-004, P1), rider (P1), admin-created (phone calls logged as tickets). Fields: ticket no., category, order link, priority (auto: payment issues & active orders = high), status (`OPEN`, `IN_PROGRESS`, `AWAITING_CUSTOMER`, `RESOLVED`, `CLOSED`), assignee, SLA timers (acknowledge 48 h legal max; internal first-response target 10 min), conversation thread, attachments, resolution code.
-- **ADM-TKT-002 (P0) Resolution actions** from the ticket: refund (via ADM-ORD-007), goodwill coupon (single-use, capped ₹100 [ASSUMPTION]), restaurant/rider warning note, no action — each with customer-visible message.
+- **ADM-TKT-001 (P0) Ticket inbox**: sources customer (CUS-SUPP), restaurant (RES-PAYO-004, P1), rider (P1), admin-created (phone calls logged as tickets). Fields: ticket no., category, order link, priority (auto: payment issues & active orders = high), status (doc 10 set: `OPEN`, `IN_PROGRESS`, `AWAITING_REQUESTER`, `AWAITING_APPROVAL`, `RESOLVED`, `CLOSED`, `REOPENED`), assignee, SLA timers (acknowledge 48 h legal max; internal first-response target 10 min), conversation thread, attachments, resolution code.
+- **ADM-TKT-002 (P0) Resolution actions** from the ticket: refund (via ADM-ORD-007), goodwill coupon (single-user; above ₹150 needs a second approver, R31 family 1), COD compensation as the customer's choice of manual UPI refund (UTR recorded) or coupon (R29), restaurant/rider warning note, no action — each with customer-visible message.
 - **ADM-TKT-003 (P0) Grievance escalation**: tickets flagged "grievance" route to the grievance officer queue with the 1-month redressal clock (LEG-CP-003).
 - **ADM-TKT-004 (P1) Canned responses** (en/te).
 - **ADM-TKT-005 (P1) Fraud flags**: customers with > 2 missing-item claims in 30 days surfaced to agent.
@@ -610,36 +616,37 @@ Admin UI = `admin` web app (desktop-first, works on tablet). Roles: `ADMIN_SUPER
 - **ADM-RPT-002 (P0) GST working report** for finance: per order taxable values and GST by component (restaurant service under §9(5), delivery fee, platform fee, commission) to support returns preparation by the CA (LEG-GST-*).
 - **ADM-RPT-003 (P0) Daily ops report** (auto-generated, emailed P1): §4 metrics for the day.
 - **ADM-RPT-004 (P2) Scheduled reports, BI integration, cohort analysis** — deferred.
+- **ADM-RPT-005 (P0) Gig-worker registration export (M5) [LEGAL].** CSV of rider registration fields (RDR-ONB-007) and new/active/exited riders per period, in the format required by the designated portal (LEG-GIG-001); restricted to S/O, audit-logged.
 
 ### 8.11 ADM-AUDIT — Audit logs [view: S; F for money events]
 
-- **ADM-AUDIT-001 (P0)** Every admin/partner action that changes state, money, permissions, configuration, prices, KYC or reveals sensitive data writes an append-only audit record: actor id + role, city, action, entity type/id, before/after (diff, with secrets redacted), reason, timestamp, IP, user agent, request/trace id.
+- **ADM-AUDIT-001 (P0)** Every admin/partner action that changes state, money, permissions, configuration, prices, KYC or reveals sensitive data writes an append-only audit record (append-only table, app role has no UPDATE/DELETE grants; no per-row hash chain in V1, C6): actor id + role, city, action, entity type/id, before/after (diff, with secrets redacted), reason, timestamp, IP, user agent, request/trace id.
 - **ADM-AUDIT-002 (P0)** Audit viewer with filters (actor, entity, action, date) and CSV export; no edit/delete capability for anyone.
 - **ADM-AUDIT-003 (P0)** Order/delivery state transitions are captured in the order event log (ADM-ORD-002), distinct from the admin audit log, both retained per NFR-RET.
 
 ### 8.12 ADM-ZONE — Zones and fees configuration [act: S/O; F for fee changes]
 
-- **ADM-ZONE-001 (P0) Zones**: draw/edit polygons on a map (MapLibre), name, active flag; overlapping zones disallowed in V1 [ASSUMPTION – doc 16 decides]; localities list per city (name en/te, PIN, centroid).
-- **ADM-ZONE-002 (P0) Fee configuration** per city with optional per-zone override, effective-dated: delivery fee slabs, max radius, road factor, platform fee, small-cart fee & threshold, COD max order value, COD enabled flag, rider pay parameters, cash limit, service hours.
+- **ADM-ZONE-001 (P0) Zones**: draw/edit polygons on a map (MapLibre), name, active flag (GeoJSON import/export, impact dry-run and heat maps deferred, C15); overlapping zones disallowed in V1 [ASSUMPTION – doc 16 decides]; localities list per city (name en/te, PIN, centroid).
+- **ADM-ZONE-002 (P0) Fee configuration** per city with optional per-zone override, effective-dated: delivery fee slabs, max radius, road factor, platform fee, small-cart fee & threshold, COD max order value, COD enabled flag, rider pay parameters, cash limit, service hours. Defaults owned by doc 16 §6 (R48). **Fee-config and commission changes need a second approver** (R31 family 3). Tax rules are seeded by migration — no tax-rule CRUD UI in V1 (C20).
   - AC: Changing a fee never alters already-placed orders; new quotes use the new config from its effective time; change is audit-logged with the previous value.
 - **ADM-ZONE-003 (P0) Zone pause** (e.g. heavy rain/flooding in a locality): stops new orders to addresses inside, banner explains.
-- **ADM-ZONE-004 (P1) Weather/peak surcharge** — not V1 (BR-FEE-006).
+- **ADM-ZONE-004 (P2) Weather/peak surcharge** — not V1 (BR-FEE-006, R30, C1).
 
 ### 8.13 ADM-PAYO — Payouts and settlement [act: F/S]
 
 - **ADM-PAYO-001 (P0) Settlement run** per cycle: system computes restaurant and rider payables from the ledger (restaurant: BR-COMM; rider: BR-RPAY & BR-COD netting) into a **payout batch** in `DRAFT`; finance reviews, approves (maker-checker: creator ≠ approver), exports a bank-upload/UPI CSV, records transfers with UTR/reference per payee, and marks `PAID`; failures marked with reason and carried to next cycle.
 - **ADM-PAYO-002 (P0) Ledger**: double-entry style internal ledger with accounts per restaurant, rider, customer refunds, platform revenue, GST payable, PA clearing, cash-in-transit; every order financial event posts balanced entries (doc 14 owns design). Finance can view a payee's ledger with running balance.
-- **ADM-PAYO-003 (P0) PA reconciliation**: import PA settlement report (CSV) and match captured payments/refunds/fees to ledger; mismatches listed for action.
+- **ADM-PAYO-003 (P0) PA reconciliation**: import PA settlement report (CSV) and match captured payments/refunds/fees to ledger; mismatches listed for action (`recon_exceptions`, M4); golden tests against the PA's sample settlement files (M14).
 - **ADM-PAYO-004 (P0) Holds**: put a payee's payout on hold with reason (e.g. KYC issue, dispute).
-- **ADM-PAYO-005 (P0) Rider cash deposits**: confirm/reject rider-declared deposits against bank/UPI statement; record cash received at ops desk with receipt number; daily cash-in-hand report with ageing (M-22).
-- **ADM-PAYO-006 (P0) Manual adjustments** (credit/debit to a payee with reason, maker-checker) — e.g. restaurant compensation for customer-fault cancellation, rider damage recovery (rider recoveries require written rider acknowledgement [LEGAL]).
-- **ADM-PAYO-007 (P0) COD refunds to customers** (no original payment instrument): record manual UPI/bank refund to customer-provided VPA with reference.
+- **ADM-PAYO-005 (P0) Rider cash deposits**: confirm/reject rider-declared deposits against bank/UPI statement — **bank-statement CSV import with automatic UTR matching** (RV-068); record cash received at ops desk with receipt number; daily cash-in-hand report with ageing (M-22).
+- **ADM-PAYO-006 (P0) Manual adjustments** (credit/debit to a payee with reason; second approver above the threshold in `approvals.thresholds`, R31 family 1) — e.g. restaurant compensation for customer-fault cancellation, rider minimum-guarantee top-up `MG_TOPUP` (RDR-EARN-007), manual rider peak bonus (R30), rider damage recovery (rider recoveries require written rider acknowledgement [LEGAL]).
+- **ADM-PAYO-007 (P0) COD refunds to customers** (no original payment instrument): when the customer chooses money over a coupon (R29), finance records the manual UPI/bank refund to the customer-provided VPA with UTR and a ledger entry (`refunds.provider='MANUAL'`).
 - **ADM-PAYO-008 (P1) TDS/TCS computation & reports** per LEG-TAX (if confirmed applicable).
 - **ADM-PAYO-009 (P2) Automated payouts** via PA payout/route API — V1.1 candidate.
 
 ### 8.14 ADM-CFG / ADM-CONT — Platform configuration and content
 
-- **ADM-CFG-001 (P0)** City settings: name (en/te), timezone, service hours, support phone, grievance officer details, feature flags (COD enabled, delivery OTP policy, heartbeat gating), timeouts (restaurant accept 180 s, offer 45 s, payment pending 15 min), cash limit; all effective-dated & audit-logged. [S]
+- **ADM-CFG-001 (P0)** City settings: name (en/te), timezone, service hours, support phone, grievance officer details, feature flags (COD enabled, delivery OTP policy), timers and thresholds (keys and defaults owned by doc 13 §5 / doc 10 `app_config`, e.g. `ordering.accept_window_s`, `dispatch.offer_ttl_s`, `payments.pending_timeout_s`, `restaurant.device_offline_pause_s`), cash limit; all effective-dated & audit-logged. [S]
 - **ADM-CFG-002 (P0)** Legal documents management: terms, privacy notice, partner agreements, refund policy — versioned (en/te); users re-consent on material change.
 - **ADM-CONT-001 (P1)** Cuisine list, collections, banners, FAQs (en/te).
 - **ADM-CFG-003 (P1)** City-wide customer banner (incident message).
@@ -653,8 +660,8 @@ Admin UI = `admin` web app (desktop-first, works on tablet). Roles: `ADMIN_SUPER
 | ID | Pri | Event | Customer | Restaurant | Rider | Admin |
 |---|---|---|---|---|---|---|
 | NOT-001 | P0 | OTP | SMS | SMS | SMS | — (TOTP) |
-| NOT-002 | P0 | Order `PLACED` | in-app + push | **loud alert + push** | — | board |
-| NOT-003 | P0 | Order accepted / rejected / auto-rejected | push (+SMS if rejected & prepaid, P1) | — | — | board flag on timeout |
+| NOT-002 | P0 | Order `PLACED` | in-app + push | **loud alert + push, repeated every 30 s; owner SMS + push at 60 s** (R1) | — | board; flagged red + sound at 90 s for ops call |
+| NOT-003 | P0 | Order accepted / rejected / cancelled as unresponsive (180 s) | push (+SMS if rejected/cancelled & prepaid, P1) | owner SMS on miss + auto-pause notice | — | board |
 | NOT-004 | P0 | Delivery offer | — | — | **loud alert + push** | — |
 | NOT-005 | P0 | Rider assigned / at restaurant | in-app | in-app | — | — |
 | NOT-006 | P0 | Picked up / arrived / delivered | push | in-app | — | — |
@@ -665,6 +672,7 @@ Admin UI = `admin` web app (desktop-first, works on tablet). Roles: `ADMIN_SUPER
 | NOT-011 | P1 | Cash-in-hand ≥ 80% of limit / limit reached | — | — | push | — |
 | NOT-012 | P1 | FSSAI/DL expiry reminders | — | push + SMS | push + SMS | list |
 
+- **NOT-016 (P1) Automated voice-call escalation (R43).** Automated IVR call to the counter device number and the owner for unaccepted orders; enabled only if the pilot shows > 5% of orders reaching the 90 s mark. V1 relies on repeated push/SSE alarm + owner SMS at 60 s + ops manual call at 90 s.
 - **NOT-013 (P0)** All user-facing notifications localised to the recipient's language; SMS only via DLT-approved templates (LEG-TRAI-001).
 - **NOT-014 (P0)** Marketing notifications only with marketing consent (CUS-AUTH-003); transactional messages need no marketing consent.
 - **NOT-015 (P0)** Push permission is requested in context (e.g. after placing first order: "Get updates when your food is on the way?"), never on first page load.
@@ -675,7 +683,8 @@ Admin UI = `admin` web app (desktop-first, works on tablet). Roles: `ADMIN_SUPER
 - **X-002 (P0) Time display** in IST, 12-hour format with AM/PM in `en`; Telugu equivalents (ఉ./సా. via `Intl` `te-IN`) [ASSUMPTION – UX confirms]; durations as "12 min".
 - **X-003 (P0) Currency display** `₹1,23,456.50` (en-IN grouping); paise shown on bills and statements, totals per BR-FEE-009.
 - **X-004 (P0) Error messages** are localised, human, and suggest an action; never show raw codes except a short support reference.
-- **X-005 (P0) Feature flags** per city for: COD, delivery OTP, heartbeat gating, coupons, ratings display.
+- **X-005 (P0) Feature flags** per city for: COD, delivery OTP, coupons, ratings display. (Device-heartbeat auto-pause is mandatory per R1, not a flag.)
+- **X-006 (P0) Device sessions (R44, M10).** Registered restaurant order-receiver devices get device-bound long-lived sessions: sliding 30-day idle, 90-day absolute, revocable by owner/admin, re-auth scheduled outside service hours; rider sessions 30-day sliding. Doc 12 owns the mechanics.
 
 ---
 
@@ -692,7 +701,7 @@ Reference device: **low-end Android** (≈ Moto E/Redmi A-series class, 2–3 GB
 | NFR-PERF-003 | P0 | API latency (server-side, excluding PA/SMS): p95 ≤ 300 ms reads, ≤ 500 ms writes; quote + place order p95 ≤ 800 ms. |
 | NFR-PERF-004 | P0 | Real-time: status event → client render p95 ≤ 5 s (customer), ≤ 5 s (restaurant new order), ≤ 3 s (rider offer). |
 | NFR-PERF-005 | P0 | Menu images: list thumbnails ≤ 30 KB (WebP/AVIF), detail ≤ 120 KB; lazy-loaded. |
-| NFR-PERF-006 | P0 | Capacity for V1: 2,000 orders/day, peak 300 orders/hour, 300 concurrent customer sessions, 150 riders online, 150 restaurant devices on SSE — on the production managed-cloud deployment at its launch size (≥ 2 API replicas), with ≥ 3× headroom tested in load tests (doc 20); scaling beyond is a configuration change (more replicas / larger DB instance), not a re-architecture. |
+| NFR-PERF-006 | P0 | Capacity per the **single load model in doc 20 §12.1 (R45)**: planning volumes ≈ 30 orders/day closed pilot, ≈ 80 month 1, ≈ 250 month 3; design point 2,000 orders/day with a 500 orders/h peak; load-tested at 3× (1,500 orders/h) plus 3,000 concurrent SSE connections, including a CGNAT scenario. Infrastructure is sized to the phase (`closed-pilot` / `public-launch` profiles, R32) and capacity is proven by test; scaling beyond is a configuration change, not a re-architecture. Doc 20 wins on any number. |
 | NFR-PERF-007 | P1 | Partner app usable after cold start in ≤ 3 s on reference device when cached. |
 
 ### 10.2 NFR-AVAIL — Availability and resilience (production on managed cloud, baseline §4a)
@@ -701,21 +710,21 @@ Targets apply to the **production** environment (standard hyperscaler, India reg
 
 | ID | Pri | Requirement |
 |---|---|---|
-| NFR-AVAIL-001 | P0 | **Ordering critical path ≥ 99.9% monthly availability** measured 24×7 by synthetic checks every 1 min from outside the cloud: browse/menu, quote, place order, payment confirmation (webhook ingest), order status/SSE, restaurant accept, rider offer accept/status updates. (Error budget ≈ 43 min/month.) |
+| NFR-AVAIL-001 | P0 | **Ordering critical path ≥ 99.9% monthly availability** (from 3 months after Gate B; until then the pilot SLO is **99.5% measured over service hours**, with ops as first responders using runbooks — RV-067) measured by synthetic checks every 1 min from outside the cloud: browse/menu, quote, place order, payment confirmation (webhook ingest), order status/SSE, restaurant accept, rider offer accept/status updates. (Error budget ≈ 43 min/month.) |
 | NFR-AVAIL-002 | P0 | **Other surfaces ≥ 99.5% monthly**: admin app, reports/exports, partner analytics, onboarding/KYC uploads, statements. |
-| NFR-AVAIL-003 | P0 | **Pilot exception:** during the closed pilot only, a documented single-AZ database is acceptable with target ≥ 99.5% for the critical path; **Multi-AZ is mandatory before public launch** or when orders exceed 100/day, whichever first (baseline §4a rule 3 "upgrade trigger"). |
-| NFR-AVAIL-004 | P0 | **Data protection:** RPO ≤ 5 min (managed PITR / continuous WAL) and zero loss of committed money/ledger writes on AZ failure (synchronous Multi-AZ); **RTO ≤ 1 h** for AZ-level failure (automatic failover target ≤ 5 min) and **RTO ≤ 24 h, RPO ≤ 1 h** for region-level disaster via cross-region backup copies (restore into the alternative India region) [ASSUMPTION – doc 23 confirms per chosen cloud]. PA webhooks are replayable and reconciliation (ADM-PAYO-003) detects gaps. |
+| NFR-AVAIL-003 | P0 | **Pilot exception (R32):** during the closed pilot only, a Single-AZ database (`closed-pilot` IaC profile) with PITR + cross-region automated backups is acceptable with target ≥ 99.5% for the critical path; **Multi-AZ is mandatory before Gate B (public launch) or when orders exceed 100/day, whichever first**. |
+| NFR-AVAIL-004 | P0 | **Data protection — targets owned by doc 23 §1** (adopted here, register row 70): logical corruption RPO ≤ 5 min / RTO ≤ 2 h (PITR); AZ failure RPO 0 / RTO minutes once Multi-AZ (R32); region outage RPO ≤ 30 min / RTO ≤ 4 h via cross-region backups into `ap-south-2` + IaC rebuild (no DR pre-provisioning or region game days before Gate B, C10). PA webhooks are replayable and reconciliation (ADM-PAYO-003) detects gaps. |
 | NFR-AVAIL-005 | P0 | Zero-downtime deploys for API and worker (rolling, health-checked); schema migrations backward-compatible (expand/contract). Planned maintenance that needs downtime only 01:00–06:00 IST, announced in admin ≥ 24 h ahead, and counted against the error budget. |
 | NFR-AVAIL-006 | P0 | Degraded modes: PA down → hide online payment, COD-only banner (if COD enabled); SMS provider down → existing sessions continue, ops alerted (secondary OTP provider P1); SSE down → polling fallback; object storage/CDN degraded → menus render without images. |
-| NFR-AVAIL-007 | P0 | All timers that matter (restaurant auto-reject, offer expiry, payment-pending expiry, auto-resume of pauses) are server-side and survive process restarts/redeploys (persisted jobs, baseline P4); ≥ 2 API replicas and ≥ 1 always-on worker (≥ 2 for public launch) in production. |
-| NFR-AVAIL-008 | P0 | Alerting: on-call (ops/dev rota) paged when critical-path SLO burn rate indicates budget exhaustion within 6 h, and on any of: order placement errors > 2% for 5 min, unaccepted-order backlog, webhook backlog, worker queue lag > 60 s (doc 24). |
+| NFR-AVAIL-007 | P0 | All timers that matter (restaurant accept window, offer expiry, payment-pending expiry, auto-resume of pauses) are server-side and survive process restarts/redeploys (persisted jobs, baseline P4); ≥ 2 API replicas and ≥ 1 always-on worker (≥ 2 for public launch) in production. |
+| NFR-AVAIL-008 | P0 | Alerting: on-call (ops/dev rota) paged when critical-path SLO burn rate indicates budget exhaustion within 6 h, and on any of: order placement errors > 2% for 5 min, unaccepted-order backlog, webhook backlog, worker queue lag > 60 s, a missed periodic run such as the weekly settlement (catch-up jobs, M11), and Postgres notification-queue usage (M12) (doc 24). |
 | NFR-AVAIL-009 | P1 | Status banner mechanism for incidents (ADM-CFG-003); public status page P2. |
 
 ### 10.3 NFR-A11Y — Accessibility (WCAG 2.2 AA)
 
 | ID | Pri | Requirement |
 |---|---|---|
-| NFR-A11Y-001 | P0 | All three apps conform to **WCAG 2.2 Level AA** for P0 flows; verified by automated checks in CI and a manual audit (TalkBack on Android + keyboard on admin) before launch. |
+| NFR-A11Y-001 | P0 | All four apps (R14) conform to **WCAG 2.2 Level AA** for P0 flows; verified by automated checks in CI and a manual audit (TalkBack on Android + keyboard on admin) before launch. |
 | NFR-A11Y-002 | P0 | Touch targets ≥ 44×44 CSS px for customer/partner apps (exceeds 2.5.8's 24 px minimum), ≥ 8 px spacing between primary actions. |
 | NFR-A11Y-003 | P0 | Dietary markers never rely on colour alone: shape + text label ("Veg", "Egg", "Non-veg") + accessible name. |
 | NFR-A11Y-004 | P0 | Text scales to 200% without loss of function; Telugu text uses a font with full conjunct support (e.g. Noto Sans Telugu) and line-height ≥ 1.5 to avoid clipped vowel signs. |
@@ -744,13 +753,13 @@ Targets apply to the **production** environment (standard hyperscaler, India reg
 | NFR-PRIV-003 | P0 | KYC documents encrypted at rest, served via short-lived signed URLs to authorised roles only; never cached in CDN. |
 | NFR-PRIV-004 | P0 | Rider location used only for dispatch, ETA and safety; raw pings retained per NFR-RET; never shown to customers in V1. |
 | NFR-PRIV-005 | P0 | No third-party ad/tracking SDKs; product analytics (if any) first-party or privacy-preserving, no PII in analytics events or logs (phones/addresses redacted in logs). |
-| NFR-PRIV-006 | P0 | **Production personal data (database, object storage, backups, logs) resides in an India cloud region** (baseline §4a); cross-border processing limited to processors with DPDP-aligned contracts (e.g. error tracking with PII scrubbed) [LEGAL – DPDP permits transfer except to notified restricted countries; counsel confirms]. Dev/preview environments use **synthetic data only** — no production PII on free tiers. |
+| NFR-PRIV-006 | P0 | **Production personal data (database, object storage, backups, logs) resides in an India cloud region** (baseline §4a); cross-border processing limited to processors with DPDP-aligned contracts (observability on Grafana Cloud India region incl. Faro for frontend errors; no Sentry in V1, R36) [LEGAL – DPDP permits transfer except to notified restricted countries; counsel confirms]. Dev/preview environments use **synthetic data only** — no production PII on free tiers. |
 
 ### 10.6 NFR-SEC — Security (doc 12/19 own details)
 
 - **NFR-SEC-001 (P0)** OWASP ASVS L2 for the API; TLS everywhere; secrets not in repo; rate limiting on OTP, login, coupon validation, search.
 - **NFR-SEC-002 (P0)** PA webhooks verified by signature; amounts and order IDs cross-checked server-side.
-- **NFR-SEC-003 (P0)** Admin: TOTP mandatory; session timeout 30 min idle [ASSUMPTION]; IP/device logged.
+- **NFR-SEC-003 (P0)** Admin: TOTP mandatory (R37), passkeys P1 (ADM-AUTH-004); WAF rate + India geo rules on the admin host; session timeout 30 min idle [ASSUMPTION]; IP/device logged.
 - **NFR-SEC-004 (P0)** Payment card data never touches rovo servers (PA hosted checkout ⇒ PCI-DSS scope SAQ-A).
 - **NFR-SEC-005 (P0)** Security incident reporting process: CERT-In report within 6 hours of noticing specified incidents; DPDP breach intimation (LEG-DPDP-007) [LEGAL].
 
@@ -759,7 +768,7 @@ Targets apply to the **production** environment (standard hyperscaler, India reg
 - **NFR-AUD-001 (P0)** Every money movement is traceable from order → ledger entries → payout batch → UTR, and from PA settlement → ledger.
 - **NFR-AUD-002 (P0)** Every order has a complete, immutable event history (status transitions, actor, reason, timestamps, client timestamps for rider actions).
 - **NFR-AUD-003 (P0)** Config, price, commission, fee and coupon changes are effective-dated and never overwrite history.
-- **NFR-AUD-004 (P0)** Admin audit log per ADM-AUDIT-001; tamper-evidence (append-only table with no UPDATE/DELETE grants; P1: hash-chained entries).
+- **NFR-AUD-004 (P0)** Admin audit log per ADM-AUDIT-001; tamper-evidence = append-only table with no UPDATE/DELETE grants for the app role. Hash-chained/sealed entries deferred to V1.1+ (C6).
 - **NFR-AUD-005 (P0)** Time sources: server UTC with NTP; all reports state timezone.
 
 ### 10.8 NFR-RET — Data retention [LEGAL – retention schedule to be confirmed by counsel/CA]
@@ -772,7 +781,7 @@ Targets apply to the **production** environment (standard hyperscaler, India reg
 | Restaurant/rider KYC documents | Duration of relationship + 8 years (financial linkage) [LEGAL]; images may be reduced to extracted fields + hash after 3 years [OPEN] | Tax, disputes |
 | Rider raw location pings | **30 days**, then deleted (keep only per-delivery computed distances) | Minimisation |
 | OTP send logs | 1 year | Abuse investigation; DLT disputes |
-| Application/security logs and traffic logs | **≥ 1 year** for security-relevant logs; ≥ 180 days in Indian jurisdiction per CERT-In directions [LEGAL] | DPDP Rules log retention; CERT-In 2022 |
+| Application/security logs and traffic logs | **180-day archive in India for all ICT-system logs** (app, LB/edge, WAF, VPC flow, DB, cloud audit — CloudWatch Logs/S3 in `ap-south-1`); security events **≥ 1 year** (M1, R36) [LEGAL] | DPDP Rules log retention; CERT-In 2022 |
 | Admin audit logs | 8 years | Financial actions traceability |
 | Support tickets & attachments | 3 years after closure; photos 1 year | Consumer disputes |
 | Ratings/reviews | Life of restaurant listing; anonymised on author deletion | — |
@@ -786,12 +795,12 @@ All amounts configurable per city (and per zone/restaurant where stated) via ADM
 
 ### 11.1 BR-FEE — Customer-facing fees and pricing
 
-- **BR-FEE-001 Delivery fee** by estimated distance restaurant→customer = haversine × road factor 1.3: 0–2 km ₹20 · >2–4 km ₹30 · >4–6 km ₹40 · >6–8 km ₹50 (slab upper bounds inclusive); orders beyond the restaurant's max radius (default 7 km) are not serviceable. Fee is **GST-inclusive** (product decision, BR-FEE-007).
+- **BR-FEE-001 Delivery fee (R18)** by **road-adjusted** distance restaurant→customer = haversine × road factor 1.3: 0–2 km ₹20 · 2–4 km ₹30 · 4–6 km ₹40 · 6–8 km ₹50 · 8–10 km ₹60, **lower bound inclusive, upper exclusive** (`[lo,hi)`, so 2,000 m → ₹30). Serviceability uses the **straight-line** max radius (default 7 km ≈ 9.1 km road), so every serviceable point has exactly one slab. Fee is **GST-inclusive** (product decision, BR-FEE-007). Defaults owned by doc 16 §6.1 (R48).
 - **BR-FEE-002 Platform fee** ₹5 per order, flat, GST-inclusive.
 - **BR-FEE-003 Small-cart fee** ₹15 when item total (after item-level, before coupon) < ₹149; GST-inclusive. Not charged if a FREE_DELIVERY or restaurant offer explicitly waives it (coupon config flag).
 - **BR-FEE-004 Packaging charge** set by restaurant: per item (≤ ₹30/item [ASSUMPTION]) or per order (≤ ₹50 [ASSUMPTION]); taxed with food at 5% as part of the restaurant supply [LEGAL]; passed 100% to restaurant, **no commission** on packaging (product decision).
 - **BR-FEE-005 No minimum order value** in V1 (small-cart fee instead). Restaurant-level minimum order P2.
-- **BR-FEE-006 No surge/rain/peak fees** in V1. Admin may pause zones instead (ADM-ZONE-003).
+- **BR-FEE-006 No surge/rain/peak fees** in V1 (R30). Bad weather / rider shortage is handled by zone pause (ADM-ZONE-003) plus a manual rider peak bonus posted as a ledger adjustment (ADM-PAYO-006); customers never pay a surcharge.
 - **BR-FEE-007 Tax-inclusive vs exclusive display (product decision):**
   - Menu item, variant, add-on and packaging prices are **GST-exclusive** (matches how local restaurants print menus); GST on food is shown as its own bill line "GST on food (5%)".
   - Delivery fee, platform fee and small-cart fee are configured and displayed **GST-inclusive** (round, predictable numbers for a price-sensitive market); tax is back-calculated for the invoice.
@@ -829,25 +838,25 @@ All amounts configurable per city (and per zone/restaurant where stated) via ADM
 |---|---|---|---|---|
 | `PENDING_PAYMENT` | Customer (abandon) / system after 15 min | Any late capture auto-refunded in full | — | — |
 | `PLACED` (not yet accepted) | **Customer self-service in app, free** | **100%** | nothing owed | no delivery yet |
-| `ACCEPTED`, `PREPARING` | Customer **via support only**; restaurant (cannot fulfil); admin | Customer-fault: refund = To pay − cancellation fee, fee = item total + packaging + GST on food if the restaurant confirms preparation started, else **0** (free if within 60 s of acceptance) [product decision]; restaurant/platform-fault: **100%** | Customer-fault after preparation: paid item total + packaging − commission (online); for COD: platform pays 50% of item total, capped ₹300, as compensation [ASSUMPTION – OPEN commercial] | if assigned and arrived at restaurant: base pay + waiting pay |
+| `ACCEPTED`, `PREPARING` | Customer **self-service free within 60 s of placement** (R2), otherwise **via support only**; restaurant only via an ops-mediated issue (R40); admin | Within 60 s of placement: **100%**. After that, customer-fault: refund = To pay − cancellation fee, fee = item total + packaging + GST on food if the restaurant confirms preparation started, else **0** [product decision]; restaurant/platform-fault: **100%** | Customer-fault after preparation: paid item total + packaging − commission (online); for COD: platform pays 50% of item total, capped ₹300, as compensation [ASSUMPTION – OPEN commercial] | if assigned and arrived at restaurant: base pay + waiting pay |
 | `READY_FOR_PICKUP`, `PICKED_UP` | **No customer cancellation**; admin only for exceptional cases | If customer then refuses/unreachable → `UNDELIVERABLE`: online = **no refund**; COD = nothing collected, customer gets a COD strike (BR-COD-004) | Paid as delivered (online); COD: compensation as above | Full delivery pay |
-| Restaurant reject / timeout | Restaurant / system | **100%** | nothing owed; quality metric | if assigned: base pay |
+| Restaurant reject / accept timeout (`RESTAURANT_UNRESPONSIVE`, 180 s, R1) | Restaurant / system | **100%** | nothing owed; quality metric | if assigned: cancellation pay (doc 13 §6.2) |
 | No rider available (`NO_RIDER_AVAILABLE`) | Admin/system after 20 min unassigned past ready [ASSUMPTION] | **100%** | If food prepared: paid as delivered by platform (platform-fault) | — |
 | Platform/tech fault | Admin | **100%** + goodwill coupon optional | made whole | made whole |
 
-- **BR-CAN-001** The in-app Cancel button exists only in `PLACED` (and `PENDING_PAYMENT`). Past that, "Get help → Cancel my order" creates a high-priority ticket.
-- **BR-CAN-002** Every cancellation stores `cancel_reason` (code), `cancelled_by` (`customer`, `restaurant`, `admin`, `system`) and fault attribution (`customer`, `restaurant`, `rider`, `platform`) — doc 13 owns codes.
-- **BR-CAN-003** Coupon usage is restored when an order ends without `DELIVERED` and fault ≠ customer.
+- **BR-CAN-001** The in-app Cancel button exists in `PENDING_PAYMENT`, `PLACED`, and within **60 s of placement** even if already `ACCEPTED`/`PREPARING` (R2; `ordering.customer_cancel_grace_s`). Past that, "Get help → Cancel my order" creates a high-priority ticket and support/admin cancels with fault attribution.
+- **BR-CAN-002** Every cancellation stores `cancel_reason` (code), `cancelled_by` (`CUSTOMER`, `ADMIN`, `SYSTEM` — restaurants never cancel directly, R40; `SYSTEM` is the internal principal, R26) and fault attribution (`customer`, `restaurant`, `rider`, `platform`) — doc 13 owns codes.
+- **BR-CAN-003** Coupon usage is restored when an order ends in any non-delivered terminal state, **except** customer-fault `UNDELIVERABLE`, which burns the coupon (RV-048).
 
 ### 11.4 BR-REF — Refunds
 
 - **BR-REF-001** Online-paid refunds go **to the original payment instrument via the PA** only; no wallet/credits (stored value is RBI-regulated; out of scope).
-- **BR-REF-002** Refund initiated within 24 h of the decision (M-25); system-triggered refunds (reject, timeout, no rider, late capture) are initiated automatically within 5 min.
+- **BR-REF-002** Refund initiated within 24 h of the decision (M-25); system-triggered refunds (reject, `RESTAURANT_UNRESPONSIVE`, no rider, late capture) are initiated automatically within 5 min.
 - **BR-REF-003** Customer is shown the refund amount, date initiated and reference (PA refund ID/ARN when available) and the expected timeline (UPI typically 2–5 business days, cards/net banking 5–7 business days [ASSUMPTION – PA-dependent]).
-- **BR-REF-004** COD orders needing a refund (e.g. missing item after cash paid) are refunded by manual UPI/bank transfer to a customer-provided VPA (ADM-PAYO-007) or, if the customer prefers, a goodwill coupon of equal or higher value (customer choice; coupon never forced).
+- **BR-REF-004 (R29)** COD orders needing a refund or compensation (e.g. missing item after cash paid) — **the customer chooses**: manual UPI/bank refund to a customer-provided VPA, recorded by finance with UTR and a ledger entry (ADM-PAYO-007), **or** a single-user coupon of equal or higher value. Never coupon-only; no wallet (R9) [LEGAL].
 - **BR-REF-005** Refund cost allocation follows fault: restaurant-fault (missing/wrong item, quality) is recovered from restaurant payout (up to the item value incl. GST); rider-fault (spillage, delay caused by rider) borne by platform in V1 (no rider deductions without due process) [ASSUMPTION]; platform-fault borne by platform.
 - **BR-REF-006** Partial refunds by item (value of item incl. its share of GST and packaging); maximum refund ≤ amount paid.
-- **BR-REF-007** Maker-checker above ₹500 per refund (ADM-ORD-007).
+- **BR-REF-007** Second approver above ₹500 per refund and above ₹150 per goodwill coupon (R31 family 1; thresholds in `approvals.thresholds`, doc 10).
 
 ### 11.5 BR-COD — Cash on Delivery
 
@@ -864,20 +873,20 @@ All amounts configurable per city (and per zone/restaurant where stated) via ADM
 
 ### 11.6 BR-TIME — Timeouts and time rules
 
-- **BR-TIME-001 Restaurant auto-reject timeout: 180 s** from `PLACED` (configurable per city 120–300 s) [product decision: baseline did not fix it; 3 min balances low-literacy restaurants against customer wait].
-- **BR-TIME-002 Escalation:** 0 s alert + push; **60 s** re-alert/push; **90 s** order flagged on admin live board ("Unaccepted") so ops can phone the restaurant and accept on behalf (ADM-ORD-003); 180 s auto-reject with `RESTAURANT_TIMEOUT`, full refund, customer notified with "Try another restaurant" suggestions.
-- **BR-TIME-003 Restaurant auto-pause:** 2 consecutive timeouts → restaurant auto-paused "until I resume", owner notified by push + SMS, ops alerted.
+- **BR-TIME-001 Restaurant accept window: 180 s** from `PLACED` (R1; `ordering.accept_window_s`, doc 13 §5 T-ACC-TIMEOUT).
+- **BR-TIME-002 Escalation (R1, R43):** 0 s alert + push; **alarm/push repeats every 30 s**; **60 s** owner SMS + push; **90 s** order flagged red on the admin live board so ops phones the restaurant and may accept on behalf (ADM-ORD-003, audited) and the customer sees "Taking a little longer…"; **180 s** → `CANCELLED`, `cancelled_by=SYSTEM`, reason `RESTAURANT_UNRESPONSIVE` (not `REJECTED`), prepaid fully refunded, customer notified with "Try another restaurant" suggestions. Automated voice escalation is P1 (NOT-016).
+- **BR-TIME-003 Restaurant auto-pause (R1):** each miss → outlet auto-paused **30 min**; **2 consecutive misses** → paused until the owner resumes; owner notified by push + SMS, ops alerted. Separately, no order-receiver heartbeat for 3 min while open → auto-pause (RES-HOUR-005).
 - **BR-TIME-004 Payment pending expiry:** 15 min in `PENDING_PAYMENT` → `PAYMENT_FAILED` (PA order expired/cancelled).
-- **BR-TIME-005 ETA (shown as a 10-min range):** `max(prep_time, rider_to_restaurant_est) + travel_est + buffer`, where `travel_est = road_km × 3 min/km` (≈ 20 km/h) [ASSUMPTION], buffer 5 min (+5 configurable weather buffer). Lower bound = estimate, upper = estimate + 10, rounded to 5 min.
-- **BR-TIME-006 Dispatch start:** dispatch begins at `ACCEPTED` with delay `max(0, prep_time − rider_to_restaurant_est − 5 min)`; at launch the configurable delay cap is 0 (immediate) because distances are short and supply is thin [ASSUMPTION – revisit after pilot data on rider waiting time].
+- **BR-TIME-005 ETA (shown as a 10-min range):** `max(prep_time, rider_to_restaurant_est) + travel_est + buffer`; speeds/buffers are owned by the ETA model in doc 16 §5 (R48). Lower bound = estimate, upper = estimate + 10, rounded to 5 min.
+- **BR-TIME-006 Dispatch start (R7):** the delivery is created at `ACCEPTED`; the first offer is timed at `max(0, prep_time − rider_approach_estimate − buffer)` after acceptance (`dispatch.lead_buffer_min`, doc 13 §4.2).
 - **BR-TIME-007 Unassigned escalation:** delivery still `UNASSIGNED/OFFERED` 5 min after dispatch start → admin board flag; 10 min after `READY_FOR_PICKUP` → high-priority flag; 20 min after ready → ops decides cancel (`NO_RIDER_AVAILABLE`) or continue with customer consent.
 - **BR-TIME-008 Platform service hours** default 08:00–23:30 IST [ASSUMPTION]; restaurants' hours are intersected with it.
 
 ### 11.7 BR-DISP — Dispatch (baseline P11; doc 16/13 own algorithm detail)
 
-- **BR-DISP-001 Eligibility:** rider online, approved, not suspended, no active delivery, location fresh (≤ 2 min), within 5 km of restaurant (configurable), COD-eligible if COD (BR-COD-006), not previously declined/expired this delivery.
+- **BR-DISP-001 Eligibility:** rider `AVAILABLE`, approved, not suspended, no active delivery, within the dispatch radius steps (doc 13 §4.2 `dispatch.radius_steps_m`), COD-eligible if COD (BR-COD-006), not previously declined/expired this delivery. **Tiers (R34):** tier 1 = location ≤ 3 min old, ranked by distance; tier 2 = stale ≤ 15 min, reached via push + SSE and ranked after tier 1; offline at 15 min without ping.
 - **BR-DISP-002 Ranking:** nearest to restaurant (road-factor distance) first; tie-break by longest idle time (fairness), then higher acceptance rate.
-- **BR-DISP-003 Offer timeout 45 s**, one rider at a time, max 8 sequential offers then admin flag (continue cascading in a second round including riders who expired, not those who declined) [ASSUMPTION].
+- **BR-DISP-003 Offer timeout 45 s**, one rider at a time, max offers then admin flag (continue cascading in a second round including riders who expired, not those who declined) — parameters in doc 13 §4.2.
 - **BR-DISP-004** 3 consecutive expired offers → rider auto-offline.
 
 ### 11.8 BR-RPAY — Rider pay
@@ -885,15 +894,17 @@ All amounts configurable per city (and per zone/restaurant where stated) via ADM
 - **BR-RPAY-001** Per delivery: base ₹25 + ₹6/km for road-factor distance restaurant→drop beyond 2 km (pro-rated per 0.1 km).
 - **BR-RPAY-002** Pickup distance (rider→restaurant) is unpaid in V1 [ASSUMPTION – flag: riders on national platforms often get first-mile pay; revisit if offer acceptance < 70%].
 - **BR-RPAY-003** Waiting pay ₹1/min beyond 10 min from `AT_RESTAURANT` to `PICKED_UP`, cap ₹20 [ASSUMPTION – amount not set in baseline].
-- **BR-RPAY-004** Cancelled after rider reached restaurant (not rider-fault): base pay ₹25 + waiting pay. Undeliverable (not rider-fault): full pay.
+- **BR-RPAY-004** Cancelled after rider reached restaurant (not rider-fault): cancellation pay per doc 13 §6.2 (50% of base + waiting pay). Undeliverable (not rider-fault): full pay.
 - **BR-RPAY-005** Pay amount shown in the offer equals final pay except waiting-pay additions.
+- **BR-RPAY-006 Pilot minimum guarantee (M6, R47):** `MG_TOPUP` ledger adjustment per scheduled peak slot (RDR-EARN-007); amount and conditions [OPEN — business decision].
+- **BR-RPAY-007 Manual peak bonus (R30):** ops may add a per-delivery or per-slot rider bonus as a ledger adjustment during bad weather or shortage; never charged to customers.
 
 ### 11.9 BR-RATE — Ratings
 
 - **BR-RATE-001** Rating window: **7 days** after `DELIVERED`; only delivered orders can be rated; edits allowed within window.
 - **BR-RATE-002** Restaurant displayed rating = mean of restaurant ratings in the last 180 days, shown to one decimal with count; **"New" until ≥ 5 ratings**.
-- **BR-RATE-003** Delivery ratings are private (rider sees aggregates only; admin sees all).
-- **BR-RATE-004** Text reviews: auto-hide if containing phone numbers, URLs or a blocklist of abusive terms (en/te); admin can hide/unhide with reason; restaurants cannot delete reviews. Reviews from orders with a refund still count (honest signal).
+- **BR-RATE-003** Delivery ratings (👍/👎 + tags) are private (rider sees aggregates only; admin sees all).
+- **BR-RATE-004** Text reviews: auto-hide if containing phone numbers, URLs or a blocklist of abusive terms (en/te) (profanity filter); admin can hide/unhide with reason; no moderation queue and no restaurant replies in V1 (C14); restaurants cannot delete reviews. Reviews from orders with a refund still count (honest signal).
 - **BR-RATE-005** Delivery rating ≤ 2 with tags "Asked for extra cash"/"Rude behaviour" auto-creates an ops review item.
 
 ### 11.10 BR-COUP — Coupons and stacking
@@ -915,7 +926,7 @@ All amounts configurable per city (and per zone/restaurant where stated) via ADM
 
 ### 11.12 BR-OTP — Delivery OTP
 
-- **BR-OTP-001** Delivery OTP (4 digits, generated at `PICKED_UP`) is **required for prepaid orders with To pay ≥ ₹300** [ASSUMPTION] and for any order where the customer opted in; **not required for COD** (cash handover is the confirmation); city flag can make it required for all or none.
+- **BR-OTP-001 (R39)** Delivery OTP (4 digits, generated at `PICKED_UP`) is **on for prepaid orders with To pay ≥ ₹300** and **off for COD** (cash handover is the confirmation). The code is stored (encrypted) so the customer app can display it (CUS-TRK-004); seed `dispatch.delivery_code_required` must match (doc 10).
 - **BR-OTP-002** OTP visible to the customer in app and push; read out by phone is acceptable; admin override per RDR-FLOW-007.
 
 ### 11.13 BR-RES — Restaurant operating rules
@@ -935,22 +946,10 @@ All amounts configurable per city (and per zone/restaurant where stated) via ADM
 ### 11.15a BR-COST — Running cost as a business line item
 
 - **BR-COST-001** Cloud and third-party technology costs are budgeted per month in INR and reported per delivered order (M-60, M-61) in the monthly finance pack alongside commission revenue, fees, rider pay, discounts and refunds — i.e. **contribution margin per order is computed after tech cost**.
-- **BR-COST-002 Indicative monthly budget envelope** (production + staging, launch size) `[ASSUMPTION – DevOps owns the costed estimate in docs 22/25 with sourced prices]`:
+- **BR-COST-002 Monthly budget envelope — single source is doc 25 §15 (R46).** This PRD no longer restates cost numbers. Doc 25 §15 owns the `closed-pilot` and `public-launch` profile estimates (ex-GST), including the lines added by the review: CERT-In 180-day log archive (M1), counter devices and device lab (M3), support telephony (M9), DLT registration, and the NAT Gateway before Gate B (R28). SMS costs are owned by doc 15; PA fees by doc 14.
 
-  | Line item | Driver | Indicative V1 monthly (₹) |
-  |---|---|---|
-  | Managed PostgreSQL + PostGIS (Multi-AZ, PITR, backups) | instance size, storage, backup retention | 12,000–20,000 |
-  | Managed container compute (≥ 2 API + ≥ 1–2 worker, always-on) | vCPU/memory hours | 6,000–12,000 |
-  | Load balancer, NAT/egress, WAF, CDN, object storage | requests, GB | 5,000–10,000 |
-  | Logs/metrics/traces, error tracking, uptime checks | GB ingested, events | 2,000–6,000 |
-  | Staging (scaled down, stopped when idle) | hours | 3,000–6,000 |
-  | **Cloud subtotal** | | **≈ 28,000–54,000** |
-  | SMS OTP + transactional (DLT) | ~1.5 SMS per login + refunds/alerts; per-SMS price | 1,500–5,000 |
-  | PA fees on online payments (borne by platform) | % of online GMV; UPI vs card mix | variable — modelled in doc 14 |
-  | Domain, email, misc SaaS | fixed | ≤ 2,000 |
-
-- **BR-COST-003** Product choices that drive cost need a cost note in their requirement: e.g. SMS only where push cannot do the job (NOT-*); images thumbnailed and CDN-cached (NFR-PERF-005); rider location pings ≤ 1/30 s and raw pings retained 30 days (NFR-RET); no paid maps/geocoding/telephony in V1 (masked calling deferred); Redis only when needed (baseline P6).
-- **BR-COST-004** Fees are **not** raised to cover tech cost during V1 without a product decision; the platform fee (BR-FEE-002, ₹5) is the reference point: target M-60 ≤ platform fee by month 3.
+- **BR-COST-003** Product choices that drive cost need a cost note in their requirement: e.g. SMS only where push cannot do the job (NOT-*); images thumbnailed and CDN-cached (NFR-PERF-005); rider location pings ≤ 1/30 s, batched, and raw pings retained 30 days (NFR-RET); no paid maps/geocoding in V1; telephony limited to the support phone line (M9) and, only if triggered, the P1 voice escalation (R43) — masked calling deferred; Redis only when needed (baseline P6).
+- **BR-COST-004** Fees are **not** raised to cover tech cost during V1 without a product decision; the platform fee (BR-FEE-002, ₹5) is the reference point: target M-60 ≤ platform fee by month 3. The **PA effective rate is a go/no-go criterion at PA selection** (target ≤ 1% blended; UPI as low as negotiable — R46); Product revisits the ₹5 platform fee once the written rate is known.
 - **BR-COST-005** Any new V1 scope request must state its recurring cost impact (see `02-v1-scope.md` §6 scope-creep guard).
 
 ### 11.15 BR-MENU — Menu & dietary rules
@@ -993,7 +992,7 @@ The DPDP Rules were notified on 13–14 Nov 2025 with phased commencement; most 
 - **LEG-DPDP-005 [LEGAL] (P0)** Reasonable security safeguards (encryption, access control, logging, ≥ 1-year log retention) — NFR-SEC/NFR-RET.
 - **LEG-DPDP-006 [LEGAL] (P0)** Children: rovo does not knowingly process data of persons under 18 — sign-up requires an 18+ declaration; verifiable parental consent flows are out of scope [LEGAL – confirm adequacy; note student persona aged 17 at junior college may attempt to sign up].
 - **LEG-DPDP-007 [LEGAL] (P0)** Personal-data breach: intimate affected users and the Data Protection Board without delay, detailed report within 72 h (per Rules) — process in doc 19/24.
-- **LEG-DPDP-008 [LEGAL] (P0)** Processors (PA, SMS provider, hosting, error tracking) under contracts with DPDP-aligned clauses; no PII sent to error tracking.
+- **LEG-DPDP-008 [LEGAL] (P0)** Processors (PA, SMS provider, hosting, observability incl. Grafana Cloud/Faro) under contracts with DPDP-aligned clauses; no PII sent to error tracking. Erasure is driven by a per-table/bucket erasure map (M15).
 
 ### 12.4 Telecom — TRAI DLT
 
@@ -1013,15 +1012,15 @@ The DPDP Rules were notified on 13–14 Nov 2025 with phased commencement; most 
 
 ### 12.6 Payments — RBI
 
-- **LEG-RBI-001 [LEGAL] (P0)** All online customer payments flow through an RBI-authorised payment aggregator; rovo does not hold customer funds outside the PA's nodal/escrow arrangements; settlements to rovo's current account, then payouts to restaurants/riders (baseline P10). Counsel to confirm that rovo collecting the full order value and settling restaurants does not make rovo itself a payment aggregator (marketplace exemption) [LEGAL].
+- **LEG-RBI-001 [LEGAL] (P0)** All online customer payments flow through an RBI-authorised payment aggregator; rovo does not hold customer funds outside the PA's nodal/escrow arrangements; settlements to rovo's current account, then payouts to restaurants/riders (baseline P10). Counsel to confirm that rovo collecting the full order value and settling restaurants does not make rovo itself a payment aggregator (marketplace exemption) [LEGAL]. The design supports both PA split settlement and collect-and-payout (R25); **the legal opinion is required before Phase-2 week 4** — if split settlement, PA linked-account KYC joins restaurant onboarding (RES-ONB-005) (R35).
 - **LEG-RBI-002 [LEGAL] (P0)** No wallet/stored value (PPI) in V1.
 
 ### 12.7 Gig & platform workers
 
-- **LEG-GIG-001 [LEGAL] (P0)** **Code on Social Security, 2020** (bulk in force from 21 Nov 2025): aggregators may be required to contribute 1–2% of annual turnover (capped at 5% of amounts paid to gig workers) once the contribution date is notified, and to **register each new gig/platform worker on the designated portal in real time or daily** (Social Security (Central) Rules 2026, as reported) — product must capture the rider data fields the portal needs and produce an export (ADM-RPT) [LEGAL – confirm applicability thresholds for a small aggregator].
+- **LEG-GIG-001 [LEGAL] (P0)** **Code on Social Security, 2020** (bulk in force from 21 Nov 2025): aggregators may be required to contribute 1–2% of annual turnover (capped at 5% of amounts paid to gig workers) once the contribution date is notified, and to **register each new gig/platform worker on the designated portal in real time or daily** (Social Security (Central) Rules 2026, as reported) — product must capture the rider data fields the portal needs (RDR-ONB-007) and produce an export (ADM-RPT-005) (M5, P0) [LEGAL – confirm applicability thresholds for a small aggregator].
 - **LEG-GIG-002 [LEGAL] (P1)** **Telangana Gig and Platform Workers Bill 2025** (draft April 2025): welfare-board registration of aggregators/workers, welfare fee, data sharing — confirm enacted status as of launch; design rider data export accordingly.
 - **LEG-GIG-003 [LEGAL] (P0)** Rider agreement establishes independent-contractor relationship, transparent pay computation (BR-RPAY shown in app), grievance mechanism for riders, and no arbitrary deductions (BR-REF-005).
-- **LEG-GIG-004 [LEGAL] (P1)** Accident insurance cover for riders while on delivery (common market practice; may be mandated by state law) [OPEN – ops/finance].
+- **LEG-GIG-004 [LEGAL] (P1)** Accident insurance cover for riders while on delivery (common market practice; may be mandated by state law) — decision required before Gate A (R47; group accident cover from day one recommended by the review) [OPEN – ops/finance].
 
 ### 12.8 Other
 
@@ -1040,16 +1039,19 @@ The DPDP Rules were notified on 13–14 Nov 2025 with phased commencement; most 
 | OQ-01 | Confirm GST characterisation of delivery fee (ECO §9(5) vs rovo own supply), treatment of platform-funded discounts on §9(5) taxable value, and invoice format for GST-inclusive fees (BR-FEE-007/010). | Finance + CA [LEGAL] | Before doc 14 freeze |
 | OQ-02 | Does collecting full order value and settling restaurants keep rovo outside PA licensing (marketplace model)? | Counsel [LEGAL] | Before PA contract |
 | OQ-03 | Compensation to restaurants for customer-fault COD cancellations (50% capped ₹300) — acceptable cost? | Product + Finance | Pilot |
-| OQ-04 | Delivery OTP threshold (≥ ₹300 prepaid) — validate with pilot fraud data. | Product + Ops | Pilot |
+| OQ-04 | Delivery OTP threshold (≥ ₹300 prepaid, decided by R39) — validate with pilot fraud data. | Product + Ops | Pilot |
 | OQ-05 | Police verification for riders: mandatory pre-approval or within 30 days? | Ops + Counsel | Rider onboarding start |
 | OQ-06 | Bicycle / low-speed EV riders without DL: allow in V1? | Ops | Rider onboarding start |
-| OQ-07 | Heartbeat gating of restaurant open state (RES-HOUR-005) — default on or off at launch? | Product + Frontend (Web Push reliability) | Doc 15/18 |
-| OQ-08 | Auto-move `ACCEPTED → PREPARING` after 1 min vs explicit tap. | Backend (doc 13) | Doc 13 |
+| OQ-07 | ~~Heartbeat gating default~~ — **resolved by R1**: no heartbeat for 3 min while open → auto-pause (P0). | — | closed |
+| OQ-08 | ~~Auto-move `ACCEPTED → PREPARING`~~ — **resolved by R3**: after 60 s or on tap. | — | closed |
 | OQ-09 | Urdu locale demand — measure in pilot (survey). | Product | Post-pilot |
 | OQ-10 | Rider first-mile pay & waiting-pay amount (BR-RPAY-002/003). | Ops + Finance | Pilot |
 | OQ-11 | Applicability thresholds of Social Security Code aggregator obligations and Telangana Gig Workers Act for a small aggregator. | Counsel [LEGAL] | Before launch |
 | OQ-12 | Service hours 08:00–23:30 — validate late-night demand (biryani points open past midnight). | Ops | Pilot |
-| OQ-13 | Approve monthly cloud budget envelope (BR-COST-002) and the Multi-AZ upgrade trigger (NFR-AVAIL-003) once DevOps produces the costed estimate. | Finance + DevOps | Before staging build-out |
+| OQ-13 | Approve monthly cloud budget (doc 25 §15, R46); Multi-AZ trigger decided by R32. | Finance + DevOps | Before staging build-out |
+| OQ-14 | Pilot rider minimum-guarantee amount, slots and eligibility (RDR-EARN-007, R47). | Ops + Finance [OPEN] | Before Gate A |
+| OQ-15 | Rider accident insurance (LEG-GIG-004, R47). | Ops + Counsel [LEGAL] | Before Gate A |
+| OQ-16 | Restaurant money flow: PA split settlement vs collect-and-payout (R25/R35). | Counsel [LEGAL] | Before Phase-2 week 4 |
 
 ## 14. Sources (accessed 2026-10-04)
 

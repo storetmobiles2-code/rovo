@@ -2,13 +2,22 @@
 
 | | |
 |---|---|
-| **Purpose** | Define how rovo is deployed in every environment: the AWS production topology (network, compute, data, edge, secrets, IaC), staging as a scaled-down copy, local Docker Compose, and the free dev/preview stack. Covers the scaling path and cost. |
+| **Purpose** | Define how rovo is deployed in every environment: the AWS production topology (network, compute, data, edge, secrets, IaC) in its two profiles `closed-pilot` and `public-launch`, staging as a scaled-down copy, and local Docker Compose (the only dev/demo environment, R24). Covers the scaling path. Cost lives in `25` §15. |
 | **Owner** | DevOps Architect |
-| **Status** | Draft v1 (aligned with baseline §4a user directive, 2026-10-04) |
-| **Depends on** | `00-planning-baseline.md` §4a/P14–P17; `25-free-hosting-comparison.md` (cloud choice, prices `[Cn]`/`[Sn]`); `08-system-architecture.md` (runtime modules); `12-auth-rbac.md`, `19-security-threat-model.md` (controls); `14-payment-architecture.md` (webhooks); `17-frontend-architecture.md` (SPA build) |
-| **Feeds** | `21-cicd-strategy.md`, `23-backup-disaster-recovery.md`, `24-observability-strategy.md`, `26-repository-structure.md` (`infra/`, `deploy/`), `29-production-readiness-checklist.md` |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
+| **Depends on** | `00-planning-baseline.md` §4a/P14–P17, §8–§9 rulings; `25-free-hosting-comparison.md` (cloud choice, prices `[Cn]`/`[Sn]`, **§15 single source of cost**); `20-testing-strategy.md` §12 (load model, R45); `08-system-architecture.md` (runtime modules); `12-auth-rbac.md`, `19-security-threat-model.md` (controls); `14-payment-architecture.md` (webhooks); `17-frontend-architecture.md` (SPA build) |
+| **Feeds** | `21-cicd-strategy.md`, `23-backup-disaster-recovery.md`, `24-observability-strategy.md`, `26-repository-structure.md` (`deploy/`), `29-production-readiness-checklist.md` |
 
-> Prices quoted here come from `25` §15 (verified 2026-10-04, excl. GST, ₹95/USD [ASSUMPTION]). The domain is a placeholder, **`rovo.example`** [ASSUMPTION]; real domain [OPEN].
+**Changes in v1.1**
+- **Edge (R27, R14, RV-001/RV-025):** the public `api.` host on the ALB is removed, and so is CORS. One CloudFront distribution serves `app.`, `restaurant.`, `rider.` and `admin.`, with `/api/*` (same-origin, cookies forwarded, caching off), `/media/*` and the SPA default behaviour. `api.` stays reserved for future native bearer clients and carries only PA/SMS webhooks in V1. The ALB accepts only the CloudFront origin-facing prefix list plus a secret origin-verify header. The `cdn.` host is dropped, because media is same-origin `/media/*` (doc 17).
+- **Two OpenTofu profiles (R32/M17):** `closed-pilot` (RDS db.t4g.small Single-AZ + PITR + cross-Region backups, 2 small `api`, 1 `worker`, no Alloy gateway, CloudFront-included WAF only, no NAT) and `public-launch` (Multi-AZ, one NAT Gateway, sized by the doc 20 load test). Multi-AZ trigger: before Gate B or > 100 orders/day.
+- **No-NAT closed pilot with explicit compensating controls, and one NAT before Gate B (R28)** (§4.3).
+- **CERT-In 180-day log archive in `ap-south-1`, security events ≥ 1 year (R36/M1)** (§5, §6.3). The 3-day CloudWatch copy is gone. No Sentry.
+- **4 AWS accounts (C18):** `rovo-mgmt`, `rovo-prod`, `rovo-nonprod`, `rovo-audit`. IaC root is `deploy/terraform/` (R23).
+- Removed the Oracle/free preview stack (R24, RV-019). Four web apps, four Vite dev servers, PG 17 everywhere (RV-023). The SSE stream is capped at 30 min with no replay (R10).
+- The cost table is replaced by references to `25` §15 (R46). Sizing follows the R45 phases, not 500–2,000 orders/day.
+
+> Prices come from `25` §15, the single source of cost (verified 2026-10-04, excl. GST, ₹95/USD [ASSUMPTION]). The domain is a placeholder, **`rovo.example`** [ASSUMPTION]; real domain [OPEN].
 
 ---
 
@@ -18,9 +27,9 @@
 |---|---|---|---|---|---|
 | **local** | Developer laptop | `deploy/compose/compose.yaml` | Seed + synthetic | **Fake** OTP + fake PA (in-binary adapters) | Devs |
 | **ci** | GitHub Actions runners | Service containers / Compose | Ephemeral | Fakes | CI |
-| **preview** (optional) | **Local Compose on a developer machine + temporary card-free tunnel** (user directive; Oracle option in `25` §9 kept for reference only) | Same Compose + `compose.preview.yaml` | Synthetic only | Fakes or PA **sandbox** | Stakeholders via Cloudflare Access |
-| **staging** | AWS account `rovo-staging`, `ap-south-1` | OpenTofu `infra/envs/staging` | Synthetic + anonymised fixtures; **never prod PII** | PA **sandbox**, DLT test templates | Team, UAT testers |
-| **production** | AWS account `rovo-prod`, `ap-south-1` (DR `ap-south-2`) | OpenTofu `infra/envs/prod` | Real | PA **live** | Customers |
+| **demo** (optional) | **Local Compose on a developer machine + temporary card-free quick tunnel** (R24; the Oracle option in `25` §9 is reference only) | Same Compose | Synthetic only | Fakes | Stakeholders via the tunnel URL (short-lived) |
+| **staging** | AWS account `rovo-nonprod`, `ap-south-1` | OpenTofu `deploy/terraform/envs/staging` (`closed-pilot` profile + staging overrides) | Synthetic + anonymised fixtures; **never prod PII** | PA **sandbox**, DLT test templates | Team, UAT testers |
+| **production** | AWS account `rovo-prod`, `ap-south-1` (DR backups in `ap-south-2`) | OpenTofu `deploy/terraform/envs/prod`, profile `closed-pilot` → `public-launch` | Real | PA **live** | Customers |
 
 The same **OCI image digests** flow local → CI → staging → production (P14). Only configuration differs (12-factor env vars + secrets).
 
@@ -30,17 +39,17 @@ The same **OCI image digests** flow local → CI → staging → production (P14
 
 ```mermaid
 flowchart TB
-  ORG[AWS Organizations<br/>rovo-mgmt: billing, IAM Identity Center, SCPs, Budgets, org CloudTrail]
-  ORG --> SH[rovo-shared<br/>ECR registries, OpenTofu state bucket]
-  ORG --> STG[rovo-staging]
-  ORG --> PRD[rovo-prod]
-  ORG --> LOG[rovo-audit<br/>CloudTrail + Config logs, S3 object lock]
+  ORG[AWS Organizations<br/>rovo-mgmt: billing, IAM Identity Center, SCPs, Budgets, org CloudTrail setup, bootstrap state]
+  ORG --> PRD[rovo-prod<br/>production workloads, ECR registry, prod state bucket]
+  ORG --> NP[rovo-nonprod<br/>staging, drill restores, nonprod state bucket]
+  ORG --> LOG[rovo-audit - audit and backup<br/>org CloudTrail + Config logs, security-log archive, L4 dumps, CRR replicas, Object Lock]
 ```
 
 - **Humans** sign in through IAM Identity Center with MFA. Permission sets: `Admin` (2 people, break-glass), `Developer` (read + ECS Exec in staging only), `ReadOnly`, `Finance` (billing).
 - **CI** uses GitHub OIDC → per-account IAM roles (`21` §6). There are no IAM users and no access keys.
 - **SCPs:** deny leaving the org; deny regions other than `ap-south-1`, `ap-south-2`, `us-east-1` (the latter only for ACM certs used by CloudFront and global services); deny disabling CloudTrail/GuardDuty; deny public RDS.
-- **ECR** lives in `rovo-shared`. Staging and prod pull through a cross-account repository policy, so promotion is by **digest**, with no rebuild.
+- **Four accounts (C18), not six.** There is no separate `shared` account. **ECR** lives in `rovo-prod`, with tag immutability on. `rovo-nonprod` pulls through a cross-account repository policy (pull only). Promotion is by **digest**, with no rebuild. Each workload account holds its own OpenTofu state bucket. `rovo-mgmt` holds only the bootstrap/org state.
+- `rovo-audit` (audit/backup) is write-only for the other accounts. Nobody in `rovo-prod` can shorten its retention (`23` §3.1).
 
 ---
 

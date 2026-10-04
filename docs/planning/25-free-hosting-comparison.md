@@ -38,7 +38,7 @@
    - Hyderabad offers the same Fargate, RDS and ElastiCache prices [C1, C2, C4].
 2. **Alternative: GCP `asia-south1` (Mumbai) with DR in `asia-south2` (Delhi).**
    - Cloud Run with **instance-based billing** for `api` and a **Cloud Run worker pool** for `worker` [S9]; Cloud SQL PostgreSQL 17 + PostGIS 3.5.2 [C16].
-   - About 33% more expensive at pilot scale: ≈ ₹40,600 vs ₹30,600 (always-on Cloud Run vCPU ≈ $47/month vs Fargate ARM ≈ $17/month per vCPU; Cloud SQL HA ≈ $118/month for 1 vCPU) [S9, C15].
+   - About 34% more expensive for a comparable HA setup: ≈ ₹38,100 vs ₹28,400 for AWS `public-launch` (always-on Cloud Run vCPU ≈ $47/month vs Fargate ARM ≈ $17/month per vCPU; Cloud SQL HA ≈ $118/month for 1 vCPU) [S9, C15].
    - It has the strongest startup credit offer ($2k pre-funded; $200k Seed–Series A [C20]).
 3. **Azure** (Central India) is viable: Container Apps with min replicas; PG Flexible with PostGIS 3.6.1 [C18]. However, **zone-redundant HA is not supported on Burstable** [C19], so HA starts at General Purpose (D2ds_v5 ≈ $183/month per node [C17]). That makes it the most expensive HA option at pilot scale.
 4. **AWS App Runner is closed to new customers.** AWS points to ECS Express Mode instead [C7], so App Runner is excluded.
@@ -49,7 +49,7 @@
    | AWS prod, **`closed-pilot` profile** (Single-AZ db.t4g.small, 2 small api + 1 worker, no NAT, VPC endpoints, CloudFront Pro incl. WAF, Grafana Free, CERT-In archive) | $165 | **₹15,700** |
    | AWS prod, **`public-launch` profile** (Multi-AZ db.t4g.small to start, sized by the doc 20 load test; 1 NAT; Grafana Pro) | $299 | **₹28,400** (₹34,700 if the load test needs db.t4g.medium) |
    | AWS staging (scaled down, stoppable) | $47–66 | ₹4,500–6,300 |
-   | AWS **10× growth** | $1,415 | **₹1.34 lakh** (before Savings Plans/RIs) |
+   | AWS **10× growth** | $1,134–1,934 | **₹1.08–1.84 lakh** (before Savings Plans/RIs; §15.2) |
 
    Details, the missing cost lines and the per-order cost are in §15. AWS Activate Founders gives **up to $5,000** in credits (initial $1,000) to self-funded startups [C21]. CloudFront flat-rate plans "may not be combined with any other offers, promotions, or discounts" [C12], so credits may not offset the $15 plan.
 
@@ -389,7 +389,7 @@ Re-fetch every page in §11 and §17 before creating an account, then quarterly.
 | CI minutes | Public repo: unlimited standard runners [S67]. (If private: ≈ 60 PRs × 25 job-min + 40 main/tag builds × 20 = **2,300 min** > 2,000 [S67]) | Unlimited (public) | Yes (public only) |
 | Grafana users | Founders + 1 ops | 3 [S71] | Tight; use shared viewer and Telegram alerts |
 
-**Verdict:** a free stack *could* technically carry V1 load for about 12 months, but §4a forbids it for production. For production the same volumes drive the AWS sizing in §15 (RDS 50 GB gp3 at pilot, ≈ 21 GB/month logs, < 10k metric series, ≈ 25 GB/month traces). The first limits to hit are **R2/B2 10 GB (backups)** around months 9–12 (overage costs pennies), and **Grafana 3 users / Sentry 1 user** (people, not load).
+**Verdict:** a free stack *could* technically carry V1 load for about 12 months, but §4a forbids it for production. *(v1.1: these design-point volumes no longer size production. §15 uses the R45 phase volumes, and doc 20 owns the load model.)* The first limits to hit are **R2/B2 10 GB (backups)** around months 9–12 (overage costs pennies), and **Grafana 3 users / Sentry 1 user** (people, not load).
 
 ---
 
@@ -675,7 +675,7 @@ Mitigations (backups to other providers, IaC rebuild, PA as source of truth) mak
 
 **Staging (account `rovo-nonprod`; `closed-pilot` profile with staging overrides):** 1 `api` + 1 `worker` (0.25 vCPU / 0.5 GB) $10.60; 4 public IPv4 $14.60; ALB ≈ $18.50; RDS db.t4g.micro Single-AZ $15.33 + 20 GB $2.62; secrets + 2 CMKs ≈ $4; logs (same 180-day policy, tiny volume) ≈ $0.50; CloudFront **Free** flat-rate plan $0. Interface endpoints are **off** (S3 gateway only) and switched on by an IaC variable for pre-release capacity runs. Always-on ≈ **$66 → ₹6,300**. Scheduled down nights and weekends (≈ 42% of hours on) ≈ **$47 → ₹4,500**. Each pre-release capacity run at production shape (doc 20 §12.4) costs ≈ ₹500–1,000 [ASSUMPTION].
 
-**Credits:** AWS Activate Founders ($1,000 initial, up to $5,000 [C21]) covers roughly 5–10 months of `closed-pilot` + staging. Flat-rate CloudFront is excluded from credit offsets [C12].
+**Credits:** AWS Activate Founders ($1,000 initial, up to $5,000 [C21]) The initial $1,000 covers ≈ 4–5 months of `closed-pilot` + staging (≈ $212/month). The full $5,000 would cover about 2 years at that rate, or about 1 year of `public-launch` + staging. Flat-rate CloudFront is excluded from credit offsets [C12].
 
 **Budget alerts (AWS Budgets, `22` §15):** monthly budget = profile total (prod + staging) + 15%. That is ≈ ₹23k for `closed-pilot` and ≈ ₹38k for `public-launch`, ex-GST, with alerts at 50/80/100% plus Cost Anomaly Detection.
 
@@ -691,14 +691,14 @@ Mitigations (backups to other providers, IaC rebuild, PA as source of truth) mak
 | RDS | **db.m7g.large Multi-AZ** + 200 GB gp3 MAZ | 0.479×730 + 200×0.262 [C2] | 402.07 |
 | Cross-region backups | ≈ 150 GB | 150 × 0.095 | 14.25 |
 | ElastiCache Valkey (P6 trigger: > 1 api replica) | 2 × cache.t4g.small (primary + replica) | 2 × 0.0328 × 730 [C4] | 47.89 |
-| AWS WAF | ≈ 400M req | 5 + 10 + 400 × 0.60 [C10] | 255.00 |
-| CloudFront flat-rate **Business** | up to 125M req, 50 TB, WAF + bot mgmt | flat [C12] | 200.00 |
+| AWS WAF | Not needed. API traffic goes through CloudFront (R27), whose flat-rate plan includes WAF | — | 0.00 |
+| CloudFront flat-rate **Business** | up to 125M req, 50 TB, WAF + bot mgmt. §15.7 model: ≈ 18k req/month per order/day, so this fits to ≈ 6,000 orders/day. At ≈ 20,000/day (≈ 360M req), use **Premium $1,000** (500M) or pay-as-you-go | flat [C12] | 200.00 |
 | S3 + Secrets + KMS + ECR + CloudWatch + Route 53 | | estimates from §14.5 rates | ≈ 40.00 |
 | Grafana Cloud Pro usage (≈ 210 GB logs, ≈ 100 GB traces) | | $19 + usage **UNVERIFIED** [ASSUMPTION ≈ $130] | ≈ 150.00 |
-| Sentry Team | | [S75] | 26.00 |
-| **Total (on-demand)** | | | **≈ $1,415 → ₹1.34 lakh** |
+| Sentry | Not used (R36) | — | 0.00 |
+| **Total (on-demand)** | | | **≈ $1,134 → ₹1.08 lakh** at ≈ 5,000–6,000 orders/day (Business plan); **≈ $1,934 → ₹1.84 lakh** at ≈ 20,000/day (Premium plan) |
 
-Levers (not priced here, **UNVERIFIED %**): RDS Reserved Instances and Compute Savings Plans for Fargate (typically 20–40%); moving WAF to CloudFront in front of ALB on a flat-rate plan; sampling logs harder. At 10×, consider a **read replica** for admin/reporting queries.
+Levers (not priced here, **UNVERIFIED %**): RDS Reserved Instances and Compute Savings Plans for Fargate (typically 20–40%); sampling logs harder; request reduction (§15.7). At 10×, NAT moves to one per AZ. At 10×, consider a **read replica** for admin/reporting queries.
 
 ### 15.3 GCP alternative (asia-south1)
 
@@ -710,8 +710,8 @@ Levers (not priced here, **UNVERIFIED %**): RDS Reserved Instances and Compute S
 | Backups | ≈ $1.5 [C15] | ≈ $15 |
 | External App LB | $18.25 + data ≈ $2.4 [C23] | ≈ $50 |
 | Cloud Armor, Cloud CDN, Memorystore, KMS | **UNVERIFIED** ≈ $60 | **UNVERIFIED** ≈ $600 |
-| Observability (Grafana Pro + Sentry Team) | $45 | ≈ $175 |
-| **Total** | **≈ $427 → ₹40,600** | **≈ $1,650 → ₹1.57 lakh** |
+| Observability (Grafana Pro; no Sentry, R36) | $19 | ≈ $150 |
+| **Total** (HA DB, comparable to `public-launch`) | **≈ $401 → ₹38,100** | **≈ $1,625 → ₹1.54 lakh** |
 
 CUDs: Cloud Run instance-based 1-year $0.00001494/vCPU-s (−17%) [S9]; Cloud SQL 1-year $0.0372/vCPU-h (−25%) [C15].
 
@@ -725,6 +725,79 @@ CUDs: Cloud Run instance-based 1-year $0.00001494/vCPU-s (−17%) [S9]; Cloud SQ
 | Front Door/WAF, Key Vault, Log Analytics | **UNVERIFIED** ≈ $55+ |
 | **Total (HA)** | **≈ $551 → ₹52,300**; non-HA lean (B2s) ≈ $244 → ₹23,200 |
 
+### 15.5 Other cost lines: non-AWS, one-time, and cut items (RV-014)
+
+| Item | Type | Estimate (ex-GST) | Status / source |
+|---|---|---|---|
+| SMS / OTP (DLT-registered aggregator) | recurring | ≈ ₹1,000 (pilot) → ₹1,500 (month 1) → ₹3,000 (month 3) budget | Doc 15 §9 traffic model; budget per RV-017 |
+| DLT principal-entity registration | one-time | ≈ ₹5,000 (₹5,900 incl. GST) | **UNVERIFIED**, operator-specific; on the M16 critical path |
+| Support phone line / IVR virtual number (M9) | recurring | ≈ ₹2,500/month + per-minute usage | **UNVERIFIED** [ASSUMPTION]; provider chosen by Release (29) |
+| Google Play developer account (TWA for restaurant devices, doc 18 §10.1) | one-time | $25 ≈ ₹2,400 | [ASSUMPTION: current Play Console fee; verify at sign-up] |
+| Counter devices for restaurants without a suitable phone (M3) | one-time | ≈ 20 × ₹6–8k = **₹1.2–1.6 lakh** | [ASSUMPTION]; quantity confirmed during onboarding |
+| Counter-device data SIMs (if rovo pays) | recurring | ≈ 20 × ₹250 = ₹5,000/month | [OPEN: business decision] [ASSUMPTION] |
+| Device lab (doc 18 §12, doc 20 §11.5) | one-time | 5 budget Android phones ≈ **₹35,000**; iOS tested on team-owned devices | [ASSUMPTION] |
+| Domain (`.in`) | yearly | ≈ ₹1,000–2,000 | [ASSUMPTION] |
+| Pre-release capacity runs at production shape | per release | ≈ ₹500–1,000 | [ASSUMPTION], doc 20 §12.4 |
+| GitHub Actions + GHCR (public repo) | — | ₹0 | [S67, S69]; a private repo would cost ≈ $40–45/month (`21` §13) |
+| Grafana Cloud Free / UptimeRobot Free (closed pilot) | — | ₹0 | Card-free sign-up; [S71, S76] |
+| **Cut / deferred (₹0 in V1)** | | | |
+| ClamAV scanning service | cut | ₹0 (was a ≈ 2 GB task) | C5 / R38: images only, server re-encode |
+| Identity-aware proxy for admin (Verified Access) | cut | ₹0 (was ≈ ₹18k/month, unverified) | C4 / R37: TOTP + WAF rate/geo rules |
+| Sentry | cut | ₹0 | R36: Faro instead; re-evaluate after pilot |
+| Regional AWS WAF on the ALB | cut | ₹0 | R27: CloudFront-included WAF; ALB accepts only CloudFront |
+| DR pre-provisioning in `ap-south-2` (ECR replication, Secrets Manager replicas, multi-Region KMS keys, ALB certificate) | deferred to after Gate B (C10) | ≈ $7/month when enabled (10 secret replicas $4 + 2 MRKs $2 + ECR replica storage ≈ $0.30 + ACM $0) | [C8, C27]; `23` §2 |
+| Automated voice-call escalation (M2) | P1 (R43) | ≈ ₹0.3–0.6 per call, **UNVERIFIED**; under ₹500/month at 10% of orders | Triggered if the pilot shows > 5% of orders reaching the 90 s mark |
+| WhatsApp OTP / utility messages | cut | ₹0 | C2 |
+
+### 15.6 Per-order cloud cost by phase (R45 volumes)
+
+Cloud = prod profile + staging (scheduled down, ₹4,500). M-60 in doc 01 includes staging (RV-013).
+
+| Phase | Orders/day → /month | Prod profile | Prod ₹/mo | Cloud total ₹/mo | **Cloud ₹/order** | Cloud + SMS + telephony ₹/order |
+|---|---|---|---|---|---|---|
+| Closed pilot | 30 → 900 | `closed-pilot` | 15,700 | 20,200 | **22.4** | 26.3 |
+| Month 1 (after Gate B) | 80 → 2,400 | `public-launch` | 28,400 | 32,900 | **13.7** | 15.4 |
+| Month 3 | 250 → 7,500 | `public-launch` | 28,400 | 32,900 | **4.4** (5.2 if db.t4g.medium) | 5.1 |
+| Design point (doc 20) | 2,000 → 60,000 | `public-launch` scaled: db.t4g.medium Multi-AZ, 4 api tasks, CloudFront pay-as-you-go + AWS WAF on the distribution, more Grafana usage and logs | ≈ 52,200 | ≈ 56,700 | **≈ 0.95** | ≈ 1.1 |
+
+Reading: tech cost per order exceeds the platform fee during the closed pilot. That is a fixed cost of running a real, compliant production stack, and the pilot accepts it. The doc 01 M-60 target (≤ ₹6/order) is met from month 3. People costs (ops, support, finance) dominate the cost of running rovo, and they are outside this table.
+
+### 15.7 CDN request-volume model and request reduction (M13, R27)
+
+All app traffic, including `/api/*`, SSE and webhooks, passes through one CloudFront distribution on the flat-rate **Pro** plan: 10M requests and 50 TB per month, with **no overage charges**. A first spike up to 3× is accommodated. After that, usage is evaluated over several months and the plan may be throttled or upgraded [C12; sources in `31` §15]. One SSE connection counts as one request, whatever its duration.
+
+**Assumptions per unit** ([ASSUMPTION]; timer and cadence values are owned by doc 13, and these are the R27 settings):
+
+| Source | Model |
+|---|---|
+| Customer | 10 sessions per order (doc 20 §12.1). Per session: 25 API calls, 5 static requests (the PWA is precached), 20 `/media/*` image requests (service-worker CacheFirst) ≈ **50 requests per session**, so ≈ 500 per order. Tracking adds ≈ 15 per order (SSE plus reconnects and refetches) |
+| Restaurant device | SSE presence **counts as the heartbeat**. A separate heartbeat every **60 s** is sent only while SSE is down. Stream cap 30 min, then reconnect + refetch. Over ≈ 14 open hours: ≈ 160 requests/day per device, plus ≈ 10 per order |
+| Rider | Location sampled about every 30 s but **uploaded in batches** of up to 10 points (doc 11). That is about one upload every 2 min while idle, plus an immediate upload on status taps. With SSE reconnects and actions: ≈ **40 requests per online hour**, about 8 online hours per rider per day |
+| Admin / ops | ≈ 10k/day at pilot scale (≈ 5 seats) |
+| Synthetic and uptime checks | ≈ 7k/day (Grafana synthetic 1/min, UptimeRobot 5 min, prod synthetic order every 30 min) |
+| Bots, retries, misc | +20% |
+
+**Requests per month through CloudFront:**
+
+| Phase | Customers | Restaurants | Riders | Admin + synthetic | **Total (+20%)** | Share of Pro (10M) |
+|---|---|---|---|---|---|---|
+| Closed pilot (30/day; 10 restaurants, 10 riders) | 0.45M | 0.06M | 0.10M | 0.50M | **≈ 1.3M** | 13% |
+| Month 1 (80/day; 25 restaurants, 20 riders) | 1.2M | 0.14M | 0.19M | 0.50M | **≈ 2.4M** | 24% |
+| Month 3 (250/day; 45 restaurants, 35 riders) | 3.75M | 0.29M | 0.34M | 0.50M | **≈ 5.9M** | 59% |
+| Month 3 *without* the reduction measures (unbatched 30 s pings, 30 s heartbeats regardless of SSE) | 3.75M | 2.34M | 1.0M | 0.50M | **≈ 9.1M** | 91% (borderline) |
+| Design point (2,000/day; 150 restaurant devices, ≈ 1,360 rider-hours/day) | 30M | 1.3M | 1.6M | 0.8M | **≈ 40M** | 400%, so Pro does not fit |
+
+Rule of thumb: ≈ 18k requests/month per order/day, plus ≈ 1.5M fixed. **Pro fits up to ≈ 450 orders/day.**
+
+**Request-reduction measures (R27; required before Gate B):**
+1. Batched rider location uploads (1–10 points per request), sent immediately only on status taps.
+2. Restaurant heartbeat at 60 s, suppressed while an SSE stream is open (SSE presence = heartbeat).
+3. SSE instead of polling. Polling only as the fallback after 3 SSE failures in 60 s (doc 08 §6.2).
+4. Service-worker precache for app shells and CacheFirst for content-hashed `/media/*`. Immutable `Cache-Control` on hashed assets.
+5. No uptime/synthetic checks more often than in the table above. Health checks from the ALB never pass through CloudFront.
+
+**Governance and fallback:** the cost dashboard (`24` §6) shows CloudFront `Requests` per month. An alert fires at 7M (70%). If the allowance is exceeded **2 months running**, the distribution moves to **CloudFront pay-as-you-go** (R27). That costs ≈ $0.012/10k HTTPS requests + $0.109/GB [C14], plus an AWS WAF web ACL on the distribution (≈ $10 + $0.60/M requests [C10]). That is ≈ $50 at 15M requests and ≈ $135 at the design point, which is cheaper than Business ($200) below ≈ 100M requests. The API is **not** moved off the CDN to save requests (RV-001).
+
 ## 16. Production recommendation
 
 ### 16.1 Scoring (weights reflect §4a non-negotiables)
@@ -733,7 +806,7 @@ CUDs: Cloud Run instance-based 1-year $0.00001494/vCPU-s (−17%) [S9]; Cloud SQ
 |---|---|---|---|
 | Always-on containers + SSE fit (20%) | 5 (ECS services) | 5 (instance-based + worker pools) | 4 |
 | Managed PG + PostGIS + HA + PITR (20%) | 5 (t4g Multi-AZ, PostGIS 3.5.6) | 4 (HA from 1 dedicated vCPU) | 4 (HA needs GP tier) |
-| Pilot cost (20%) | 5 (≈ ₹17k–31k) | 3 (≈ ₹41k) | 2 (≈ ₹52k HA) |
+| Pilot cost (20%) | 5 (≈ ₹15.7k `closed-pilot` / ₹28.4k `public-launch`) | 3 (≈ ₹38k HA) | 2 (≈ ₹52k HA) |
 | India DR pair, verified (15%) | 5 (Mumbai↔Hyderabad backups verified [C6]) | 3 (Delhi; DB DR UNVERIFIED) | 3 (UNVERIFIED) |
 | Ops simplicity (10%) | 4 | 5 | 4 |
 | Portability (10%) | 4 (S3 native) | 4 | 3 (Blob ≠ S3) |
@@ -742,11 +815,11 @@ CUDs: Cloud Run instance-based 1-year $0.00001494/vCPU-s (−17%) [S9]; Cloud SQ
 
 ### 16.2 Decision
 
-- **Primary: AWS.** Production in `ap-south-1` (Mumbai, 2 AZs used), DR in `ap-south-2` (Hyderabad). ECS Fargate (ARM) `api` + `worker` services, RDS PostgreSQL 17 + PostGIS Multi-AZ, S3 + CloudFront (flat-rate Pro), AWS WAF on ALB, Secrets Manager, KMS, ECR, GitHub OIDC → IAM roles, OpenTofu. Topology in `22`, pipelines in `21`, DR in `23`, telemetry in `24`.
+- **Primary: AWS.** Production in `ap-south-1` (Mumbai, 2 AZs used), DR backups in `ap-south-2` (Hyderabad). ECS Fargate (ARM) `api` + `worker` services, RDS PostgreSQL 17 + PostGIS (Single-AZ in `closed-pilot`, Multi-AZ in `public-launch`), S3 + CloudFront (flat-rate Pro, included WAF, `/api/*` on every app host), Secrets Manager, KMS, ECR, GitHub OIDC → IAM roles, OpenTofu under `deploy/terraform/` with two profiles. 4 AWS accounts: mgmt, prod, nonprod, audit/backup (C18). Topology in `22`, pipelines in `21`, DR in `23`, telemetry in `24`.
   - **[OPEN]** Swapping primary/DR (Hyderabad primary is about 100 km from Mahabubnagar) is a valid choice with identical verified prices [C1, C2]. Mumbai is preferred for broader service/feature availability and capacity [ASSUMPTION]. Decide before the first `tofu apply`.
 - **Alternative: GCP** (`asia-south1` + `asia-south2`). Cloud Run instance-based `api` + worker pool `worker` + Cloud SQL HA. Choose it if Google for Startups Seed–Series A credits ($200k [C20]) are secured, since they would outweigh the about ₹10k/month premium.
-- **Pilot DB sizing decision:** Multi-AZ from day one (§4a non-negotiable). Lean = db.t4g.small MAZ; recommended = db.t4g.medium MAZ. Upgrade trigger: CPU credit balance trending to 0, or p95 query latency > 50 ms at peak.
-- **What we are not doing in V1:** EKS/GKE (no team capacity; P14), Aurora (cost floor; RDS is enough), multi-region active-active (single-city pilot), NAT Gateway at pilot (cost; tasks in public subnets with locked SGs, revisited at 10×).
+- **Pilot DB sizing decision (R32, superseding v1's 'Multi-AZ from day one'):** `closed-pilot` = db.t4g.small **Single-AZ** with PITR and cross-Region automated backups. This is the documented single-AZ-at-pilot decision that §4a allows. **Multi-AZ is mandatory before Gate B or above 100 orders/day**, whichever comes first. `public-launch` starts at db.t4g.small Multi-AZ, and the doc 20 load test sets the final class. Vertical upgrade trigger: CPU credit balance trending to 0, or p95 query latency > 50 ms at peak.
+- **What we are not doing in V1:** EKS/GKE (no team capacity; P14), Aurora (cost floor; RDS is enough), multi-region active-active (single-city pilot), NAT Gateway in the closed pilot (R28: tasks in public subnets with compensating controls; one NAT Gateway in `public-launch`, before Gate B), regional AWS WAF on the ALB (R27), Sentry (R36), DR pre-provisioning before Gate B (C10).
 
 
 ## 17. Production-cloud sources (all accessed 2026-10-04)

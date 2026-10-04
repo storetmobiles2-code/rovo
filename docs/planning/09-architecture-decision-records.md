@@ -4,13 +4,17 @@
 |---|---|
 | **Purpose** | Records each significant architecture decision for rovo V1: the context, the options weighed, the decision, its consequences, and the conditions that should make us revisit it. Each baseline provisional decision (P1–P17 in doc 00) is examined critically here and either confirmed or changed. |
 | **Owner** | Solution Architect |
-| **Status** | Draft v1. Every ADR below is **Proposed**. They become **Accepted** when the Lead Architect signs off in doc 32. |
-| **Depends on** | `00-planning-baseline.md` |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04. Every ADR below is **Proposed**. They become **Accepted** when the Lead Architect signs off in doc 32. |
+| **Depends on** | `00-planning-baseline.md` (incl. rulings R1–R48, §8–§9), `31-review-report.md` |
 | **Referenced by** | `08-system-architecture.md`, `14-payment-architecture.md`, `15-notification-architecture.md`, `17-frontend-architecture.md`, `21/22/24/25` (DevOps docs), `26-repository-structure.md`, `30-risks-assumptions-decisions.md` |
 
 Format: lightweight MADR. Each ADR is immutable once Accepted. A change of mind gets a new ADR that supersedes it. In Phase 2 these will be split into one file per ADR under `docs/adr/NNNN-title.md` (see doc 26).
 
 Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`.
+
+**Changes in v1.1 (2026-10-04).** History is kept: changed ADRs carry an "**Amended 2026-10-04 per R-xx**" block at the end instead of rewritten text.
+- Amended: ADR-001 (C9 tooling), 003 (R15/R20 paths), 005 (R22 PG 17), 006 (R22/R42 direct `InsertManyTx`, no event table; M11 catch-up periodic jobs), 008 (R10/R27, M12 NOTIFY safety), 009 (R14 four apps under `web/`, R33 no prerender), 011 (R14/R27/R37/R44), 012 (R25/R35/R46), 014 (R16/R34/R30), 016 (R23/R24/R28/R32 two IaC profiles), 017 (R36 Grafana Cloud + Faro, 180-day archive, no Sentry), 018 (R17), 022 (R38), 023 (R15), 025 (RV-074 realistic portability), 026 (R23/R32, C18).
+- New: **ADR-027** cross-module FKs on money paths (R41); **ADR-028** same-origin API edge, no CORS, `api.` reserved (R14/R27).
 
 ## Index and baseline verdicts
 
@@ -20,19 +24,19 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`.
 | 002 | Go for the backend; net/http ServeMux router | P1 | **Confirmed** (router: stdlib, not chi) |
 | 003 | REST + OpenAPI spec-first; oapi-codegen + openapi-typescript | P2 | **Confirmed**, with a 3.1 tooling gate |
 | 004 | No gRPC in V1 | P2 | **Confirmed** |
-| 005 | PostgreSQL 18 (or 17) + PostGIS; pgx + sqlc; goose | P5 | **Confirmed** (PG 18 preferred if the managed service supports it) |
-| 006 | Async: River-as-outbox | P4 | **Refined**: no separate outbox relay; River `InsertTx` is the outbox |
+| 005 | PostgreSQL 17 + PostGIS; pgx + sqlc; goose | P5 | **Confirmed**; amended per R22 (PG 17 on RDS; 18 only if available with PostGIS) |
+| 006 | Async: River-as-outbox | P4 | **Refined**; amended per R22/R42: one River job per subscriber via `InsertManyTx`, no event table, no fan-out hop |
 | 007 | No Redis at launch; managed Redis by config later | P6 | **Confirmed** (decided) |
-| 008 | SSE for real-time | P3 | **Confirmed** (plus heartbeat and invalidation-hint rules) |
-| 009 | Vite SPA/PWA, not Next.js | P7, P8 | **Confirmed**. `partner` split into `restaurant` + `rider` (doc 17 F2) is endorsed. |
+| 008 | SSE for real-time | P3 | **Confirmed** (plus heartbeat and invalidation-hint rules); amended per R10/R27/M12 |
+| 009 | Vite SPA/PWA, not Next.js | P7, P8 | **Confirmed**. Four apps under `web/` (R14); no build-time prerender (R33). |
 | 010 | Monorepo layout | — | New |
-| 011 | Auth tokens: hybrid JWT + server-side session state | P9 | **Confirmed with refinement** (aligned with doc 12 AUTH-D04/D05) |
-| 012 | Payment aggregator choice and abstraction | P10 | **Confirmed with change**: PA chosen on quoted UPI rate; marketplace split-settlement is the preferred money flow, pending legal advice |
+| 011 | Auth tokens: hybrid JWT + server-side session state | P9 | **Confirmed with refinement** (aligned with doc 12 AUTH-D04/D05); amended per R37/R44 |
+| 012 | Payment aggregator choice and abstraction | P10 | **Confirmed with change**; amended per R25/R35/R46: Cashfree vs Razorpay on written rates (effective rate is go/no-go); both money-flow models supported; legal opinion before Phase-2 week 4 |
 | 013 | Money as integer paise + double-entry ledger | P10, §3 | **Confirmed** |
-| 014 | Rule-based dispatch with offer cascade | P11, P12 | **Confirmed** |
+| 014 | Rule-based dispatch with offer cascade | P11, P12 | **Confirmed**; amended per R34 (two tiers) and R16 (`REVOKED`) |
 | 015 | Maps: MapLibre + OpenFreeMap, no paid geocoding | P13 | **Confirmed** (tile source named; OSM.org tiles ruled out) |
-| 016 | Deployment: managed containers on a hyperscaler (prod/staging); Compose for local | P14, P17 (§4a) | **Changed by user directive** |
-| 017 | Observability via OpenTelemetry | P15 | **Confirmed** (backend chosen by DevOps) |
+| 016 | Deployment: managed containers on a hyperscaler (prod/staging); Compose for local | P14, P17 (§4a) | **Changed by user directive**; amended per R23/R24/R32 (AWS, two IaC profiles) |
+| 017 | Observability via OpenTelemetry | P15 | **Confirmed**; amended per R36 (Grafana Cloud incl. Faro, 180-day India archive, no Sentry) |
 | 018 | i18n approach | §3 | **Confirmed** |
 | 019 | UUIDv7 identifiers | §3 | **Confirmed** |
 | 020 | Multi-city data model (shared schema, `city_id`) | §3 | **Confirmed** |
@@ -40,8 +44,10 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`.
 | 022 | File uploads: presigned direct-to-object-storage, client-side resize | — | New |
 | 023 | API conventions: `/v1`, problem+json, cursor pagination, Idempotency-Key, ETag | P2 | New |
 | 024 | CI/CD: GitHub Actions, OIDC to cloud, registry push | P16 | **Confirmed** (DevOps owns the details) |
-| 025 | Cloud portability via standard interfaces | §4a | New (user directive) |
-| 026 | Infrastructure as Code: OpenTofu/Terraform | §4a, P16 | New (user directive) |
+| 025 | Cloud portability via standard interfaces | §4a | New (user directive); amended per RV-074 (app portable, infra rebuild = weeks) |
+| 026 | Infrastructure as Code: OpenTofu/Terraform | §4a, P16 | New (user directive); amended per R23/R32 |
+| 027 | Cross-module foreign keys on money paths | — | **New** (R41) |
+| 028 | API edge: same-origin `/api/*` on every app host; no CORS; `api.` reserved | P7, §4a | **New** (R14/R27) |
 
 ---
 
@@ -63,6 +69,9 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`.
 **Consequences.** + One process to debug. Atomic multi-table money operations. Cheap hosting. − We must invest early in boundary tooling (go-arch-lint, table-ownership check). − Single blast radius, mitigated by separate api/worker processes and fast rollbacks.
 
 **Revisit when.** A module needs a different scaling profile or deploy cadence (notifications, dispatch are the likely first). The team grows beyond ~3 squads stepping on each other. Any §9.5 trigger in doc 08.
+
+
+**Amended 2026-10-04 per C9 (31 RV-007).** Boundary tooling in V1 is **go-arch-lint and/or golangci-lint depguard** plus a `table_ownership.yaml` review checklist and CODEOWNERS. The custom `tools/tableowner` and `tools/eventschema` programs are **not built in V1**; event compatibility uses JSON fixtures per event (doc 20 §6.7). Build `tableowner` only after the first cross-module SQL incident.
 
 ---
 
@@ -127,6 +136,9 @@ Hand-written (not generated) endpoints: `GET /v1/stream` (SSE) and `POST /webhoo
 
 **Revisit when.** The codegen tool blocks needed constructs, or ogen's ergonomics improve enough to justify the switch.
 
+
+**Amended 2026-10-04 per R15/R20.** All operations, including the hand-written ones, live under **`/api/v1` on every host**: `GET /api/v1/stream` (SSE) and `POST /api/v1/webhooks/payments/{provider}` (raw body for signature verification). The spec is authored as 3.1 restricted to the subset validated against oapi-codegen, openapi-typescript and the mock generator; the week-1 spike falls back to 3.0.3 if the tooling fails (R20).
+
 ---
 
 ## ADR-004: No gRPC in V1
@@ -171,6 +183,9 @@ Hand-written (not generated) endpoints: `GET /v1/stream` (SSE) and `POST /webhoo
 
 **Revisit when.** Dynamic-query burden grows significantly (consider adding a builder for admin search only).
 
+
+**Amended 2026-10-04 per R22.** **PostgreSQL 17 on RDS** with PostGIS 3.5 is the decision (18 only if RDS offers it with PostGIS at Phase 2 start). No PG18-only features anywhere (the `uuidv7()` default is not used; IDs are app-generated, ADR-019). Local, CI and production run the same major (17).
+
 ---
 
 ## ADR-006: Asynchronous processing with River as the transactional outbox
@@ -194,6 +209,12 @@ All modules access the queue via `platform/queue` (an interface), never River ty
 **Consequences.** + No dual writes, no broker. − River upgrades must be read carefully (pre-1.0 API changes). − Queue tables need vacuum tuning (River cleans completed jobs; set retention to 24–72 h).
 
 **Revisit when.** Sustained > ~1,000 jobs/s, cross-service events after extraction (then NATS JetStream), or queue-induced DB load over 20% of DB CPU.
+
+
+**Amended 2026-10-04 per R22 and R42 (31 RV-002, RV-004; scope cut C8; missing item M11).**
+1. **No `event_log` / `outbox_events` table and no `event.fanout` hop.** `events.Publish(ctx, tx, evt)` looks up the static subscription table and inserts **one River job per subscriber in the same transaction with `InsertManyTx`** (unique key `(handler, event_id)`; args carry the envelope and trace context). River's transactional insert is still the outbox (R22): no relay, no dual write. Handlers dedupe via `processed_events`. This removes one River fetch cycle from the restaurant-ring path; the latency budget is in doc 08 §7.3.
+2. **Periodic jobs use catch-up semantics** because River OSS periodic jobs are not durable across a leader restart: each recurring job runs hourly, checks whether the run for period P has completed, and runs idempotently if not. A "missed settlement" alert fires if no settlement run exists for last week by Monday 09:00 IST (doc 08 §7.4).
+3. Pin River exactly (pre-1.0); upgrade only between releases with the full integration suite (RV-077).
 
 ---
 
@@ -246,6 +267,12 @@ All modules access the queue via `platform/queue` (an interface), never River ty
 
 **Revisit when.** Two-way features are needed (in-app chat with typing indicators, or high-frequency rider telemetry when a native rider app exists). WebSockets or MQTT then.
 
+
+**Amended 2026-10-04 per R10, R27 and M12 (31 RV-003, RV-011).**
+- Endpoint is `GET /api/v1/stream` on each app host (same-origin, R15/R27). Heartbeat 20 s; `reauth` event; **no server replay buffer**, clients refetch snapshots on reconnect; LB/CDN idle timeout ≥ 120 s (R10). An open stream from a restaurant order-receiver device counts as its heartbeat (R27).
+- **NOTIFY safety:** alert on `pg_notification_queue_usage() > 0.1`; LISTEN connections only read and are watchdogged (self-probe NOTIFY, reconnect on lag); fallback is to move NOTIFY to a post-commit best-effort step (doc 08 §6.2).
+- Stream lifetime: 30-min cap with jittered `retry:`; continuing past access-token expiry while the session is valid is a *proposal* pending alignment with docs 11/12/22 (31 register row 29).
+
 ---
 
 ## ADR-009: Frontend: Vite React SPA/PWA (not Next.js)
@@ -273,6 +300,9 @@ All modules access the queue via `platform/queue` (an interface), never River ty
 **Consequences.** + Near-zero frontend hosting cost (object storage + CDN egress). No frontend server runtime to operate. No vendor runtime terms risk. Offline-capable shell. − SEO for restaurant/menu pages is limited (acceptable at V1).
 
 **Revisit when.** Organic search becomes an acquisition goal (e.g. "biryani in Mahabubnagar" landing pages). Then add SSR/SSG for public catalog pages only (Astro or Next on a paid plan), keeping the app as a SPA.
+
+
+**Amended 2026-10-04 per R14 and R33.** Four apps and hosts: `app.` (customer), `restaurant.`, `rider.`, `admin.`, in a pnpm workspace under **`web/`** (apps under `web/apps/*`, shared code under `web/packages/*`). **No build-time prerendering** (no TanStack Start, no nightly rebuild against production data): each SPA's `index.html` carries static OG/meta tags, PA-required legal pages are static HTML files shipped with the customer app, and restaurant share-preview pages (`/r/{slug}`: HTML with OG tags plus a redirect into the SPA) are served by a small Go handler (P1). SSR is revisited only under the triggers above.
 
 ---
 
@@ -311,6 +341,12 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 
 **Revisit when.** Native apps launch (confirm token storage and DPoP needs), or services are extracted (internal token exchange).
 
+
+**Amended 2026-10-04 per R14, R26, R27, R37 and R44.**
+- Hosts are `app.`, `restaurant.`, `rider.`, `admin.`, each with same-origin `/api/v1` and host-only cookies (ADR-028). `api.<domain>` is reserved for future native bearer clients and server-to-server webhooks; no CORS anywhere in V1.
+- Admins: **mandatory TOTP for all admins** at V1; passkeys (WebAuthn) are **P1**; **no identity-aware proxy** in V1; WAF rate and geo (India) rules on the admin host (R37). Admins are separate identities; `RIDER` ⟂ `RESTAURANT_*`; internal `SYSTEM` principal (R26).
+- **Device-bound long-lived sessions** for restaurant order-receiver devices (sliding 30-day idle, 90-day absolute, revocable by owner/admin); riders 30-day sliding (R44).
+
 ---
 
 ## ADR-012: Payment aggregator choice and abstraction
@@ -338,6 +374,12 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 **Consequences.** + Cost-optimised, swappable, compliant by design. − Split settlement requires restaurant KYC with the PA (onboarding friction for small restaurants) and adds ~0.1% (Razorpay Route). − Two PA applications in parallel take founder time.
 
 **Revisit when.** Volume above ~₹50 lakh/month GMV (negotiate custom pricing), PA outage history, or the regulatory opinion changes.
+
+
+**Amended 2026-10-04 per R25, R35 and R46 (31 RV-010, RV-016, RV-075).**
+- **Shortlist: Cashfree vs Razorpay**, chosen on **written** UPI/card rates at onboarding, behind the `Provider` interface (R25). The **PA effective rate is a go/no-go criterion** at selection: target ≤ 1% blended, UPI as low as negotiable (R46). If Cashfree wins, use its ₹20 lakh 0% allowance for the pilot.
+- **Money flow:** the design supports **both** PA split settlement (model A) and collect-and-payout (model B). "Preferred: split settlement" above is no longer a decision; it is one of two supported options. A **legal opinion is required before Phase-2 week 4** (R35) because it changes payout code. If split settlement is chosen, PA linked-account KYC per restaurant joins the restaurant onboarding critical path. The restaurant share of COD cash is paid from rovo's account in either model and is covered by the same opinion `[LEGAL]`.
+- **Lock-in (RV-075):** with split settlement every restaurant is a KYC'd linked account at that PA; switching PA means re-KYC and migrating held transfers. `transfers` are keyed by provider. This switching cost is recorded in doc 30.
 
 ---
 
@@ -373,6 +415,12 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 **Consequences.** + Simple, transparent. − Not optimal in peaks (acceptable at V1 volume).
 
 **Revisit when.** Average time-to-assign > 3 min at peak, or > 15% of orders hit `DispatchExhausted`. Then consider batching or a broadcast mode.
+
+
+**Amended 2026-10-04 per R16, R30 and R34.**
+- **Two dispatch tiers (R34):** tier 1 = location fresh ≤ 3 min, ranked by distance; tier 2 = stale ≤ 15 min, reached via Web Push (`Urgency: high`) + SSE. Auto-offline at 15 min without any ping or heartbeat. The values live in `app_config`, owned by doc 13 (R48). "Location freshness < 3 min" above is superseded.
+- Offers have a fifth status **`REVOKED`** (withdrawn by system/admin) (R16).
+- **No surge pricing** in V1; rider shortage is handled by zone pause plus a manual rider peak bonus (ledger adjustment) (R30).
 
 ---
 
@@ -425,6 +473,13 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 
 **Revisit when.** Cost or limits of the managed container service become a problem (then consider managed K8s), or multi-region becomes necessary.
 
+
+**Amended 2026-10-04 per R23, R24, R28 and R32.**
+- **Production: AWS `ap-south-1`** primary, `ap-south-2` for DR backups; ECS Fargate (ARM) `api` + `worker`; RDS PostgreSQL + PostGIS; S3 + CloudFront; WAF; Secrets Manager; KMS (R23). Alternative: GCP.
+- **Two IaC profiles (R32):** `closed-pilot` = RDS **Single-AZ** db.t4g.small with PITR + cross-region automated backups, 2 small `api` tasks, 1 `worker`; `public-launch` = **Multi-AZ, mandatory before Gate B or > 100 orders/day, whichever first**, sized by the doc 20 load test.
+- Closed pilot: tasks in public subnets with compensating controls (SG ingress only from the ALB, egress allow-list, VPC endpoints for S3/ECR/Secrets/Logs); one NAT Gateway before Gate B (R28).
+- **Development: local Docker Compose only**; no card-requiring free tiers; demos through a card-free tunnel (R24). The "PaaS free tiers… dev/preview only" row above is superseded.
+
 ---
 
 ## ADR-017: Observability via OpenTelemetry
@@ -438,6 +493,12 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 **Consequences.** + Vendor-neutral. − Must watch free-tier quotas (series/log GB).
 
 **Revisit when.** Telemetry cost exceeds budget. Then tune sampling and retention, or switch backend (OTLP makes that a config change).
+
+
+**Amended 2026-10-04 per R36 (31 RV-032, RV-085; missing item M1).**
+- Backend: **Grafana Cloud** for metrics, traces and logs, plus **Grafana Faro** for frontend errors/RUM. **No Sentry in V1** (Go or browser); re-evaluate after the pilot.
+- **CERT-In compliance archive:** application, ALB/CloudFront/WAF, VPC flow (all), RDS and CloudTrail logs are kept **180 days in India** in CloudWatch Logs / S3 (`ap-south-1`) with lifecycle; security events ≥ 1 year. Grafana Cloud retention is operational only, never the compliance record.
+- External uptime checks from a free, card-free service. Alert escalation (paid phone-call paging for P1) is owned by doc 24.
 
 ---
 
@@ -454,6 +515,9 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 - **Error codes** are stable machine strings (`ORDER_STATE_CONFLICT`). Clients map them to localised messages.
 
 **Revisit when.** A third language is added. Consider a TMS (Weblate/Tolgee self-hosted).
+
+
+**Amended 2026-10-04 per R17.** User-generated translatable fields are stored as `*_i18n` JSONB (e.g. `name_i18n = {"en": "...", "te": "..."}`). The API exposes `nameI18n` plus a resolved `displayName` chosen by `Accept-Language`. The `name_te` option above is superseded. Telugu romanisation for search is deferred (C17).
 
 ---
 
@@ -501,6 +565,9 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 
 **Revisit when.** We need multiple renditions or AVIF. Then add a worker job with a pure-Go or libvips pipeline, or Cloudflare Images (paid).
 
+
+**Amended 2026-10-04 per R38.** **KYC files are images only** (JPEG/PNG/WebP; the client converts PDFs and photos). The server re-encodes KYC images, stores them with SSE-KMS at rest, shows them through an audited streaming view with short-TTL signed URLs. **No ClamAV and no app-layer envelope encryption for files** in V1. Field-level encryption for bank account numbers and TOTP secrets stays.
+
 ---
 
 ## ADR-023: API conventions
@@ -512,6 +579,9 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 - `Idempotency-Key` header on POSTs (doc 08 §7.1). `ETag`/`If-Match` on mutable aggregates (orders, menus).
 - Timestamps in RFC 3339 UTC. Money is integer paise plus `currency`. IDs are UUID strings. Enums are UPPER_SNAKE matching DB values.
 - Rate-limit headers (`RateLimit-*` per the IETF draft) on throttled endpoints.
+
+
+**Amended 2026-10-04 per R15.** The base path is **`/api/v1` on every host** (app hosts, admin host and the reserved `api.` host). Admin operations are under `/api/v1/admin/*`; provider webhooks under `/api/v1/webhooks/*`. The `/v1/...`, `/admin/v1/...` and `/webhooks/...` forms above are superseded.
 
 ---
 
@@ -554,6 +624,9 @@ Rules:
 
 **Revisit when.** A proprietary service offers a decisive benefit (e.g. a managed geo-routing API). Add it as an adapter behind an interface, never in domain code.
 
+
+**Amended 2026-10-04 per 31 RV-074.** The realistic claim is: **the application is portable; rebuilding the infrastructure on another cloud takes weeks**, not hours. The OpenTofu code, CloudFront flat-rate plan, WAF rules, ECS and RDS backups are AWS-specific. A cross-cloud restore (doc 23 DR-4) has no RTO commitment unless a one-off GCP restore rehearsal is funded before Gate B.
+
 ---
 
 ## ADR-026: Infrastructure as Code with OpenTofu (Terraform-compatible)
@@ -580,6 +653,37 @@ Rules:
 
 **Revisit when.** Moving to K8s (add Helm/Kustomize for workloads, keep OpenTofu for cloud resources).
 
+
+**Amended 2026-10-04 per R23 and R32 (scope cut C18).** The IaC root is **`deploy/terraform/`** (not `infra/`). Profiles `closed-pilot` and `public-launch` are tfvars sets applied to the prod environment (`deploy/terraform/profiles/*.tfvars`), so moving to Multi-AZ is a reviewed plan, not a rewrite. AWS organisation: 4 accounts (mgmt, prod, nonprod, audit/backup), not six.
+
+---
+
+## ADR-027: Cross-module foreign keys on money paths
+
+**Context.** Doc 08 §4.1 originally allowed foreign keys across module boundaries only to `cities` and `users`, so a module could be extracted later without untangling constraints. That gave up referential integrity on money paths (`payments.order_id`, `refunds.order_id`, `deliveries.order_id`, `invoices.order_id`, `ledger_postings.order_id`) for a speculative extraction that no plan foresees (31 RV-006). A nightly orphan check was the backstop.
+
+**Options.** (A) No cross-module FKs except `cities`/`users`; (B) FKs to `orders` from the money-path tables; (C) FKs everywhere.
+
+**Decision (R41).** **B.** FKs are allowed on money paths: `payments`, `refunds`, `deliveries`, `invoices` and ledger references → `orders`. Otherwise FKs exist only within a module and to `cities`/`users`. FKs do not grant query access: the Go import rules and table ownership still apply.
+
+**Consequences.** + The database rejects orphan money rows. − Extracting `ordering` later needs a migration that drops the FKs (one line each). − Migration order must create `orders` before the dependent tables.
+
+**Revisit when.** A module is actually extracted (doc 08 §9.5).
+
+---
+
+## ADR-028: API edge: same-origin `/api/*` on every app host; no CORS; `api.` reserved
+
+**Context.** Doc 22 originally served the API from an `api.` host directly on the ALB (to stay under the CloudFront flat-rate request allowance) and doc 24 then needed CORS on `api.`. Docs 11, 12 and 17 assume same-origin `/api/*`, host-only cookies and no CORS. An ALB cannot inject an audience header, so the API would have to trust a client-settable header (31 RV-001, RV-025).
+
+**Options.** (a) `/api/*` on every app host through CloudFront flat-rate Pro; (b) same, on CloudFront pay-as-you-go; (c) a public `api.` host with CORS.
+
+**Decision (R14, R27).** **(a)**, with **(b)** as the fallback if the request allowance is exceeded two months running. Every app host (`app.`, `restaurant.`, `rider.`, `admin.`) has a CloudFront behaviour for `/api/*` (caching off, cookies forwarded) to the ALB. The ALB accepts only the CloudFront origin-facing prefix list plus a secret origin-verify header. The API derives the audience from `Host` and ignores `X-Rovo-Audience` unless the origin secret is present. **No public `api.` host with CORS in V1**; `api.` stays reserved for future native bearer clients and server-to-server provider webhooks (no cookies). Chatty traffic is reduced: batched rider pings, restaurant heartbeat every 60 s, SSE presence counts as heartbeat.
+
+**Consequences.** + One cookie and CSRF model; no CORS; audience cannot be forged through the edge. − API traffic counts against the CDN request allowance (doc 25 models it, M13). − Each app host needs its own `/api/*` behaviour and WAF association.
+
+**Revisit when.** A native app launches (bearer clients on `api.`), or CDN request volume makes pay-as-you-go cheaper than the flat-rate plan.
+
 ---
 
 ## Appendix: challenges to the baseline (summary for the Lead Architect)
@@ -593,3 +697,4 @@ Rules:
 7. **P14/P17 replaced by user directive §4a:** managed containers + managed Postgres on a hyperscaler for staging/prod, Compose for local (ADR-016). New ADR-025 (portability) and ADR-026 (IaC).
 8. **P6 confirmed:** no Redis at launch. Managed Redis is enabled by config only on a trigger (ADR-007).
 9. All other provisional decisions are confirmed.
+10. **v1.1 (2026-10-04):** the Lead's rulings R1–R48 supersede items 2 (PG 17, R22), 3 (four apps, no prerender, R14/R33) and 5 (both money-flow models supported, legal opinion before Phase-2 week 4, R35). See the amendment blocks on each ADR and the new ADR-027/028.

@@ -33,7 +33,7 @@ Tags: `[ASSUMPTION]` assumption to validate · `[OPEN]` decision pending · `[LE
 | AUTH-D03 | Sessions are **per app audience** (`customer`, `restaurant`, `rider`, `admin`), one per host (R14). Each web app talks to the API **same-origin** via `https://<app-host>/api/v1/*` (R15, R27): the CloudFront distribution routes `/api/*` to the API load balancer and everything else to the static bucket. Each app therefore has its own host-only cookie jar. The audience is **derived server-side from `Host`**, and only when the CloudFront origin-verify secret is present; a client `X-Rovo-Audience` header is ignored (RV-025). | Isolates app sessions from each other without `Domain` cookies; removes CORS; simplest CSRF story. Fits P7 (object storage + CDN) via standard path-based CDN routing (§4.1). |
 | AUTH-D04 | Access token = **JWT signed with EdDSA (Ed25519)**, `kid` header, **10 min** (admin **5 min**). Refresh = **opaque 256-bit random token, SHA-256-hashed in DB, rotated on every use, with reuse detection that revokes the whole family**. | Asymmetric signing means verifiers don't hold signing keys (future edge/native/other services). Opaque refresh is revocable server-side. |
 | AUTH-D05 | Restaurant, rider and admin requests also check **server-side session state** on every request (cached ≤ 30 s, admin uncached). Customer requests are stateless JWT checks. | Fast revocation where privilege is high; cheap where volume is high. |
-| AUTH-D06 | CSRF = `SameSite` (Lax for customer/partner, Strict for admin) **+** Fetch-Metadata/Origin check (Go 1.25 `http.CrossOriginProtection`) **+** mandatory `X-Rovo-Client` header and JSON-only bodies on unsafe methods. **No double-submit token.** | Same-origin topology makes these sufficient; double-submit adds complexity without protection beyond this. |
+| AUTH-D06 | CSRF = `SameSite` (Lax for customer/restaurant/rider, Strict for admin) **+** Fetch-Metadata/Origin check (Go 1.25 `http.CrossOriginProtection`) **+** mandatory `X-Rovo-Client` header and JSON-only bodies on unsafe methods. **No double-submit token.** | Same-origin topology makes these sufficient; double-submit adds complexity without protection beyond this. |
 | AUTH-D07 | OTP: 6 digits, 5 min TTL, 5 verify attempts, HMAC-SHA-256 with a server-side pepper, India `+91` mobiles only, a bot challenge (Cloudflare Turnstile, behind the `BotChallenge` interface) **only when risk signals fire** (soft IP limit exceeded, new device with high velocity, or global strict mode) (RV-034), layered Postgres-backed rate limits (R21), global SMS budget breaker. Local/CI/E2E use `BotChallenge=fake` (RV-020). | SMS pumping and OTP brute force are the top auth threats (19 §5.1). |
 | AUTH-D08 | Admin: email + password (**argon2id m=64 MiB, t=3, p=1**) + **mandatory TOTP** (RFC 6238) for every admin at V1 + 10 single-use recovery codes. WebAuthn/passkeys are **P1** (R37): mandatory for `ADMIN_SUPER`/`ADMIN_FINANCE` once shipped. WAF rate and geo-IN rules on the admin host; **no identity-aware proxy** (C4). Idle 30 min / absolute 12 h. Step-up TOTP for sensitive actions. No self-signup. | Matches NIST SP 800-63B-4 AAL2 timeouts; phishing-resistant factor follows as P1. |
 | AUTH-D09 | Authorisation is **deny by default**: route-level permission from OpenAPI `x-rovo-permission` (middleware) **plus** ownership/scope policy in the domain service **plus** scope predicates in every repository query. Unauthorised access to another party's resource returns **404**. | Defence in depth against IDOR; avoids leaking existence. |
@@ -310,28 +310,35 @@ NIST SP 800-63B-4 AAL2 guidance is ≤ 24 h overall and ≤ 1 h inactivity; admi
 
 ### 4.1 Host topology (decision AUTH-D03, refines P7)
 
-| Host | Serves | API base | Cookie jar |
-|---|---|---|---|
-| `app.rovo.in` | Customer PWA (static) | `https://app.rovo.in/api/v1/…` | customer session cookies, host-only |
-| `partner.rovo.in` | Partner PWA (restaurant + rider) | `https://partner.rovo.in/api/v1/…` | partner session cookies, host-only |
-| `admin.rovo.in` | Admin SPA | `https://admin.rovo.in/api/v1/…` | admin session cookies, host-only |
-| `api.rovo.in` | **Bearer-only** API for future native apps; **payment webhooks** `/webhooks/*` | `https://api.rovo.in/v1/…` | **No cookies accepted** (cookie auth disabled on this host) |
+| Host | Serves | Audience (derived from `Host`) | API base | Cookie jar |
+|---|---|---|---|---|
+| `app.rovo.in` | Customer PWA (static) | `customer` | `https://app.rovo.in/api/v1/…` | customer session cookies, host-only |
+| `restaurant.rovo.in` | Restaurant PWA | `restaurant` | `https://restaurant.rovo.in/api/v1/…` | restaurant session cookies, host-only |
+| `rider.rovo.in` | Rider PWA | `rider` | `https://rider.rovo.in/api/v1/…` | rider session cookies, host-only |
+| `admin.rovo.in` | Admin SPA | `admin` | `https://admin.rovo.in/api/v1/…` | admin session cookies, host-only |
+| `api.rovo.in` | **V1: provider webhooks only** (`/webhooks/payments/{provider}`, `/webhooks/notifications/{provider}`), server-to-server, no CORS. Reserved for future native **bearer** clients (`*_native` audiences, not enabled in V1) (R14, R27) | `webhook` | `https://api.rovo.in/webhooks/…` (native later: `https://api.rovo.in/api/v1/…`) | **No cookies accepted** (cookie auth disabled on this host) |
+
+`partner` is kept only as an **alias group** in OpenAPI `x-rovo-audiences` (= `restaurant` ∪ `rider`), so doc 11 operations tagged `partner` stay valid. Middleware expands the alias, and the role check then admits only the matching roles on each host.
 
 **Production routing (cloud-agnostic, examples in brackets):**
 - Each app host is one **CDN distribution** (CloudFront / Cloud CDN on a global external Application LB / Azure Front Door) with **two origins**:
   1. the private static bucket for the SPA build (S3 with Origin Access Control / GCS backend bucket); default behaviour, long-cache hashed assets;
   2. the **API load balancer** (ALB / regional LB → managed containers) for path `/api/*`, **caching disabled**, all cookies and the needed headers forwarded.
-- The CDN or LB adds `X-Rovo-Audience` from the host, overwriting any client-supplied value (CloudFront origin custom header / LB custom request header). The API also cross-checks `Host`.
-- The API LB accepts traffic **only from the CDN**: CloudFront managed prefix list in the ALB security group **plus** a secret origin-verify header rotated via the secrets manager, or the GCP LB serving directly. This stops WAF/CDN bypass.
+- **Audience derivation (RV-001, RV-025, SEC-186).** The `/api/*` behaviour forwards the viewer `Host` header (origin request policy including `Host`) and CloudFront adds a secret **origin-verify header** (`X-Rovo-Origin-Verify`, value from Secrets Manager, rotated with dual-value overlap). The API:
+  1. rejects with `403` any request on the public listener that lacks a valid origin-verify value (webhooks included, since they also arrive through CloudFront on `api.`);
+  2. maps `Host` → audience from a fixed server-side table (`app.`→`customer`, `restaurant.`→`restaurant`, `rider.`→`rider`, `admin.`→`admin`, `api.`→`webhook`); unknown hosts → `421`;
+  3. **ignores and logs** any client-supplied `X-Rovo-Audience` (the header is never an input to authorisation).
+  An authz test sends forged `X-Rovo-Audience: admin` both with and without the secret and asserts it has no effect.
+- The API LB accepts traffic **only from CloudFront**: the CloudFront managed prefix list in the ALB security group **plus** the origin-verify header check above. This stops WAF/CDN bypass.
 - Hashed assets get `Cache-Control: public, max-age=31536000, immutable`; `index.html` gets `no-cache`. Authenticated `/api/*` responses are never cached (`Cache-Control: no-store` plus CDN behaviour with caching disabled).
-- **Local dev:** Vite dev server proxy `/api` → API container gives the same same-origin shape.
+- **Local dev:** four Vite dev servers (one per app), each proxying `/api` → API container with the matching `Host` and a dev origin-verify value, so the local stack has the same same-origin shape.
 - If Cloudflare is put in front (allowed by P7), it proxies the same hostnames to the cloud CDN/LB. Cookie and CSRF design is unchanged.
 
 Why not a shared `api.rovo.in` for all SPAs?
-- (a) All three apps would share one `api.rovo.in` cookie jar, so an XSS in the customer app could make credentialed same-site requests to admin endpoints while an admin is logged in in the same browser.
+- (a) All four apps would share one `api.rovo.in` cookie jar, so an XSS in the customer app could make credentialed same-site requests to admin endpoints while an admin is logged in in the same browser.
 - (b) CORS with credentials becomes mandatory and error-prone.
 - (c) Path-based multi-origin routing is a standard CDN/LB feature on every hyperscaler, so same-origin costs nothing extra.
-- **Fallback** if Frontend/DevOps need a separate API host: use `api.rovo.in` with **distinct cookie names and `Path` scoping per audience** (`Path=/v1/admin` for admin cookies), a strict per-path CORS allowlist, and the same custom-header + Origin checks. Documented as a weaker but acceptable alternative.
+- ~~Fallback: a shared browser-facing `api.rovo.in` with CORS~~ — **withdrawn in v1.1** (R27: no public `api.` host with CORS in V1). CloudFront request volume is handled by request reduction (batched rider pings, 60 s restaurant heartbeat, SSE presence counts as heartbeat) and, if needed, CloudFront pay-as-you-go, never by moving the API off the CDN.
 
 ### 4.2 Access token (JWT)
 
@@ -347,7 +354,7 @@ Why not a shared `api.rovo.in` for all SPAs?
 {
   "iss": "https://rovo.in",            // per-deployment config
   "sub": "0192f1c2-…",                 // users.id (UUIDv7)
-  "aud": "partner",                    // customer | partner | admin | customer_native | partner_native
+  "aud": "restaurant",                 // customer | restaurant | rider | admin | *_native (later)
   "sid": "0192f1c3-…",                 // sessions.id (also refresh-token family id)
   "ctx": "restaurant:0192e…",          // active context; "rider"; omitted for customer/admin
   "roles": ["RESTAURANT_OWNER"],       // snapshot for coarse checks & UI; NOT used for scope decisions
@@ -359,7 +366,7 @@ Why not a shared `api.rovo.in` for all SPAs?
 ```
 
 - No PII (phone, name, email) in tokens.
-- Scope decisions (restaurant id, city) for partner/admin are **re-validated against `role_assignments` per request** (cached ≤ 30 s) so revocation is fast (AUTH-D05).
+- Scope decisions (restaurant id, city) for restaurant/rider/admin are **re-validated against `role_assignments` per request** (cached ≤ 30 s) so revocation is fast (AUTH-D05).
 
 ### 4.3 Refresh tokens: rotation and reuse detection
 
@@ -376,11 +383,11 @@ Why not a shared `api.rovo.in` for all SPAs?
 
 | Cookie | Value | Attributes |
 |---|---|---|
-| `__Host-rovo_at` | access JWT | `Secure; HttpOnly; Path=/; SameSite=Lax` (customer, partner) / `SameSite=Strict` (admin); `Max-Age` = token TTL; **no `Domain`** (host-only, required by the `__Host-` prefix) |
+| `__Host-rovo_at` | access JWT | `Secure; HttpOnly; Path=/; SameSite=Lax` (customer, restaurant, rider) / `SameSite=Strict` (admin); `Max-Age` = token TTL; **no `Domain`** (host-only, required by the `__Host-` prefix) |
 | `__Secure-rovo_rt` | refresh token | `Secure; HttpOnly; Path=/api/v1/auth; SameSite=Strict` (all apps); `Max-Age` = absolute session lifetime; no `Domain` |
 | `rovo_did` | random device id (not a credential) | `Secure; Path=/; SameSite=Lax; Max-Age=2y`; not HttpOnly so the client can send it in telemetry `[OPEN]` |
 
-- `SameSite=Lax` is used for customer/partner access cookies so top-level navigations work: SMS deep links, and the **payment return URL** after the PA hosted checkout.
+- `SameSite=Lax` is used for customer/restaurant/rider access cookies so top-level navigations work: SMS deep links, and the **payment return URL** after the PA hosted checkout.
 - The PA may return via a cross-site **POST** form (Razorpay `callback_url` behaves this way `[ASSUMPTION — verify in 14]`). That POST carries no Lax cookies. Therefore the payment-return endpoint is **unauthenticated, idempotent and non-trusting**: it only redirects to `GET /orders/{id}/status`, and payment truth comes from webhooks and server-side fetch (19 §6.5).
 - The refresh cookie is `Strict` and path-scoped, so it is never sent on cross-site navigations or to non-auth endpoints.
 
@@ -390,16 +397,16 @@ All requirements apply to cookie-authenticated requests on the app hosts:
 
 1. **No state change on safe methods** (`GET`, `HEAD`, `OPTIONS`). Lint rule: OpenAPI `GET` operations may not carry write permissions.
 2. **Fetch-Metadata / Origin check** on unsafe methods using Go 1.25 `net/http.CrossOriginProtection`. It rejects requests whose `Sec-Fetch-Site` is not `same-origin`/`none`, or whose `Origin` doesn't match the host when Fetch-Metadata is absent. Requests with neither header are rejected on cookie-authenticated unsafe methods `[ASSUMPTION: all supported browsers send one; verify against 17's browser matrix]`.
-3. **Custom header** `X-Rovo-Client: customer-web|partner-web|admin-web` required on unsafe methods, plus `Content-Type: application/json` (multipart only on dedicated upload-init endpoints, which also need the header). Any cross-origin attempt, including from sibling subdomains, which are *same-site*, then needs a CORS preflight that we never grant.
+3. **Custom header** `X-Rovo-Client: customer-web|restaurant-web|rider-web|admin-web` required on unsafe methods, plus `Content-Type: application/json` (multipart only on dedicated upload-init endpoints, which also need the header). Any cross-origin attempt, including from sibling subdomains, which are *same-site*, then needs a CORS preflight that we never grant.
 4. **SameSite** cookies (Lax/Strict) as a third layer.
 5. **Login CSRF:** the OTP verify and admin login endpoints get the same checks.
 
-Bearer-authenticated requests (`api.rovo.in`) are not CSRF-prone. The API **ignores cookies on that host** and **ignores `Authorization` headers on app hosts**, so the two mechanisms never mix.
+Bearer-authenticated requests (`api.rovo.in`, native clients, later) are not CSRF-prone. The API **ignores cookies on that host** and **ignores `Authorization` headers on app hosts**, so the two mechanisms never mix.
 
 ### 4.6 CORS policy
 
 - App hosts: **no CORS headers emitted at all** (same-origin only). A preflight for `/api/*` returns 403.
-- `api.rovo.in`: no CORS (native apps don't need it). Webhook endpoints are server-to-server.
+- `api.rovo.in`: no CORS (V1 carries only server-to-server webhooks; native apps don't need CORS either).
 - Never emit `Access-Control-Allow-Origin: *` with credentials, and never reflect `Origin`. A test (SEC-034) asserts the absence of `Access-Control-Allow-*` on every route.
 
 ### 4.7 SSE authentication
@@ -410,10 +417,10 @@ Bearer-authenticated requests (`api.rovo.in`) are not CSRF-prone. The API **igno
   - `inbox:{restaurant_id}` requires a restaurant role on that restaurant and `ctx` equal to it.
   - `offers` is limited to the rider's own offers.
 - Events are published to per-principal channels after policy filtering. No broadcast topics carry PII.
-- **Lifetime:** the server closes the stream at access-token `exp` (≤ 10 min) with a final `event: reauth`. The client refreshes and reconnects with `Last-Event-ID`. Session revocation closes all streams for that `sid` immediately. Recommended client: fetch-based SSE (e.g. `@microsoft/fetch-event-source`) for control over refresh and backoff (see 17).
-- **Heartbeat** comment every **15 s**, which stays below every idle timer in the path:
+- **Lifetime (R10; RV-011 proposal adopted):** the stream **continues past access-token expiry** while the server-side session is valid (restaurant/rider/admin sessions are re-checked per request and on a 60 s timer for open streams; customer streams re-check the session row every 60 s). The server sends `event: reauth` and closes **only when the session is revoked, expired or blocked**; the client refreshes and reconnects. Streams are also closed at **30 min** for load rebalancing; the client reconnects with 2–10 s jitter (RV-038). There is **no replay**: `Last-Event-ID` is ignored and clients refetch REST snapshots on every (re)connect (R10). Session revocation closes all streams for that `sid` immediately. Client: rovo's own small fetch-based SSE client (17 §5.2).
+- **Heartbeat** comment every **20 s** (R10), which stays below every idle timer in the path:
   - CloudFront origin response timeout (default 30 s, applied between packets) — set the `/api/*` origin to 60 s;
-  - ALB idle timeout (default 60 s);
+  - ALB idle timeout ≥ 120 s (R10);
   - Cloudflare's 125 s if in front.
   - **No response-completion timeout** may be set on the `/api/*` behaviour, otherwise long-lived streams are cut. GCP LB backend-service timeout must likewise allow long streams `[ASSUMPTION — verify GCP semantics in 22]`.
   - Sources: CloudFront and Cloudflare docs, accessed 2026-10-04.
@@ -421,7 +428,7 @@ Bearer-authenticated requests (`api.rovo.in`) are not CSRF-prone. The API **igno
 
 ### 4.8 Native apps (later)
 
-- `aud=customer_native|partner_native` on `api.rovo.in`. Access token in `Authorization: Bearer`; refresh token in the request body, stored in Android Keystore / iOS Keychain.
+- `aud=customer_native|restaurant_native|rider_native` on `api.rovo.in` (not enabled in V1, R27). Access token in `Authorization: Bearer`; refresh token in the request body, stored in Android Keystore / iOS Keychain.
 - Same rotation and reuse detection apply. SSE uses the bearer header (native SSE clients support headers).
 - V2: device attestation (Play Integrity / App Attest) at login and refresh, and optional DPoP (RFC 9449) to sender-constrain tokens `[OPEN]`.
 
@@ -430,6 +437,7 @@ Bearer-authenticated requests (`api.rovo.in`) are not CSRF-prone. The API **igno
 - `GET /api/v1/me/sessions` lists device label (from parsed UA), approximate location (city from IP), created and last seen times, and a current flag.
 - `DELETE /api/v1/me/sessions/{sid}` revokes one; `DELETE /api/v1/me/sessions?others=true` revokes all others.
 - Admin support may revoke a member's sessions (`user.sessions.revoke`, audited with a reason).
+- Restaurant order-receiver devices (R44) are listed and revoked from `GET/DELETE /api/v1/restaurants/{rid}/devices[/{id}]` (owner) and the admin restaurant page (`ADMIN_OPS`); both are audited.
 - Logout revokes the session family and clears cookies (`Max-Age=0`). The `Clear-Site-Data: "cookies", "storage"` header is used on admin logout.
 
 ### 4.10 Signing-key management and rotation
@@ -486,37 +494,39 @@ Legend: **✓** allowed (global, or within the admin's city scope) · **O** own 
 | `rider.location.write` | — | — | — | O | — | — | — | — |
 | `rider.location.read` | — | — | — | O | — | ✓ (live ops map) | — | ✓ |
 | **Riders** `rider.onboard/approve/suspend` | — | — | — | — | — | ✓ (S) | — | ✓ (S) |
-| `rider.cod_deposit.record` | — | — | — | O (declare) | — | ✓ (M) | C | ✓ |
-| `rider.cash_limit.override` | — | — | — | — | — | M | C | M/C |
+| `rider.cod_deposit.record` (confirm against bank statement/UTR) | — | — | — | O (declare) | — | ✓ | ✓ | ✓ |
+| `rider.cash_adjustment` (write-off / correction) | — | — | — | — | — | ≤T / M above | ≤T / C above (S) | M/C (S) |
+| `rider.cash_limit.override` (audited, next-day review) | — | — | — | — | — | ✓ (S) | ✓ (S) | ✓ (S) |
 | **Payouts** `payout.read` | — | R (owner) | — | O | — | — | ✓ | ✓ |
 | `payout.batch.create` | — | — | — | — | — | — | M | M |
 | `payout.batch.approve/release` | — | — | — | — | — | — | C (S) | C (S) |
 | `payout.mark_paid` (record UTR) | — | — | — | — | — | — | ✓ (S) | ✓ (S) |
-| `ledger.adjustment.create` | — | — | — | — | — | — | M | M |
+| `ledger.adjustment.create` (incl. rider peak bonus R30, `MG_TOPUP` R47) | — | — | — | — | — | — | ≤T / M above | ≤T / M above |
 | `ledger.adjustment.approve` | — | — | — | — | — | — | C (S) | C (S) |
 | **Refunds** `refund.request` (customer complaint) | O | — | — | — | — | — | — | — |
-| `refund.issue` | — | — | — | — | ≤T (₹300 default) | ≤T (₹300) | ≤T (₹2,000) / C above | C |
+| `refund.issue` | — | — | — | — | ≤T (₹500, R31) | ≤T (₹500) | ≤T (₹500) / C above | ≤T (₹500) / C above |
 | `refund.approve_above_threshold` | — | — | — | — | — | — | C (S) | C (S) |
-| **Coupons** `coupon.platform.create/update` | — | — | — | — | — | M (budget > ₹5,000 needs C) | C | ✓ |
+| **Coupons** `coupon.platform.create/update` (audit + preview; no checker, C7) | — | — | — | — | — | ✓ | ✓ | ✓ |
 | `coupon.restaurant_funded.create` | — | R | — | — | — | ✓ | — | ✓ |
-| `coupon.goodwill.issue` (single-user credit) | — | — | — | — | ≤T (₹100) | ≤T | ✓ | ✓ |
+| `coupon.goodwill.issue` (single-user coupon, R9/R29) | — | — | — | — | ≤T (₹150, R31) | ≤T (₹150) | ≤T (₹150) / C above | ≤T (₹150) / C above |
 | **Zones & pricing** `zone.create/update` | — | — | — | — | — | ✓ (S) | — | ✓ |
 | `pricing.fees.change` (delivery fee slabs, platform fee) | — | — | — | — | — | M | C (S) | M/C |
 | **Users** `user.read` (search, profile) | O | — | — | — | ✓ (masked) | ✓ (masked) | ✓ (masked) | ✓ |
 | `user.pii.reveal` | — | — | — | — | S | S | S | S |
-| `user.block/unblock` | — | — | — | — | ✓ (block); unblock fraud-flagged = M | ✓ | — | ✓ |
+| `user.block/unblock` | — | — | — | — | ✓ (block); unblock fraud-flagged: audited, next-day review | ✓ | — | ✓ |
 | `user.sessions.revoke` | O | O | O | O | ✓ | ✓ | — | ✓ |
-| `user.erasure.execute` (DPDP) | O (request) | O (request) | O (request) | O (request) | M | — | — | C |
+| `user.erasure.execute` (DPDP, per erasure map M15) | O (request) | O (request) | O (request) | O (request) | ✓ (S) | — | — | ✓ (S) |
 | `address.crud` | O | — | — | — | — | — | — | — |
-| **Admin users & roles** `admin.user.create/disable` | — | — | — | — | — | — | — | M/C (S) |
+| **Admin users & roles** `admin.user.create` | — | — | — | — | — | — | — | M/C (S) |
+| `admin.user.disable` (fast revocation, single approver) | — | — | — | — | — | — | — | ✓ (S) |
 | `role.grant/revoke` (admin roles) | — | — | — | — | — | — | — | M/C (S) |
 | `role.grant` (RIDER/RESTAURANT_OWNER on KYC approval) | — | — | — | — | — | ✓ (S) | — | ✓ |
 | **KYC docs** `kyc.upload` | — | O | — | O | — | — | — | — |
 | `kyc.view` | — | O (own uploads, thumbnails) | — | O | — | ✓ (S) | bank-proof only (S) | ✓ (S) |
 | `kyc.decide` (approve/reject) | — | — | — | — | — | ✓ (S) | — | ✓ (S) |
 | **Reviews** `review.create` | O (delivered orders only) | — | — | — | — | — | — | — |
-| `review.reply` | — | R | — | — | — | — | — | — |
-| `review.moderate/hide` | — | — | — | — | ✓ | ✓ | — | ✓ |
+| `review.reply` | cut in V1 (C14) | — | — | — | — | — | — | — |
+| `review.hide` (profanity filter + admin hide; no moderation queue, C14) | — | — | — | — | ✓ | ✓ | — | ✓ |
 | **Support** `ticket.create` | O | R | R | O | — | — | — | — |
 | `ticket.handle` | — | — | — | — | ✓ | ✓ | ✓ | ✓ |
 | **Audit** `audit.read` | — | — | — | — | — | own actions | own city + finance events | ✓ |
@@ -524,11 +534,12 @@ Legend: **✓** allowed (global, or within the admin's city scope) · **O** own 
 | **Reports** `report.restaurant.read` (own sales) | — | R | — | — | — | — | — | — |
 | `report.ops.read` (aggregate, no PII) | — | — | — | — | ✓ | ✓ | ✓ | ✓ |
 | `report.finance.read` | — | — | — | — | — | — | ✓ | ✓ |
-| `report.export_pii` (CSV with PII) | — | — | — | — | — | M | M | C (S) |
+| `report.export_pii` (CSV with PII; audited, next-day review) | — | — | — | — | — | — | ✓ (S) | ✓ (S) |
 | **Platform settings** `settings.feature_flags/city_config` | — | — | — | — | — | — | — | ✓ (S) |
 
 Notes:
-- Thresholds (₹300, ₹2,000, ₹100, ₹5,000) are **configurable per city** `[ASSUMPTION — Product/Finance to confirm]`. They are also bounded by **daily per-agent caps** (e.g. support refunds ≤ ₹3,000/day/agent) to stop threshold-splitting.
+- Thresholds (refund ₹500, goodwill ₹150 — R31) live in `app_config` keys `approval.refund_threshold_paise`, `approval.goodwill_threshold_paise`, `approval.ledger_adjustment_threshold_paise` (values owned by docs 10/13 per R48; ledger/cash adjustment threshold `[proposal ₹500]`). They are also bounded by **daily per-agent caps** (e.g. support refunds ≤ ₹3,000/day/agent) to stop threshold-splitting.
+- The rider-pay `ON_BREAK` state and shift permissions are cut (C12); `pricing.fees.change` and `restaurant.commission.change` stay under maker-checker (R31 family 3).
 - `ADMIN_SUPER` is not exempt from maker-checker: a super can be maker *or* checker but **never both on the same request**.
 
 ### 5.3 Resource-level (ABAC) rules (L2 policy functions)
@@ -550,8 +561,9 @@ Notes:
 
 ```mermaid
 flowchart LR
-  R[Request] --> A1[CDN/LB: routes /api/*, sets X-Rovo-Audience from Host]
-  A1 --> M1[authn middleware<br/>verify JWT EdDSA, aud, session state]
+  R[Request] --> A1[CloudFront: routes /api/*, forwards Host, adds origin-verify secret]
+  A1 --> A2[API edge middleware: verify secret, audience from Host, ignore client X-Rovo-Audience]
+  A2 --> M1[authn middleware<br/>verify JWT EdDSA, aud, session state]
   M1 --> M2[CSRF guard<br/>CrossOriginProtection + X-Rovo-Client]
   M2 --> M3[permission middleware<br/>x-rovo-permission vs roles]
   M3 --> H[handler]
@@ -569,22 +581,15 @@ flowchart LR
   - The checker holds a role permitted as checker for that `action_type` and is in the same city scope.
   - Both maker and checker perform step-up.
   - Approving requests the checker can't see is impossible: the city filter applies.
-- **Actions under maker-checker in V1:**
-  - refund above role threshold or daily cap
-  - payout batch release
-  - manual ledger adjustment
-  - commission change
-  - delivery/platform fee or pricing change
-  - platform coupon with budget > ₹5,000
-  - rider cash-limit override
-  - restaurant or rider bank/UPI destination change
-  - admin user creation and any admin role grant or revoke
-  - unblocking a fraud-flagged account
-  - PII bulk export
-  - DPDP erasure execution
-  - TOTP reset for another admin
-- **Bootstrap / small-team reality:** go-live requires **≥ 2 active `ADMIN_SUPER`s and ≥ 1 `ADMIN_FINANCE`**. This is a production-readiness gate in 29.
-- **Break-glass** `[OPEN]`: a single `ADMIN_SUPER` may self-approve an action of type `emergency_*` with mandatory reason. It sends an immediate alert to all supers and an external email, and is reviewed within 24 h. Off by default.
+- **Actions under maker-checker in V1 — exactly the five R31 families (C7):**
+  1. **Refunds, goodwill, ledger or cash adjustments above threshold** (refund > ₹500, goodwill > ₹150, ledger/cash adjustment above `approval.ledger_adjustment_threshold_paise`), or above the agent's daily cap.
+  2. **Payout batch release.**
+  3. **Commission / fee-config changes** (commission, delivery fee slabs, platform/small-cart fee).
+  4. **Payout bank/UPI destination changes** (restaurant or rider).
+  5. **Admin role grants** (admin user creation, any admin role grant or revoke-to-higher scope, TOTP reset for another admin).
+- **Not under maker-checker** (audit + preview + a next-day review report of these actions): platform coupons and their budgets, rider cash-limit overrides, unblocking fraud-flagged accounts, PII exports, DPDP erasure execution, zone edits, menu moderation.
+- **Break-glass (R31):** if no second approver is available, an `ADMIN_SUPER` or `ADMIN_FINANCE` may **self-approve** a request of the five families with a mandatory reason (≥ 30 chars). It triggers an immediate alert to all supers plus an external email, flags the request `break_glass=true`, and **must be post-reviewed by a second person within 24 h**; an unreviewed break-glass after 24 h pages the founders and blocks further break-glass use by that admin until reviewed.
+- **Go-live gate (R31):** **≥ 2 named people able to approve money actions** (any combination of `ADMIN_SUPER`/`ADMIN_FINANCE`). This is a production-readiness gate in 29.
 
 ### 5.6 Impersonation (decision AUTH-D11)
 
@@ -596,17 +601,17 @@ flowchart LR
 
 ### 5.7 Audit logging
 
-- **Table `audit_events` (append-only):** `id` (UUIDv7), `occurred_at`, `actor_type` (`user|admin|system|provider_webhook`), `actor_id`, `actor_roles`, `session_id`, `request_id`, `ip` (stored; masked in UI), `user_agent_hash`, `action` (dot-namespaced), `resource_type`, `resource_id`, `city_id`, `outcome` (`success|denied|error`), `reason`, `approval_id`, `changes` (JSON diff with PII fields replaced by `"[redacted]"` or last-4), `prev_hash`, `hash`.
-- **Tamper evidence:** `hash = SHA-256(prev_hash ‖ canonical_json(row))` hash chain. A daily anchor (last hash + count) is written to an object-storage bucket with **WORM retention** (S3 Object Lock in compliance mode / GCS Bucket Lock / Azure immutable blob), held in the separate security/log-archive account or project, and posted to the ops channel.
-- **DB privileges:** the app role has `INSERT, SELECT` only. `UPDATE/DELETE/TRUNCATE` are revoked, and a trigger raises on update/delete. Partition drops for retention run only under the migration role (19 §7.1).
+- **Table `audit_events` (append-only):** `id` (UUIDv7), `occurred_at`, `actor_type` (`user|admin|system|provider_webhook`), `actor_id`, `actor_roles`, `session_id`, `request_id`, `ip` (stored; masked in UI), `user_agent_hash`, `action` (dot-namespaced), `resource_type`, `resource_id`, `city_id`, `outcome` (`success|denied|error`), `reason`, `approval_id`, `break_glass`, `changes` (JSON diff with PII fields replaced by `"[redacted]"` or last-4).
+- **Tamper resistance (C6, RV-028):** append-only by **DB grants**: the app role has `INSERT, SELECT` only; `UPDATE/DELETE/TRUNCATE` are revoked, and a trigger raises on update/delete. No per-row hash chain (it serialises every audited write) and no daily WORM anchor in V1. Retention deletes run only under the migration/owner role as a batched job (no partitioning, C8; 19 §7.1). Batched hourly sealing (Merkle/chain hash over new rows, anchor to an Object-Lock bucket) is the V1.1 option if tamper evidence is required.
+- **Auth telemetry split (RV-028):** high-volume `auth.otp.requested/verified/failed` events go to the **security log stream** (slog JSON → CloudWatch Logs → the CERT-In archive, ≥ 1 year; 19 §7.6), not to `audit_events`. Account-level security events (lockouts, refresh reuse, phone change, admin auth, step-up) stay in `audit_events`.
 - **Events logged (minimum):**
-  - **Auth:** `auth.otp.requested` (phone HMAC only), `auth.otp.verified`, `auth.otp.failed`, `auth.otp.locked`, `auth.login`, `auth.logout`, `auth.refresh.reuse_detected`, `auth.session.revoked`, `auth.step_up`, `auth.phone_changed`, `auth.admin.password_failed`, `auth.admin.totp_failed`, `auth.admin.recovery_code_used`, `auth.admin.locked`, `auth.context_switched`.
+  - **Auth:** `auth.otp.locked`, `auth.login`, `auth.logout`, `auth.refresh.reuse_detected`, `auth.session.revoked`, `auth.step_up`, `auth.phone_changed`, `auth.admin.password_failed`, `auth.admin.totp_failed`, `auth.admin.recovery_code_used`, `auth.admin.locked`, `auth.context_switched`.
   - **Admin:** every write action, plus **every PII reveal, KYC view, export and support view** (reads of sensitive data count as events).
   - **Authorisation denials** on L2/L3 (potential IDOR probing): sampled 100% for 403/404-by-policy on scoped resources, rate-alerted.
   - **Money:** refunds, payouts, ledger adjustments, COD deposits, and commission/fee changes (with before/after).
   - **System:** auto-cancellations, dispatch overrides, webhook verification failures.
 - **Retention:**
-  - auth/security events ≥ **1 year** (DPDP Rules: logs for breach detection retained ≥ 1 year; CERT-In: 180 days rolling);
+  - auth/security events ≥ **1 year** (DPDP Rules: logs for breach detection retained ≥ 1 year; CERT-In: 180 days rolling in India — R36, M1, archive design in 19 §7.6);
   - money-related audit events **8 years** `[LEGAL — confirm with GST/Companies Act record-keeping]`.
   - Audit rows reference users by id; on erasure, the user row is anonymised, but audit facts are retained under a legal-obligation basis `[LEGAL]`.
 - `audit.read` UI: filter by actor, resource, action and date; CSV export requires `ADMIN_SUPER` + step-up and is itself audited.
@@ -631,16 +636,14 @@ flowchart LR
 ### 6.2 Storage and access
 
 - Uploads go to a **dedicated private bucket `rovo-kyc-<env>`** in the India region. It has public access blocked at account and bucket level, default server-side encryption with a **KMS customer-managed key** (`kms-kyc`), versioning, and access logging / data-access audit logs. It is separate from the `rovo-media` bucket, which is served only through the CDN via origin access control, never public-read.
-- Upload flow: `POST /api/v1/kyc/uploads` returns a presigned PUT with conditions: content-type ∈ {`image/jpeg`, `image/png`, `application/pdf`}, size ≤ 5 MB, TTL 5 min, random object key.
+- **Images only (R38, C5):** the client converts PDFs and camera photos to JPEG/WebP before upload (PDF pages rasterised in the browser with a lazy-loaded renderer `[ASSUMPTION — pdf.js bundle size acceptable for the onboarding route]`). `POST /api/v1/kyc/uploads` returns a presigned PUT with conditions: content-type ∈ {`image/jpeg`, `image/png`, `image/webp`}, size ≤ 5 MB, TTL 5 min, random object key under `staging/`.
 - The worker then:
-  - (1) validates magic bytes;
-  - (2) re-encodes images (strips EXIF/GPS);
-  - (3) rejects PDFs with JavaScript, embedded files or encryption;
-  - (4) scans with ClamAV (decision in 19 §6.10);
-  - (5) **encrypts at the application layer with a per-object DEK** from KMS `GenerateDataKey` under `kms-kyc` (AES-256-GCM; wrapped DEK stored with the object). This sits on top of bucket SSE-KMS, so a leaked bucket credential or misconfigured bucket policy alone yields ciphertext, and every decrypt is a KMS call recorded in the cloud audit log;
-  - (6) writes the final object and deletes the staging object.
-- **Viewing** goes through the API (`GET /api/v1/admin/kyc/{doc_id}/view`), which streams the decrypted file. No long-lived URLs. Responses carry `Cache-Control: no-store`, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`, and a sandboxing CSP for PDFs.
-- **If** a presigned GET is ever used (e.g. before app-layer encryption lands): TTL **60 s**, single object, `response-content-disposition=inline`, generated per view and audited.
+  - (1) validates magic bytes (anything else, including PDF, is rejected);
+  - (2) decodes with a pixel cap and **re-encodes** the image (strips EXIF/GPS, defeats polyglots);
+  - (3) writes the final object (bucket default **SSE-KMS** with CMK `kms-kyc`) and deletes the staging object.
+- **No ClamAV and no app-layer envelope encryption for files in V1** (R38). Controls instead: re-encoding, Block Public Access, a bucket policy naming only `role-worker` (write) and `role-api` (read), SSE-KMS with key-use events in CloudTrail, S3 data-event logging on the KYC bucket, and audited views.
+- **Viewing** goes through the API (`GET /api/v1/admin/kyc/{doc_id}/view`), which streams the image (audited). Responses carry `Cache-Control: no-store`, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`.
+- **Short-TTL signed URL** (alternative for large images, R38): TTL **60 s**, single object, `response-content-disposition=inline`, generated per view by a narrow signing role and audited.
 - **Who can view:**
 
 | Viewer | Access |
@@ -653,10 +656,10 @@ flowchart LR
 
 - **Watermarking:**
   - V1: the viewer renders a **visible overlay watermark** (viewer email + timestamp + "rovo KYC — confidential") with no download button; every view is audited.
-  - V1.1: **server-side burned-in watermark** on images (Go image pipeline) and rasterised PDF previews.
+  - V1.1: **server-side burned-in watermark** on images (Go image pipeline).
   - Screenshots cannot be prevented; audit plus least privilege are the real controls.
 - **Retention** `[LEGAL]`: approved partners — for the partnership duration + N years (tax/contract records); rejected/abandoned applications — deleted 90 days after the decision; the deletion job is audited. See 19 §8.5.
-- **Bank account numbers** are column-encrypted (19 §7.3). The UI shows last 4 digits; `reveal_full` is finance-only with step-up and audit. Payout destination changes follow §2.5 and maker-checker.
+- **Bank account numbers** keep **field-level encryption** (KMS envelope, 19 §7.3; retained under R38). The UI shows last 4 digits; `reveal_full` is finance-only with step-up and audit. Payout destination changes follow §2.5 and maker-checker.
 
 ---
 
@@ -664,18 +667,19 @@ flowchart LR
 
 | Method & path (app hosts, prefix `/api/v1`) | Audience | Notes |
 |---|---|---|
-| `POST /auth/otp/request` | customer, partner | Turnstile required; 202 always |
-| `POST /auth/otp/verify` | customer, partner | Sets cookies |
+| `POST /auth/otp/request` | customer, restaurant, rider | Bot challenge only on risk signals; 202 always |
+| `POST /auth/otp/verify` | customer, restaurant, rider | Sets cookies; restaurant order-receiver registration binds the device (R44) |
 | `POST /auth/refresh` | all | Rotation; refresh cookie path |
 | `POST /auth/logout` | all | Revokes family |
-| `POST /auth/context` | partner | Switch `ctx` |
+| `POST /auth/context` | restaurant | Switch `ctx` |
 | `POST /auth/step-up` | all | TOTP or OTP |
 | `POST /auth/admin/login` | admin | email + password → `mfa_required` + `mfa_token` (2 min, single use) |
 | `POST /auth/admin/mfa` | admin | TOTP or recovery code → session |
 | `POST /auth/admin/setup` | admin | One-time link token → set password + TOTP enrol |
 | `POST /auth/admin/password-reset/request` and `/complete` | admin | Generic responses |
 | `GET/DELETE /me/sessions[/{sid}]` | all | Device list, remote logout |
-| `POST /me/phone-change/start` and `/confirm` | customer, partner | Step-up, double OTP |
+| `POST /me/phone-change/start` and `/confirm` | customer, restaurant, rider | Step-up, double OTP |
+| `GET/DELETE /restaurants/{rid}/devices[/{id}]` | restaurant (owner) | Order-receiver device list/revoke (R44) |
 
 ---
 
@@ -687,15 +691,18 @@ flowchart LR
 - **Impersonation:** §5.6.
 - **DPoP / mTLS sender-constrained tokens:** web cookies are already non-exportable by JS; revisit with native apps.
 - **Separate auth service / IdP** (Keycloak, Ory, Cognito, Identity Platform): one more stateful service and vendor coupling for little V1 gain. The auth module stays inside the monolith behind an interface, so an external IdP for **admins** (OIDC) can be swapped in later.
+- **Identity-aware proxy for admin** (C4), **hash-chained audit log** (C6), **ClamAV / PDF KYC uploads** (C5), **WhatsApp OTP** (C2), **maker-checker beyond R31** (C7), and a **browser-facing `api.` host with CORS** (R27).
 
 ## 9. Open items
 
 - `[OPEN]` Customer-phone masking for riders (virtual numbers) — cost vs DPDP minimisation; V1 shows phone only during active delivery.
-- `[OPEN]` WhatsApp OTP and voice OTP channel costs.
+- `[OPEN]` Voice OTP channel cost (WhatsApp OTP cut, C2).
 - `[OPEN]` Account-merge policy after lost SIM.
-- `[OPEN]` Break-glass procedure.
-- `[OPEN]` Identity-aware proxy choice for the admin console (Verified Access / IAP / Cloudflare Access) and cost.
-- `[ASSUMPTION]` All refund/coupon thresholds.
+- ~~Break-glass procedure~~ — resolved by R31 (§5.5).
+- ~~Identity-aware proxy choice~~ — withdrawn (R37, C4).
+- Refund/goodwill thresholds set by R31; other thresholds are `app_config` keys owned by docs 10/13 (R48).
+- `[OPEN]` DLT: one template per OTP host vs a host variable (§2.2; week-1 check with the aggregator).
+- `[OPEN]` Rider absolute session lifetime (proposal 180 days; R44 fixes only the 30-day sliding window).
 
 ## 10. Sources (accessed 2026-10-04)
 
@@ -711,8 +718,8 @@ flowchart LR
 
 ## 11. Challenges to baseline (summary; full list in report)
 
-1. **P7 hosting of SPAs (refinement, not reversal):** keep static SPAs on object storage + CDN, but give each app host a second CDN origin for `/api/*` → API load balancer, so the API is **same-origin per app** (cookie-jar isolation, no CORS, simpler CSRF). A shared `api.` host for browsers is the documented fallback (§4.1).
-2. **P9:** JWT-only sessions are insufficient for admin and partner. Add per-request server-side session checks (hybrid) and a 5-min admin access TTL.
+1. **P7 hosting of SPAs (refinement, not reversal; confirmed by R14/R27):** keep static SPAs on object storage + CDN, but give each of the four app hosts a second CDN origin for `/api/*` → API load balancer, so the API is **same-origin per app** (cookie-jar isolation, no CORS, simpler CSRF). The shared browser `api.` host fallback is withdrawn (§4.1).
+2. **P9:** JWT-only sessions are insufficient for admin, restaurant and rider. Add per-request server-side session checks (hybrid) and a 5-min admin access TTL.
 3. **P6:** auth/OTP rate limits must be durable and shared across replicas (Postgres, or managed Redis when enabled), never in-memory only.
-5. **§4a production:** JWT signing keys and peppers live in the cloud secrets manager under KMS CMKs. KYC files get KMS-based envelope encryption on top of bucket SSE-KMS. The admin console sits behind an identity-aware proxy as an outer gate.
+5. **§4a production:** JWT signing keys and peppers live in the cloud secrets manager under KMS CMKs. KYC files use bucket SSE-KMS only (R38); bank account numbers and TOTP secrets keep field-level encryption. The admin console relies on TOTP + WAF rate/geo rules, with passkeys as P1 (R37; IAP withdrawn).
 4. **Roles:** add an internal `SYSTEM` principal; admins are separate identities; `RIDER` ⟂ `RESTAURANT_*`.
