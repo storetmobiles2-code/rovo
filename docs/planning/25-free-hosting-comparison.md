@@ -50,7 +50,7 @@
 8. **Baseline check:**
    - **P6 (no Redis at V1) holds.** Free Redis tiers are tiny (Upstash 500K commands/month [S44]); in production, ElastiCache Valkey t4g.micro is $0.016/h [C4] when needed.
    - **P17 is superseded as directed.** Oracle and other free tiers are now dev/preview only.
-   - **P15 decision:** Grafana Cloud (ap-south-1 region) is the production telemetry backend. CloudWatch is limited to AWS-vended metrics and alarms, because CloudWatch custom metrics at $0.30/metric-month [C11] make an OTel metrics pipeline about 10× costlier (see `24`).
+   - **P15 decision:** Grafana Cloud (ap-south-1 region) is the production telemetry backend. CloudWatch is limited to AWS-vended metrics and alarms, because CloudWatch custom metrics at $0.30/metric-month [C11] would cost ≈ $1,500/month for ≈ 5,000 OTel series vs $0–19 on Grafana (see `24` §1.1).
 
 ---
 
