@@ -231,22 +231,24 @@ Legend:
 | `GET /public/serviceability?lat&lng` | PUB | → `{status: SERVICEABLE|OUTSIDE_SERVICE_AREA|CITY_NOT_LIVE|ZONE_PAUSED, cityId, zoneId, message, localityGuess{id,name}}` (16 §3) | `INVALID_LOCATION` |
 | `GET /public/localities?cityId&q` | PUB | → `[{id, name, nameI18n, pinCodes, centroid}]` (trigram + aliases) | — |
 | `GET /public/cuisines?cityId` | PUB | → `[{code, name, nameI18n}]` | — |
-| `GET /public/restaurants?lat&lng&cuisine&veg&minRating&maxEtaMin&hasOffer&sort&cursor&limit` | PUB | → `{items: [RestaurantCard{id, name, nameI18n, image, cuisines, dietType, rating{avg,count}, costForTwo, eta{minMinutes,maxMinutes}, deliveryFee, distanceM, isOpen, opensAt, availability: OPEN|CLOSED|PAUSED|TOO_FAR, offerBadge}], nextCursor, zone{paused, message, surge{active, fee, label}}}` | `OUTSIDE_SERVICE_AREA` (422 with a body), `INVALID_LOCATION` |
+| `GET /public/restaurants?lat&lng&cuisine&veg&minRating&maxEtaMin&hasOffer&sort&cursor&limit` | PUB | → `{items: [RestaurantCard{id, name, nameI18n, image, cuisines, dietType, rating{avg,count}, costForTwo, eta{minMinutes,maxMinutes}, deliveryFee, distanceM, isOpen, opensAt, availability: OPEN|CLOSED|PAUSED|TOO_FAR, offerBadge}], nextCursor, zone{paused, message}}` (no surge, R30) | `OUTSIDE_SERVICE_AREA` (422 with a body), `INVALID_LOCATION` |
 | `GET /public/restaurants/{restaurantId}?lat&lng` | PUB | → `RestaurantDetail` + `serviceability{status, deliveryFee, eta}` for the point, `fssaiLicenseNo` (shown on the menu [LEGAL]), hours, address | `NOT_FOUND` |
 | `GET /public/restaurants/{restaurantId}/menu` | PUB | → `{menuVersion, categories[{id, name, nameI18n, items[MenuItem{id, name, nameI18n, description, vegType, price, packaging, image, isAvailable, unavailableUntil, isRecommended, variants[], addonGroups[{id, name, minSelect, maxSelect, addons[]}]}]}]}`; `ETag` | `NOT_FOUND`; `304` |
 | `GET /public/search?q&lat&lng&cursor` | PUB | → `{restaurants[RestaurantCard], dishes[{item, restaurant}]}` (serviceable only) | — |
 | `GET /public/offers?lat&lng` | PUB | → public coupons applicable in the zone `[{code, title, terms, discountType, minOrder, maxDiscount}]` | — |
+| `POST /public/waitlist` 🔑 | PUB/CUST (app host) | `{location{lat,lng}, phone?, pinCode?, localityId?, noticeVersion, captchaToken}` → 201 (shown when `OUTSIDE_SERVICE_AREA`; M4 `waitlist`) | `RATE_LIMITED`, `CAPTCHA_FAILED` |
+| `POST /public/restaurant-leads` 🔑 | PUB (restaurant host) | `{businessName, contactName, phone, otpChallengeId, otpCode, localityId?, cuisineCodes[], fssaiState: YES|NO|APPLIED, preferredCallTime?, noticeVersion}` → 201 (05 §2; M4 `leads`) | `OTP_INVALID`, `RATE_LIMITED` |
 
 ### 2.2 Auth, session, me (`/auth`, `/me`), aligned with 12 §7
 
 | Method & path | Roles | Request → Response | Notable errors |
 |---|---|---|---|
-| `POST /auth/otp/request` | PUB (customer, partner hosts) | `{phone, channel: SMS|WHATSAPP, captchaToken}` → **202** `{challengeId, resendAfterSeconds, expiresAt}`. The response is the same whether or not the phone exists. | `CAPTCHA_FAILED`, `OTP_RESEND_TOO_SOON`, `RATE_LIMITED`, `SMS_BUDGET_EXCEEDED`, `VALIDATION_FAILED` (non-Indian mobile) |
+| `POST /auth/otp/request` | PUB (customer, restaurant, rider hosts) | `{phone, channel: SMS, captchaToken?}` (SMS only, C2; captcha only at risk per 12) → **202** `{challengeId, resendAfterSeconds, expiresAt}`. The response is the same whether or not the phone exists. | `CAPTCHA_FAILED`, `OTP_RESEND_TOO_SOON`, `RATE_LIMITED`, `SMS_BUDGET_EXCEEDED`, `VALIDATION_FAILED` (non-Indian mobile) |
 | `POST /auth/otp/verify` | PUB | `{challengeId, code, deviceInstallId}` → `{user{id, fullName, roles}, isNewUser, accessExpiresAt, needsAccountConfirmation}`; sets cookies (bearer variant returns tokens) | `OTP_INVALID`, `OTP_EXPIRED`, `OTP_ATTEMPTS_EXCEEDED`, `ACCOUNT_BLOCKED` |
 | `POST /auth/account-confirmation` | CUST (fresh session) | `{decision: SAME_PERSON|NEW_NUMBER}` → recycled-number flow (12 §1.4) | — |
 | `POST /auth/refresh` | any session | (cookie) → `{accessExpiresAt}`; rotates the refresh token | `SESSION_REVOKED`, `REFRESH_RACE` (409) |
 | `POST /auth/logout` | any | → 204; revokes the family | — |
-| `POST /auth/context` | OWN/STAFF/RIDER (partner) | `{context: "rider" | "restaurant:<id>"}` → new access token | `FORBIDDEN` |
+| `POST /auth/context` | OWN/STAFF (restaurant host) | `{context: "restaurant:<id>"}` → new access token (multi-outlet owners; rider ⟂ restaurant per R26) | `FORBIDDEN` |
 | `POST /auth/step-up` | any | `{method: OTP|TOTP, code}` → `{stepUpUntil}` | `OTP_INVALID` |
 | `POST /auth/admin/login` | PUB (admin host) | `{email, password}` → `{mfaToken, mfaMethods: ["TOTP","RECOVERY_CODE"]}` | 401 generic |
 | `POST /auth/admin/mfa` | PUB + mfaToken | `{mfaToken, totp | recoveryCode}` → session cookies | `MFA_INVALID` (401) |
@@ -254,11 +256,11 @@ Legend:
 | `POST /auth/admin/password-reset/request`, `/complete` | PUB | generic responses | — |
 | `GET /me` | any | → `{id, kind, fullName, phoneMasked, email, preferredLocale, roles[{role, cityId, restaurantId}], activeContext, consents{}, accessExpiresAt}` | — |
 | `PATCH /me` | any | `{fullName?, preferredLocale?}` → Me | — |
-| `GET /me/sessions`, `DELETE /me/sessions/{sid}`, `DELETE /me/sessions?others=true` | any | device list / revoke | — |
+| `GET /me/sessions`, `DELETE /me/sessions/{sid}`, `DELETE /me/sessions?others=true` | any | device list (incl. `binding: STANDARD|DEVICE_BOUND`) / revoke | — |
 | `POST /me/phone-change/start`, `/confirm` | CUST, OWN, STAFF, RIDER | step-up + double OTP (12 §2.4) | — |
 | `GET /me/consents`, `POST /me/consents` | any | `{purpose, granted, noticeVersion}` (append-only) | — |
 | `POST /me/data-export` | any | → 202 `{reportExportId}` (DPDP access request) | `RATE_LIMITED` |
-| `POST /me/erasure-request` | CUST, RIDER, OWN | `{reason?}` → 202 ticket (DPDP; executed after checks + maker-checker) | `CONFLICT` (open orders/payouts) |
+| `POST /me/erasure-request` | CUST, RIDER, OWN | `{reason?}` → 202 `{erasureRequestId, status, dueAt}` (DPDP; `erasure_requests`; executed by the erasure job after hold checks, 10 §13.1; audited, no maker-checker per R31) | `CONFLICT` (request already open) |
 | `GET /me/notifications?cursor&unreadOnly` | any | inbox | — |
 | `POST /me/notifications/read` | any | `{ids[] | all: true}` → 204 | — |
 | `POST /me/push-subscriptions` | any | `{endpoint, keys{p256dh, auth}, deviceInstallId, locale}` → 201 `{id}` (upsert by endpoint) | `VALIDATION_FAILED` |
@@ -279,20 +281,21 @@ Legend:
 | `POST /payments/confirm` 🔑 | CUST | `{paymentId, providerOrderId, providerPaymentId, signature}` → `{paymentStatus, orderStatus}` (fast path; the webhook is authoritative; 08 §5.1) | `WEBHOOK_SIGNATURE_INVALID` (401 → treated as "pending") |
 | `GET|POST /payments/return/{provider}` | PUB (unauthenticated, non-trusting) | PA redirect target → 303 to `/orders/{id}` in the app (12 §4.4) | — |
 | `GET /orders?status=ACTIVE|PAST&cursor` | CUST | → `{items[OrderSummary], nextCursor}`; active pinned first | — |
-| `GET /orders/{orderId}` | CUST | → `Order` (items, bill, status timeline, delivery milestone + rider first name, `cancellable{allowed, freeUntil, reasonCodes[]}`, refunds[], ratings, invoiceAvailable); `ETag` | `NOT_FOUND` |
+| `GET /orders/{orderId}` | CUST | → `Order` (items, bill, status timeline, delivery milestone + rider first name, `cancellable{allowed, freeUntil, reasonCodes[]}`, `deliveryCode` (R39), refunds[], ratings, invoiceAvailable); `ETag` | `NOT_FOUND` |
 | `POST /orders/{orderId}/cancel` 🔑 | CUST | `{reasonCode}` → Order (O-05/O-09/O-11/O-13 within grace) | `CANCEL_GRACE_EXPIRED`, `ORDER_NOT_CANCELLABLE` |
 | `POST /orders/{orderId}/reorder` | CUST | → `{restaurantId, lines[], issues[]}` (for the device cart; never places an order) | — |
-| `POST /orders/{orderId}/ratings` 🔑 | CUST | `{restaurant?{stars, tags[], review?}, rider?{thumbsUp, tags[]}}` → 201. Window 7 days; once per target. | `CONFLICT` (already rated), `ORDER_INVALID_TRANSITION` (not delivered) |
+| `POST /orders/{orderId}/ratings` 🔑 | CUST | `{restaurant?{stars, tags[], review?}, rider?{thumbsUp, tags[]}}` → 201. Window `ratings.window_days`; once per target. Review text passes a profanity/PII filter and is shown immediately unless flagged; no moderation queue or replies (C14). | `CONFLICT` (already rated), `ORDER_INVALID_TRANSITION` (not delivered) |
 | `GET /orders/{orderId}/invoices` | CUST | → `[{id, kind, number, issuedAt, fileUrl}]` | — |
 | `POST /support/tickets` 🔑 | CUST, OWN, STAFF, RIDER | `{orderId?, category, subject, message, attachmentFileIds[]}` → 201 Ticket | `VALIDATION_FAILED` |
 | `GET /support/tickets`, `GET /support/tickets/{id}` | requester | list/detail with messages (no internal notes) | — |
 | `POST /support/tickets/{id}/messages` | requester | `{body, attachmentFileIds[]}` → 201 | — |
+| `POST /support/tickets/{id}/compensation-choice` 🔑 | CUST (COD order, when the ticket offers compensation) | `{choice: UPI_REFUND|COUPON, upiVpa?}` → `{refundId|couponId, status}`. **R29:** a manual UPI refund (finance pays and records the UTR) or a single-user coupon; never coupon-only. | `VALIDATION_FAILED` (VPA), `CONFLICT` (already chosen) |
 | `POST /uploads` | CUST, OWN, STAFF, RIDER | `{purpose: MENU_IMAGE|TICKET_ATTACHMENT|…, contentType, sizeBytes, sha256}` → `{fileId, uploadUrl, uploadHeaders, expiresAt}` (presigned PUT, 5 min) | `VALIDATION_FAILED` (type/size) |
-| `POST /uploads/{fileId}/complete` | uploader | → `File{id, status, url?}` (triggers scan/variants) | — |
+| `POST /uploads/{fileId}/complete` | uploader | → `File{id, status, url?}` (validates type/size, re-encodes images; no ClamAV in V1, R38) | — |
 
 ### 2.4 Restaurant partner (`/partner/…`, partner host)
 
-All `/partner/restaurants/{restaurantId}/*` operations require a restaurant role on `restaurantId` (12 §5.3). Order-, finance- and menu-edit operations also check staff `permissions[]`.
+All `/partner/restaurants/{restaurantId}/*` operations require a restaurant role on `restaurantId` (12 §5.3). They are served on the `restaurant.` host only. Order-, finance- and menu-edit operations also check staff `permissions[]`.
 
 | Method & path | Roles | Request → Response | Notable errors |
 |---|---|---|---|
@@ -309,7 +312,10 @@ All `/partner/restaurants/{restaurantId}/*` operations require a restaurant role
 | `POST /partner/restaurants/{rid}/close` | OWN, STAFF | stop for the day | — |
 | `POST /partner/restaurants/{rid}/pause` | OWN, STAFF | `{durationMinutes: 15|30|60|null(=until resume), reasonCode}` → `{pausedUntil}` | — |
 | `POST /partner/restaurants/{rid}/resume` | OWN, STAFF | → `{pausedUntil: null}` (also clears auto-pauses, ruling 1) | — |
-| `POST /partner/restaurants/{rid}/devices/heartbeat` | OWN, STAFF | `{deviceInstallId, isOrderReceiver, pushOk, appVersion}` → `{serverTime, outletState}` every 30 s (ruling 1/11) | — |
+| `POST /partner/restaurants/{rid}/devices/heartbeat` | OWN, STAFF | `{deviceInstallId, isOrderReceiver, pushOk, appVersion}` → `{serverTime, outletState}` every `restaurant.heartbeat_interval_s` (60 s); an open SSE stream also counts as presence (R1, R27) | — |
+| `GET /partner/restaurants/{rid}/devices` | OWN | → `[{deviceId, label, isOrderReceiver, binding, lastHeartbeatAt, registeredBy}]` | — |
+| `POST /partner/restaurants/{rid}/devices/{deviceId}/register` 🔑 | OWN (on the device, fresh step-up) | `{label, isOrderReceiver: true}` → rebinds this session as **device-bound** (R44: sliding 30 d idle, 90 d absolute) | `STEP_UP_REQUIRED` ⬆ |
+| `POST /partner/restaurants/{rid}/devices/{deviceId}/revoke` 🔑 | OWN | → 204; revokes the bound session (`DEVICE_REVOKED`) | — |
 | `GET /partner/restaurants/{rid}/menu` | OWN, STAFF | full menu incl. archived toggle and unavailable items | — |
 | `POST /partner/restaurants/{rid}/menu-categories` / `PATCH /{id}` 🔒 / `DELETE /{id}` (archive) | OWN, STAFF+`MENU_EDIT` | `{name, nameI18n, sortOrder, isActive}` | `CONFLICT` (name) |
 | `POST /partner/restaurants/{rid}/menu-items` / `PATCH /{itemId}` 🔒 / `DELETE /{itemId}` (archive) | OWN, STAFF+`MENU_EDIT` | `{categoryId, name, nameI18n, description, descriptionI18n, vegType, price, packaging, imageFileId, isRecommended, spiceLevel, serves, variants[], addonGroupIds[]}` | `VALIDATION_FAILED` (pure-veg rule), `VERSION_MISMATCH` |
@@ -318,29 +324,32 @@ All `/partner/restaurants/{restaurantId}/*` operations require a restaurant role
 | `PUT /partner/restaurants/{rid}/menu/sort-order` 🔒 | OWN, STAFF+`MENU_EDIT` | `{categories[{id, items[id]}]}` | — |
 | `GET /partner/restaurants/{rid}/orders?view=NEW|PREPARING|READY|OUT|HISTORY&date&cursor` | OWN, STAFF | → `{items[PartnerOrder]}` (customer first name only; no phone) | — |
 | `GET /partner/restaurants/{rid}/orders/{orderId}` | OWN, STAFF | → PartnerOrder (items, notes, rider status, timeline, earnings breakdown) | `NOT_FOUND` |
+| `POST …/orders/{orderId}/ack` | OWN, STAFF | → 204. "Seen" acknowledgement that stops the repeat ring on this device (15 §7; register row 64). It does not change order state. | — |
 | **`POST …/orders/{orderId}/accept`** 🔑 | OWN, STAFF | `{prepTimeMinutes}` → PartnerOrder (O-06) (§3.4) | `ACCEPT_WINDOW_CLOSED`, `ORDER_INVALID_TRANSITION` |
 | `POST …/orders/{orderId}/reject` 🔑 | OWN, STAFF | `{reasonCode, outOfStockItemIds[]?, outOfStockUntil?, pauseMinutes?}` → PartnerOrder (O-07) | `REASON_CODE_INVALID` |
 | `POST …/orders/{orderId}/start-preparing` 🔑 | OWN, STAFF | → PartnerOrder (O-10) | — |
 | `POST …/orders/{orderId}/ready` 🔑 | OWN, STAFF | → PartnerOrder (O-12) | — |
 | `POST …/orders/{orderId}/prep-extension` 🔑 | OWN, STAFF | `{extraMinutes: 5|10}` → updates ETA (max 2 extensions) | `CONFLICT` |
-| `POST …/orders/{orderId}/issues` 🔑 | OWN, STAFF | `{type: CANNOT_FULFIL|ITEM_PROBLEM, itemIds[], note}` → 201 Ticket (urgent; ops decides, 05 §4.5) | — |
-| `GET /partner/restaurants/{rid}/analytics/summary?from&to` | OWN | → `{orders, gross, netEarnings, avgRating, acceptRate, missedOrders, avgAcceptSeconds, prepOnTimeRate, topItems[]}` | — |
+| `POST …/orders/{orderId}/issues` 🔑 | OWN, STAFF | `{type: CANNOT_FULFIL|ITEM_PROBLEM, itemIds[], note}` → 201 Ticket (urgent; ops decides and cancels with fault, 05 §4.5). **There is no restaurant cancel endpoint after accept (R40).** | — |
+| `GET /partner/restaurants/{rid}/analytics/summary?period=TODAY|THIS_WEEK` | OWN | → `{orders, gross, netEarnings, avgRating, acceptRate, missedOrders, avgAcceptSeconds, prepOnTimeRate, topItems[]}` | — |
 | `GET /partner/restaurants/{rid}/statements?from&to` | OWN (+STAFF with `FINANCE_VIEW`) | → per-order lines (gross, commission, GST, TDS, net) | — |
 | `GET /partner/restaurants/{rid}/payouts`, `/payouts/{payoutId}` | OWN | payouts with UTR and items | — |
 | `GET/POST /partner/restaurants/{rid}/payout-accounts` | OWN | add a bank/UPI destination ⚖ (maker-checker + cooling-off) | `STEP_UP_REQUIRED` ⬆ |
-| `GET/POST/DELETE /partner/restaurants/{rid}/staff` | OWN | invite by phone `{phone, displayName, permissions[]}` / remove | `CONFLICT` (rider role exclusion, 12 AUTH-D02) |
-| `GET /partner/restaurants/{rid}/reviews?cursor` | OWN, STAFF | published reviews + ratings (no reply in V1) | — |
+| `GET/POST/DELETE /partner/restaurants/{rid}/staff` | OWN | `POST` creates a `staff_invites` row (single-use code by SMS, 72 h) `{phone, displayName, permissions[]}`; `DELETE` removes a member | `CONFLICT` (rider role exclusion, 12 AUTH-D02) |
+| `POST /partner/staff-invites/accept` 🔑 | any member (fresh OTP session on the restaurant host) | `{inviteCode}` → `{restaurantId, role: RESTAURANT_STAFF}`; the session phone must match the invite | `NOT_FOUND` (expired/used), `CONFLICT` (rider role) |
+| `GET /partner/restaurants/{rid}/reviews?cursor` | OWN, STAFF | visible reviews + ratings (no reply in V1, C14) | — |
 
-### 2.5 Rider (`/rider/…`, partner host, context `rider`)
+### 2.5 Rider (`/rider/…`, `rider.` host)
 
 | Method & path | Roles | Request → Response | Notable errors |
 |---|---|---|---|
-| `POST /rider/applications` | any member | `{cityId, vehicleType, vehicleRegNo?, emergencyContact, adultDeclaration: true}` → 201 `{riderId, status: APPLIED}` | `CONFLICT` (restaurant role exclusion) |
+| `POST /rider/applications` | any member | `{cityId, vehicleType, vehicleRegNo?, emergencyContact, adultDeclaration: true, gigRegistration{legalName, dateOfBirth, gender, residentialState, residentialDistrict, portalWorkerId?}}` → 201 `{riderId, status: APPLIED}`. Gig-worker fields per M5 [LEGAL — final list per portal spec]; never Aadhaar. | `CONFLICT` (restaurant role exclusion) |
 | `POST /rider/applications/documents` | applicant | `{docType, fileId, docNumber?, validUntil?}` (AADHAAR_MASKED: no number) | `VALIDATION_FAILED` |
 | `POST /rider/applications/submit` 🔑 | applicant | → `{status: UNDER_REVIEW}` | `KYC_INCOMPLETE` |
-| `GET /rider/me` | RIDER | → profile, status, availability state, cash `{inHand, limit, codBlocked}`, today's earnings, rating (thumbs %) | — |
-| `PUT /rider/availability` 🔑 | RIDER | `{state: AVAILABLE|ON_BREAK|OFFLINE, location{lat,lng,accuracyM}}` → availability (13 §4.3) | `RIDER_NOT_ELIGIBLE`, `RIDER_HAS_ACTIVE_DELIVERY`, `KYC_INCOMPLETE` |
-| `POST /rider/location` | RIDER | `{points[{lat, lng, accuracyM, speedMps?, headingDeg?, recordedAt}] (1–10)}` → 204 (every 30–60 s while online; P12) | `RATE_LIMITED` |
+| `GET /rider/me` | RIDER | → profile, status, availability state, cash `{inHand, limit, codBlocked, oldestCashAgeHours}`, today's earnings, rating (thumbs %) | — |
+| `PUT /rider/availability` 🔑 | RIDER | `{state: AVAILABLE|OFFLINE, location{lat,lng,accuracyM}}` → availability (13 §4.3; no `ON_BREAK`, C12) | `RIDER_NOT_ELIGIBLE`, `RIDER_HAS_ACTIVE_DELIVERY`, `KYC_INCOMPLETE` |
+| `POST /rider/location` | RIDER | `{points[{lat, lng, accuracyM, speedMps?, headingDeg?, recordedAt}] (1–10)}` → 204. Batched upload every `rider.ping_interval_s` (60 s) while online (P12, R27); also refreshes `last_seen_at` for the 15-min auto-offline (R34). | `RATE_LIMITED` |
+| `POST /rider/sos` 🔑 | RIDER | `{kind: ACCIDENT|UNSAFE|HARASSMENT|MEDICAL|OTHER, location?, deliveryId?, note?}` → 201 `{sosId}` → ops `ops.alert` SOS (06 §11; `sos_events`; P1) | — |
 | `GET /rider/offers?status=PENDING` | RIDER | → current pending offer (polling fallback for SSE) | — |
 | **`POST /rider/offers/{offerId}/accept`** 🔑 | RIDER | → `RiderDelivery` (D-03) (§3.5) | `OFFER_EXPIRED`, `OFFER_NOT_PENDING`, `RIDER_CASH_LIMIT_REACHED`, `RIDER_NOT_ONLINE` |
 | `POST /rider/offers/{offerId}/decline` 🔑 | RIDER | `{reasonCode}` → 204 (D-04) | `OFFER_NOT_PENDING` |
@@ -350,14 +359,14 @@ All `/partner/restaurants/{restaurantId}/*` operations require a restaurant role
 | **`POST /rider/deliveries/{deliveryId}/picked-up`** 🔑 | RIDER | `DeliveryMilestoneRequest{pickupPin?}` → RiderDelivery (D-08/D-08b) | `DELIVERY_INVALID_TRANSITION` (order not PREPARING/READY) |
 | **`POST /rider/deliveries/{deliveryId}/arrived-at-drop`** 🔑 | RIDER | `DeliveryMilestoneRequest` (D-09) | — |
 | **`POST /rider/deliveries/{deliveryId}/delivered`** 🔑 | RIDER | `DeliveryMilestoneRequest{codCollected?: Money, deliveryCode?}` (D-10/D-10b) | `COD_AMOUNT_MISMATCH`, `DELIVERY_CODE_INVALID`, `UNDELIVERABLE_REQUEST_OPEN` |
-| `POST /rider/deliveries/{deliveryId}/call-attempts` 🔑 | RIDER | `{at}` → `{callAttempts}` (counts toward the undeliverable precondition) | — |
+| `POST /rider/deliveries/{deliveryId}/call-attempts` 🔑 | RIDER | `{at, location?}` → `{callAttempts}`. Writes a `contact_tap_log` row; counts toward the undeliverable precondition. | — |
 | `POST /rider/deliveries/{deliveryId}/undeliverable-requests` 🔑 | RIDER | `DeliveryMilestoneRequest{reasonCode, note?}` → `{ticketId, status: AWAITING_SUPPORT}` (D-11, ruling 5) | `UNDELIVERABLE_PRECONDITION` (wait < 10 min / calls < 2) |
 | `POST /rider/deliveries/{deliveryId}/release` 🔑 | RIDER | `{reasonCode}` → 204 (D-13; before pickup) | `DELIVERY_INVALID_TRANSITION` |
 | `GET /rider/history?cursor` | RIDER | completed deliveries with pay | — |
-| `GET /rider/earnings?from&to` | RIDER | → `{total, deliveries, base, distance, waiting, surge, cancellations[], byDay[]}` | — |
+| `GET /rider/earnings?from&to` | RIDER | → `{total, deliveries, base, distance, waiting, cancellations[], adjustments[{type: MG_TOPUP|PEAK_BONUS|…, amount}], byDay[]}` | — |
 | `GET /rider/cash` | RIDER | → `{cashInHand, limit, codBlocked, pendingDeposits[]}` | — |
 | `POST /rider/cash-deposits` 🔑 | RIDER | `{amount, method: UPI_TO_COMPANY|BANK_DEPOSIT|CASH_AT_HUB, reference, proofFileId?}` → 201 `CodDeposit{status: DECLARED}` | `VALIDATION_FAILED` (amount > cash in hand) |
-| `GET /rider/payouts`, `GET/POST /rider/payout-accounts` | RIDER | as the restaurant equivalents ⚖ ⬆ | — |
+| `GET /rider/payouts`, `GET/POST /rider/payout-accounts` | RIDER | as the restaurant equivalents ⚖ ⬆ (payout schedule per `payouts.rider.schedule`, 10 §15.3) | — |
 
 ### 2.6 Admin (`/admin/…`, admin host; every list is filtered by the caller's city scope)
 
@@ -366,74 +375,88 @@ All `/partner/restaurants/{restaurantId}/*` operations require a restaurant role
 | Dashboard | `GET /admin/dashboard?cityId&date` | ADMIN* | `{ordersByStatus, gmv, aov, cancelRate, avgDeliveryMin, onlineRiders, unassignedDeliveries, pausedRestaurants, pausedZones, alerts[]}` |
 | Live board | `GET /admin/orders?status&zoneId&restaurantId&late=true&q&cursor` | OPS, SUP | `q` matches order code / phone (audited). Exceptions first. |
 | | `GET /admin/orders/{orderId}` | OPS, SUP, FIN | full: history, payments, refunds, delivery + offers, ledger summary, tickets, audit |
-| Interventions | `POST /admin/orders/{orderId}/cancel` 🔑 ⚖ | OPS, SUP | `{reasonCode, faultParty, refundPolicy: FULL|PARTIAL|NONE, refundAmount?, restaurantCompensation: bool, note}` (13 §6) → Order (+ ApprovalRequest if the refund > ₹500) |
+| Interventions | `POST /admin/orders/{orderId}/cancel` 🔑 ⚖ | OPS, SUP | `{reasonCode, faultParty, refundPolicy: FULL|PARTIAL|NONE, refundAmount?, restaurantCompensation: bool, note}` (13 §6) → Order (+ ApprovalRequest if the refund > `approvals.refund_threshold_paise`). Also the path for restaurant `CANNOT_FULFIL` issues (R40). |
 | | `POST /admin/orders/{orderId}/accept-on-behalf` 🔑 | OPS | `{prepTimeMinutes, reason}` (O-06, ruling 1) |
 | | `POST /admin/orders/{orderId}/ready-on-behalf` 🔑 | OPS | O-12 |
-| | `POST /admin/deliveries/{deliveryId}/assign` 🔑 | OPS | `{riderId, reason, overrideCashLimit?}` → Delivery (D-06); override ⚖ |
+| | `POST /admin/deliveries/{deliveryId}/assign` 🔑 | OPS | `{riderId, reason, overrideCashLimit?}` → Delivery (D-06); a pending offer becomes `REVOKED`; the override is audited, not ⚖ (R31) |
 | | `POST /admin/deliveries/{deliveryId}/unassign` 🔑 | OPS | `{reason}` (D-13) |
 | | `POST /admin/deliveries/{deliveryId}/milestones/{milestone}` 🔑 | OPS | on-behalf rider milestone (`arrived-at-restaurant|picked-up|arrived-at-drop|delivered`) with reason (13 §1.2) |
 | | `POST /admin/deliveries/{deliveryId}/undeliverable/confirm` 🔑 | SUP, OPS | `{faultParty, note}` (D-12 → O-18) |
 | | `POST /admin/deliveries/{deliveryId}/undeliverable/reject` 🔑 | SUP, OPS | `{note}` (D-11r) |
 | Refunds & goodwill | `POST /admin/orders/{orderId}/refunds` 🔑 ⚖ | SUP, FIN | `{amount, reasonCode, note}` → Refund or 202 Approval | `REFUND_EXCEEDS_CAPTURED` |
 | | `GET /admin/refunds?status&cursor` | FIN, SUP | |
-| | `POST /admin/goodwill-coupons` 🔑 ⚖ | SUP | `{userId, amount, ticketId?, orderId?, validDays}` → Coupon (ruling 9; approval > ₹150) |
+| | `POST /admin/goodwill-coupons` 🔑 ⚖ | SUP | `{userId, amount, ticketId?, orderId?, validDays}` → Coupon (R9; approval > `approvals.goodwill_threshold_paise`) |
+| | `POST /admin/refunds/{refundId}/mark-paid` 🔑 | FIN | `{utrReference, paidAt}` for `MANUAL_UPI`/`MANUAL_BANK` refunds (COD compensation, R29) → Refund `SUCCEEDED` + journal | `VALIDATION_FAILED` |
 | Users | `GET /admin/users?q&role&cursor`, `GET /admin/users/{id}` | SUP, OPS, SUPER | masked PII; reveal via `POST /admin/users/{id}/reveal` ⬆ (audited) |
-| | `POST /admin/users/{id}/block` / `unblock` ⚖ (fraud) | SUP, OPS | |
+| | `POST /admin/users/{id}/block` / `unblock` 🔑 | SUP, OPS | reason required; audited + next-day review (no ⚖, R31) |
 | | `POST /admin/users/{id}/sessions/revoke` | SUP | |
 | | `POST /admin/users/{id}/cod-status` | SUP, OPS | `{status: ENABLED|DISABLED, reason}` |
-| Admin staff | `POST /admin/admins` ⚖, `POST /admin/admins/{id}/roles` ⚖, `DELETE /admin/admins/{id}/roles/{roleId}` ⚖, `POST /admin/admins/{id}/totp-reset` ⚖ | SUPER | 12 §3.3 |
+| Admin staff | `POST /admin/admins` ⚖, `POST /admin/admins/{id}/roles` ⚖ (R31 family 5), `DELETE /admin/admins/{id}/roles/{roleId}` ⬆, `POST /admin/admins/{id}/totp-reset` ⬆ | SUPER | 12 §3.3; revoke and TOTP reset are step-up + audit |
 | Restaurants | `GET /admin/restaurants?status&q&cursor`, `GET /admin/restaurants/{id}` | OPS | |
 | | `POST /admin/restaurants/{id}/approve` 🔑 | OPS | requires an approved FSSAI doc + zone + commission plan |
 | | `POST /admin/restaurants/{id}/request-changes`, `/reject`, `/suspend`, `/reinstate`, `/offboard` 🔑 | OPS | reason required |
 | | `PATCH /admin/restaurants/{id}` 🔒 | OPS | admin-only fields (radius cap, zone override) |
 | | `POST /admin/restaurants/{id}/pause` / `resume` | OPS | |
+| | `POST /admin/restaurants/{id}/devices/{deviceId}/revoke` 🔑 | OPS | revoke a device-bound session (R44) |
+| | `POST /admin/restaurants/{id}/menu-imports?dryRun=true|false` 🔑 | OPS | **M7 (P0 for Gate B).** `{fileId}` (CSV uploaded via `/uploads`, purpose `MENU_IMPORT_CSV`; columns: category, name, nameTe, vegType, price, packaging, variant, addonGroup…). The dry run returns `{rowsOk, rowErrors[]}`. A real run validates again and applies everything in one transaction, then bumps `menu_version`. Synchronous; ≤ 1,000 rows. | `IMPORT_INVALID` (row errors) |
 | | `GET /admin/kyc/{docId}/view` ⬆ | OPS, SUPER, FIN (bank proof) | streamed, `no-store`, audited (12 §6.2) |
 | | `POST /admin/kyc/{docId}/decision` 🔑 | OPS | `{decision: APPROVED|REJECTED, reason?}` |
 | Commissions | `GET /admin/restaurants/{id}/commission-plans`, `POST …` 🔑 ⚖ | OPS (maker), FIN/SUPER (checker) | `{commissionBps, basis, effectiveFrom, contractRef}`; overlap → `CONFLICT` |
 | Riders | `GET /admin/riders?status&state&q`, `GET /admin/riders/{id}` | OPS | |
 | | `POST /admin/riders/{id}/approve`, `/reject`, `/suspend`, `/reinstate`, `/force-offline` 🔑 | OPS | |
-| | `POST /admin/riders/{id}/cash-limit` 🔑 ⚖ | OPS→FIN | per-rider override |
-| | `POST /admin/riders/{id}/cash-adjustments` 🔑 ⚖ | FIN | ledger adjustment with reason |
+| | `POST /admin/riders/{id}/cash-limit` 🔑 | OPS | per-rider override; audited (no ⚖, R31) |
+| | `POST /admin/riders/{id}/cash-adjustments` 🔑 ⚖ | FIN | cash correction (`CASH_CORRECTION`); ⚖ above `approvals.adjustment_threshold_paise` |
+| | `GET /admin/sos-events?status=OPEN`, `POST /admin/sos-events/{id}/acknowledge` / `resolve` 🔑 | OPS | SOS board (06 §11, 07 §4; P1) |
+| Ledger | `POST /admin/ledger-adjustments` 🔑 ⚖ | FIN (maker); OPS may propose `PEAK_BONUS` | `{payeeType: RIDER|RESTAURANT, payeeId, adjustmentType: MG_TOPUP|PEAK_BONUS|RECOVERY|WRITE_OFF|OTHER, amount, periodRef?, reason}` → Journal or 202 Approval (R30 peak bonus, R47/M6 minimum guarantee; ⚖ above threshold) |
 | COD | `GET /admin/cod-deposits?status=DECLARED` | FIN, OPS | |
 | | `POST /admin/cod-deposits/{id}/verify` / `reject` 🔑 | FIN | posts the journal; may lift `cod_blocked` |
-| Coupons | `GET/POST /admin/coupons` 🔑 ⚖ (budget > ₹5,000), `PATCH /admin/coupons/{id}` 🔒, `POST /{id}/activate|pause|end` | OPS (+FIN checker) | validation of shape/targets (10 §5.4) |
+| Coupons | `GET/POST /admin/coupons` 🔑, `PATCH /admin/coupons/{id}` 🔒, `POST /{id}/activate|pause|end` | OPS | `fundedBy: PLATFORM|RESTAURANT`; targets `ZONE|RESTAURANT` only (C16). Budgets audited, no ⚖ (R31). |
 | Geography | `GET /admin/cities`, `POST /admin/cities` (SUPER), `PATCH /admin/cities/{id}` 🔒 | SUPER | `status: LIVE` gate |
-| | `GET /admin/zones?cityId`, `POST /admin/zones` (GeoJSON), `PUT /admin/zones/{id}` 🔒, `POST /admin/zones/{id}/activate|deactivate|pause|resume`, `PUT|DELETE /admin/zones/{id}/surge` | OPS | 16 §8 (`ZONE_GEOMETRY_INVALID`, `ZONE_OVERLAP`) |
-| | `POST /admin/zones/import?dryRun=true` / `GET /admin/zones/export?cityId` | OPS | FeatureCollection; dry run returns the impact preview |
+| | `GET /admin/zones?cityId`, `POST /admin/zones` (GeoJSON geometry), `PUT /admin/zones/{id}` 🔒, `POST /admin/zones/{id}/activate|deactivate|pause|resume` | OPS | 16 §8 (`ZONE_GEOMETRY_INVALID`, `ZONE_OVERLAP`; save-time outlet check) |
 | | `GET/POST/PATCH /admin/localities` | OPS | |
-| | `GET /admin/geo/live?cityId` | OPS | zones + riders + unassigned (16 §8.1) |
-| Pricing | `GET /admin/fee-configs?cityId&zoneId`, `POST /admin/fee-configs` 🔑 ⚖ (new version), `POST /admin/fee-configs/{id}/retire` | OPS (maker), FIN (checker) | |
-| | `GET /admin/tax-rules`, `POST /admin/tax-rules` ⚖ | FIN, SUPER | [LEGAL] |
+| Pricing | `GET /admin/fee-configs?cityId&zoneId`, `POST /admin/fee-configs` 🔑 ⚖ (new version; slab validator 16 §6.1), `POST /admin/fee-configs/{id}/retire` | OPS (maker), FIN (checker) | `VALIDATION_FAILED` (slab gap/overlap, radius × factor ≥ last slab) |
+| | `GET /admin/tax-rules` | FIN, SUPER | read-only; rows are seeded by migration after CA sign-off (C20) [LEGAL] |
+| Growth | `GET /admin/restaurant-leads?status&cursor`, `PATCH /admin/restaurant-leads/{id}` 🔒 | OPS | lead pipeline (`NEW→CONTACTED→CONVERTED|DISQUALIFIED`) |
+| | `GET /admin/waitlist/summary?cityId` | OPS | counts by locality/PIN (no PII) for coverage decisions |
+| Assisted orders (**P1**, M8; flag `ops_assisted_orders`) | `POST /admin/assisted-orders/quote` | OPS | `{customerPhone, customerName, address{…, landmark, location}, restaurantId, lines[]}` → Quote (as `/cart/quote`, `paymentMethod: COD`) |
+| | `POST /admin/assisted-orders` 🔑 | OPS | `{quoteId, customerConsentNoticeVersion}` → Order (`placed_via=OPS_ASSISTED`, COD only; finds or creates the customer by phone; confirmation SMS) | `COD_*`, `QUOTE_*` |
 | Support | `GET /admin/support/tickets?status&priority&category&assignee&cursor` | SUP, OPS | SLA ordering |
 | | `GET /admin/support/tickets/{id}`, `PATCH` 🔒 (assign, priority, status), `POST /{id}/messages` (incl. internal notes), `POST /{id}/resolve` 🔑 (`{resolutionCode, faultParty, refund?, goodwill?}`) | SUP | |
-| Payouts | `POST /admin/payout-runs` 🔑 ⚖ | FIN | `{cityId, payeeType, periodEnd}` → DRAFT batch `{batchId, payouts[], totals}`; approval releases it |
+| Payouts | `POST /admin/payout-runs` 🔑 ⚖ | FIN | `{cityId, payeeType, periodEnd}` → DRAFT batch `{batchId, payouts[], totals}`; approval releases it (R31 family 2). Normally created by the catch-up settlement job on the `payouts.*.schedule` day (10 §15.3); this endpoint re-runs or backfills. |
 | | `GET /admin/payouts?batchId&status`, `GET /admin/payouts/{id}` | FIN | |
 | | `POST /admin/payouts/{id}/mark-paid` 🔑 | FIN | `{utrReference, paidAt, method}` → journal posted |
 | | `POST /admin/payouts/{id}/mark-failed` / `cancel` 🔑 | FIN | |
-| Approvals | `GET /admin/approvals?status=PENDING&actionType`, `GET /admin/approvals/{id}` | role-dependent checker | |
+| Reconciliation | `GET /admin/pa-settlements?from&to`, `GET /admin/pa-settlements/{id}` (lines + match status) | FIN | 14 §16.1 |
+| | `POST /admin/bank-statement-imports` 🔑 | FIN | `{fileId}` (CSV) → `pa_settlements(source=BANK_STATEMENT)`; matches UTRs to COD deposits, payouts and PA credits |
+| | `GET /admin/recon-exceptions?status&type`, `PATCH /admin/recon-exceptions/{id}` 🔒 (assign/status/note) | FIN | write-off goes through `POST /admin/ledger-adjustments` ⚖ |
+| Privacy | `GET /admin/erasure-requests?status`, `POST /admin/erasure-requests/{id}/hold` / `release` 🔑 | SUP, SUPER | DPDP queue (10 §13.1); audited, no ⚖ |
+| Approvals | `GET /admin/approvals?status=PENDING&actionType`, `GET /admin/approvals/{id}` | role-dependent checker | five families only (R31) |
 | | `POST /admin/approvals/{id}/approve` / `reject` 🔑 ⬆ | checker ≠ maker | `MAKER_CANNOT_APPROVE` |
-| Reports | `POST /admin/reports` 🔑 | OPS, FIN | `{type: ORDERS|SETTLEMENT_STATEMENT|GST_SUMMARY|RIDER_EARNINGS|COD_CASH|REFUNDS, cityId, from, to}` → 202 `{reportExportId}`; PII → ⚖ |
+| | `POST /admin/approvals/{id}/break-glass` 🔑 ⬆ | maker (when no checker is reachable) | self-approve with a mandatory reason; post-review due in 24 h (R31) |
+| | `POST /admin/approvals/{id}/post-review` 🔑 | another approver | closes the break-glass review |
+| Reports | `POST /admin/reports` 🔑 ⬆ (PII types) | OPS, FIN | `{type: ORDERS|SETTLEMENT_STATEMENT|GST_SUMMARY|RIDER_EARNINGS|COD_CASH|REFUNDS|GIG_WORKER_REGISTRATION, cityId, from, to}` → 202 `{reportExportId}`. PII reports need step-up + audit (no ⚖, R31). `GIG_WORKER_REGISTRATION` = M5 portal export [LEGAL]. |
 | | `GET /admin/reports/{id}` | requester | `{status, downloadUrl (≤ 60 s presigned), rowCount}` |
 | Audit | `GET /admin/audit-logs?resourceType&resourceId&actorId&action&from&to&cursor` | SUPER, (OPS own city read) | export ⬆ |
-| Config | `GET/PUT /admin/feature-flags/{key}` 🔒, `GET/PUT /admin/app-config/{scopeType}/{scopeId}/{key}` 🔒, `GET /admin/reason-codes` | SUPER (flags/config), ADMIN* (read) | |
-| Notifications | `POST /admin/broadcasts` 🔑 ⚖ | OPS | in-app/push only to a city/zone segment (no SMS marketing in V1 [LEGAL — DLT/consent]) |
+| Config | `GET/PUT /admin/feature-flags/{key}` 🔒, `GET/PUT /admin/app-config/{scopeType}/{scopeId}/{key}` 🔒, `GET /admin/reason-codes` | SUPER (flags/config), ADMIN* (read) | keys per 13 §5.1 / 10 §15.3 |
+
+**V1.1 (removed from the V1 catalogue):** `PUT|DELETE /admin/zones/{id}/surge` (R30), `POST /admin/zones/import`, `GET /admin/zones/export` (C15), `GET /admin/geo/live` (C20), `POST /admin/tax-rules` (C20), `POST /admin/broadcasts` (C20).
 
 ### 2.7 Webhooks (`api.` host only)
 
 | Method & path | Caller | Behaviour |
 |---|---|---|
-| **`POST /webhooks/payments/{provider}`** (`razorpay` first) | PA | Verify the signature over the **raw body** before parsing. Persist to `payment_events`. Enqueue `payments.process_event` (River) in the same tx. Respond **200 within ~1 s**. Unknown event types: 200 + stored + ignored. Bad signature: 401, stored with `signature_verified=false`, not processed, rate-alerted (§3.3). |
-| `POST /webhooks/notifications/{provider}` | SMS/WhatsApp provider | Delivery receipts (DLR) → `notification_deliveries`; signature or shared-secret verified per provider (15) |
+| **`POST /webhooks/payments/{provider}`** (`razorpay` / `cashfree` per R25) | PA | Verify the signature over the **raw body** before parsing. Persist to `payment_events`. Enqueue `payments.process_event` (River) in the same tx. Respond **200 within ~1 s**. Unknown event types: 200 + stored + ignored. Bad signature: 401, stored with `signature_verified=false`, not processed, rate-alerted (§3.3). |
+| `POST /webhooks/notifications/{provider}` | SMS (and P1 voice) provider | Delivery receipts (DLR) → `notification_deliveries`; signature or shared-secret verified per provider (15) |
 
 ### 2.8 Real-time (SSE)
 
 | Method & path | Roles | Notes |
 |---|---|---|
-| `GET /stream?topics=order:{id},inbox:{restaurantId},offers,ops:{cityId}` | any session | One stream per tab. Topics default to the principal's entitlements, and `?topics=` narrows them. Authorised per topic at subscribe **and** at routing time (12 §4.7). Detail in §4. |
+| `GET /stream?topics=order:{id},inbox:{restaurantId},rider:{riderId},ops:{cityId}` | any session | One stream per tab. Topics default to the principal's entitlements, and `?topics=` narrows them. Authorised per topic at subscribe **and** at routing time (12 §4.7). Detail in §4. |
 
 ### 2.9 Counts
 
-The catalogue contains roughly **200 operations**, counting each verb/command variant; admin accounts for about 40% of them. Phase 2 implements in the order of the golden flow (27): auth → public catalog → quote → order → payment webhook → restaurant commands → dispatch/rider → settlement → rating. Admin endpoints are built as the flow needs them.
+A mechanical count of §2.1–§2.8 (each HTTP verb and command variant counted once) gives **≈ 269 operations** in v1.1, against **≈ 242** for v1 by the same method (v1 rounded this to "~200"). By area: public ≈ 12, auth/me ≈ 27, customer ≈ 23, restaurant ≈ 57, rider ≈ 27, admin ≈ 119, webhooks 3, SSE 1. The v1.1 changes are −13 cut (surge ×2, zone import/export ×2, `geo/live`, tax-rule write, broadcasts, `ON_BREAK` and maker-checker variants) and ≈ +40 added (waitlist, leads, staff invites, device registration, ack, SOS, compensation choice, manual-refund mark-paid, ledger adjustments, menu import, assisted orders, recon/PA settlements/bank import, erasure queue, break-glass). The P1 items (assisted orders, SOS) are flagged. RV-008's suggested freeze at ≈ 110 golden-flow + ops-critical operations is **not** applied here (it is not in the accepted cut list); 27 sequences the build. Phase 2 implements in the order of the golden flow (27): auth → public catalog → quote → order → payment webhook → restaurant commands → dispatch/rider → settlement → rating. Admin endpoints are built as the flow needs them.
 
 ---
 
@@ -448,10 +471,11 @@ info:
   version: 1.0.0-draft
   license: { name: Apache-2.0, identifier: Apache-2.0 }
 servers:
-  - url: https://app.rovo.in/api/v1        # [ASSUMPTION] domain; one server entry per host
-  - url: https://partner.rovo.in/api/v1
+  - url: https://app.rovo.in/api/v1          # [ASSUMPTION] domain; one server entry per host (R14, R27)
+  - url: https://restaurant.rovo.in/api/v1
+  - url: https://rider.rovo.in/api/v1
   - url: https://admin.rovo.in/api/v1
-  - url: https://api.rovo.in/api/v1        # bearer + webhooks
+  - url: https://api.rovo.in/api/v1          # V1: webhooks only; future native bearer clients
 security:
   - cookieAuth: []
   - bearerAuth: []
@@ -553,10 +577,13 @@ components:
     DeliveryStatus:
       type: string
       enum: [UNASSIGNED, OFFERED, ASSIGNED, AT_RESTAURANT, PICKED_UP, AT_DROP, DELIVERED, FAILED, CANCELLED]
+    DeliveryOfferStatus:
+      type: string
+      enum: [PENDING, ACCEPTED, DECLINED, EXPIRED, REVOKED]     # REVOKED = withdrawn by system/admin (R16)
     VegType: { type: string, enum: [VEG, NON_VEG, EGG] }
     BillComponent:
       type: string
-      enum: [ITEM_TOTAL, PACKAGING, DELIVERY_FEE, SURGE_FEE, PLATFORM_FEE, SMALL_CART_FEE, DISCOUNT, TAX, ROUND_OFF]
+      enum: [ITEM_TOTAL, PACKAGING, DELIVERY_FEE, PLATFORM_FEE, SMALL_CART_FEE, DISCOUNT, TAX, ROUND_OFF]   # no SURGE_FEE (R30)
 
     # ---------- Quote ----------
     QuoteLineInput:
@@ -567,7 +594,7 @@ components:
         menuItemId: { $ref: '#/components/schemas/Uuid' }
         variantId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
         addonIds: { type: array, items: { $ref: '#/components/schemas/Uuid' }, maxItems: 30, default: [] }
-        quantity: { type: integer, minimum: 1, maximum: 50 }
+        quantity: { type: integer, minimum: 1, maximum: 20 }   # register row 57
         note: { type: [string, 'null'], maxLength: 140 }
     QuoteRequest:
       type: object
@@ -645,7 +672,7 @@ components:
         menuVersion: { type: integer }
         lines: { type: array, items: { $ref: '#/components/schemas/QuoteLine' } }
         bill: { $ref: '#/components/schemas/Bill' }
-        distanceM: { type: integer, description: "Estimated road distance (16 §4)" }
+        distanceM: { type: integer, description: "Estimated road distance used for the fee slab (16 §4; serviceability uses straight-line, R18)" }
         eta: { type: object, required: [minMinutes, maxMinutes], properties: { minMinutes: { type: integer }, maxMinutes: { type: integer } } }
         coupon:
           type: [object, 'null']
@@ -662,7 +689,7 @@ components:
       properties:
         lineNo: { type: [integer, 'null'] }
         menuItemId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
-        change: { type: string, enum: [PRICE_CHANGED, ITEM_UNAVAILABLE, FEE_CHANGED, COUPON_CHANGED, SURGE_CHANGED, TOTAL_CHANGED] }
+        change: { type: string, enum: [PRICE_CHANGED, ITEM_UNAVAILABLE, FEE_CHANGED, COUPON_CHANGED, TOTAL_CHANGED] }
         from: { $ref: '#/components/schemas/Money' }
         to: { $ref: '#/components/schemas/Money' }
 
@@ -714,6 +741,11 @@ components:
                 freeUntil: { oneOf: [ { $ref: '#/components/schemas/Timestamp' }, { type: 'null' } ] }
                 reasonCodes: { type: array, items: { type: string } }
             cancelReasonCode: { type: [string, 'null'] }
+            deliveryCode:
+              type: [string, 'null']
+              pattern: '^[0-9]{4}$'
+              description: "Handover code to read to the rider (R39). Set for prepaid orders with payable ≥ dispatch.delivery_code_min_payable_paise; null for COD. Returned to the ordering customer only."
+            placedVia: { type: string, enum: [CUSTOMER_APP, OPS_ASSISTED] }
     PaymentSession:
       type: object
       description: Data the client needs to open the PA checkout (Razorpay Checkout shape; 14 owns details).
@@ -742,7 +774,7 @@ components:
       additionalProperties: false
       required: [prepTimeMinutes]
       properties:
-        prepTimeMinutes: { type: integer, enum: [5, 10, 15, 20, 25, 30, 45, 60, 90], description: "05 §4.3 chips; server also accepts 5..90" }
+        prepTimeMinutes: { type: integer, minimum: 5, maximum: 90, examples: [20], description: "05 §4.3 chips (5,10,15,20,25,30,45,60,90); server accepts 5..90 (ordering.prep_time_min_range, 13 §5.1)" }
     PartnerOrder:
       type: object
       required: [id, code, status, version, placedAt, acceptBy, items, customerFirstName, earnings]
@@ -960,16 +992,17 @@ paths:
         '429': { $ref: '#/components/responses/Problem429' }
 
   # 3 ─────────────────────────────────────────────────────────── PAYMENT WEBHOOK
-  /webhooks/payments/razorpay:
+  /webhooks/payments/{provider}:
     post:
-      operationId: receiveRazorpayWebhook
+      operationId: receivePaymentWebhook
       tags: [Webhooks]
-      summary: Razorpay event receiver (api host only)
+      summary: PA event receiver (api host only); Razorpay shown, Cashfree adapter equivalent (R25)
       description: |
         1. Read the raw body (≤ 256 KB) BEFORE JSON parsing; verify X-Razorpay-Signature =
            hex(HMAC-SHA256(webhook_secret, raw_body)) in constant time [ASSUMPTION — header names/algorithm
            per Razorpay docs; 14 verifies]. Support two active secrets during rotation.
-        2. Insert payment_events (provider_event_id = X-Razorpay-Event-Id; unique only when verified) and
+        2. Insert payment_events (payload PII-redacted at ingest, raw body to the 180-day object prefix;
+           provider_event_id = X-Razorpay-Event-Id; unique only when verified) and
            InsertTx River job payments.process_event in the same tx; duplicates → 200 without re-enqueue.
         3. Respond 200 fast (< 1 s). Business processing (payment CAS, O-03, refunds, late-capture refund)
            happens in the job. Events handled: payment.authorized, payment.captured, payment.failed,
@@ -978,7 +1011,8 @@ paths:
       x-rovo-permission: webhook.payments
       x-rovo-audiences: [webhook]
       parameters:
-        - { name: X-Razorpay-Signature, in: header, required: true, schema: { type: string } }
+        - { name: provider, in: path, required: true, schema: { type: string, enum: [razorpay, cashfree, fake] } }
+        - { name: X-Razorpay-Signature, in: header, required: false, description: "Required when provider=razorpay", schema: { type: string } }
         - { name: X-Razorpay-Event-Id, in: header, required: false, schema: { type: string } }
       requestBody:
         required: true
@@ -1054,7 +1088,7 @@ paths:
           content: { application/json: { schema: { $ref: '#/components/schemas/RiderDelivery' } } }
         '404': { $ref: '#/components/responses/Problem404' }   # not this rider's offer
         '409':
-          description: OFFER_EXPIRED | OFFER_NOT_PENDING (declined/revoked/order cancelled)
+          description: OFFER_EXPIRED | OFFER_NOT_PENDING (offer DECLINED or REVOKED, e.g. manual assign / order cancelled; currentStatus in body)
           content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
         '422':
           description: RIDER_CASH_LIMIT_REACHED | RIDER_NOT_ONLINE | RIDER_NOT_ELIGIBLE
@@ -1132,11 +1166,11 @@ paths:
 | Aspect | Rule |
 |---|---|
 | Auth | Session cookie (web) or bearer (native). **No tokens in URLs.** |
-| Topics | Defaults by principal: customer → `user:{id}` + their active `order:{id}`s; restaurant context → `inbox:{restaurantId}` (requires `ctx` match); rider → `rider:{riderId}` (offers, delivery); admin → `ops:{cityId}` for the cities in scope. `?topics=` may only narrow. Unauthorised topic → `403 FORBIDDEN` before the stream opens. |
+| Topics | Defaults by principal: customer → `user:{id}` + their active `order:{id}`s; restaurant host → `inbox:{restaurantId}` (requires `ctx` match); rider host → `rider:{riderId}` (offers, delivery); admin → `ops:{cityId}` for the cities in scope. `?topics=` may only narrow. Unauthorised topic → `403 FORBIDDEN` before the stream opens. |
 | Frames | `id: <entityType>:<entityId>:<version>`, `event: <name>`, `data: <JSON, ≤ 4 KB>`. First frame `retry: 3000`. |
-| Heartbeat | `: ping` comment every **20 s** (≤ 25 s ruling; under proxy idle timeouts, 08 §6.2) |
-| Reauth | At access-token expiry the server sends `event: reauth` and closes. The client refreshes, then reconnects. Session revocation closes immediately with `event: revoked`. |
-| Reconnect | Client backoff 1 s → 2 s → 5 s → 10 s (jitter). `Last-Event-ID` is accepted but used **only to drop stale duplicates**. **No server replay buffer.** On every (re)connect the server first sends `event: ready {topics, serverTime}` and the client **refetches snapshots** over REST (TanStack Query invalidation) (ruling 10). |
+| Heartbeat | `: ping` comment every **20 s** (R10, R52; under the ≥ 120 s LB/CDN idle timeout). For restaurant devices, an open stream counts as device presence (R27). |
+| Lifetime | The stream **continues past access-token expiry** while the server-side session is valid (the session is re-checked every 5 min [ASSUMPTION] and at routing). The server closes it after **30 min** with `event: reconnect` for rebalancing (jittered). Session revocation closes immediately with `event: revoked`. One rule everywhere (RV-011, register row 29). |
+| Reconnect | Client backoff 1 s → 2 s → 5 s → 10 s with 2–10 s jitter on mass reconnects (RV-038). `Last-Event-ID` is accepted but used **only to drop stale duplicates**. **No server replay buffer.** On every (re)connect the server first sends `event: ready {topics, serverTime}` and the client **refetches snapshots** over REST (TanStack Query invalidation) (ruling 10). |
 | Degraded | If the server's LISTEN connection is down → `event: degraded`. Clients poll (`GET /orders/{id}` every 10 s; restaurant inbox every 5 s; rider offers every 5 s) until `event: ready`. |
 | Limits | 3 streams per session, 5 per user, 50 per IP. Beyond that, `429 TOO_MANY_STREAMS`. |
 | Compression/buffering | No gzip on the stream. `X-Accel-Buffering: no`, `Cache-Control: no-store`. HTTP/2. |
@@ -1155,13 +1189,13 @@ paths:
 | `order.rider_assigned` / `order.rider_arrived` | `inbox:{rid}` | `{"orderId","riderFirstName","at"}` |
 | `restaurant.status` | `inbox:{rid}` | `{"restaurantId","acceptingOrders","pausedUntil","pauseReason"}` |
 | `offer.new` | `rider:{id}` | `{"offerId","expiresAt","pickup":{"name","locality","distanceM"},"drop":{"locality","distanceM"},"estimatedEarnings","cod"}` |
-| `offer.revoked` | `rider:{id}` | `{"offerId","reason"}` |
+| `offer.revoked` | `rider:{id}` | `{"offerId","status","reason"}` (`status`: `EXPIRED|REVOKED`, R16) |
 | `delivery.updated` | `rider:{id}` | `{"deliveryId","status","orderStatus","version"}` (e.g. food ready, order cancelled) |
 | `account.cash_limit` | `rider:{id}` | `{"cashInHand","limit","codBlocked"}` |
 | `inbox.new` | `user:{id}` | `{"notificationId","category","unreadCount"}` |
-| `ops.alert` | `ops:{cityId}` | `{"alertType": "ACCEPT_SLA|DISPATCH_EXHAUSTED|READY_NOT_PICKED|DELIVERY_LATE|UNDELIVERABLE_REQUEST|STATE_DRIFT|DEVICE_OFFLINE|STUCK_ORDER","orderId","restaurantId","severity","at"}` |
+| `ops.alert` | `ops:{cityId}` | `{"alertType": "ACCEPT_SLA|DISPATCH_EXHAUSTED|READY_NOT_PICKED|DELIVERY_LATE|UNDELIVERABLE_REQUEST|STATE_DRIFT|DEVICE_OFFLINE|STUCK_ORDER|SOS|MISSED_SETTLEMENT|BREAK_GLASS_REVIEW_DUE","orderId","restaurantId","riderId","severity","at"}` |
 | `ops.order_updated` | `ops:{cityId}` | `{"orderId","status","deliveryStatus","version","flags":[]}` |
-| `reauth` / `revoked` / `degraded` | all | `{}` |
+| `reconnect` / `revoked` / `degraded` | all | `{}` |
 
 Example frame:
 
@@ -1176,7 +1210,7 @@ data: {"orderId":"0192f3a1-7c2e-7b4d-9a10-5e7c1d2f3a4b","status":"PREPARING","ve
 
 - `POST /me/push-subscriptions` registers a W3C Push subscription (VAPID; public key in `/config/client`).
 - Payloads are **encrypted and minimal**: `{"t": "order.status", "id": "<orderId>", "title", "body", "deepLink"}`. Never addresses or phone numbers.
-- Push is sent **in addition to** SSE for: new order (restaurant; repeated every 30 s until acknowledged, ruling 1), new offer (rider; `Urgency: high`, TTL 45 s), order accepted/picked up/delivered (customer), ops alerts (admin). Rules live in 15.
+- Push is sent **in addition to** SSE for: new order (restaurant; repeated every `ordering.accept_ring_interval_s` until acknowledged via `…/ack` or accepted, R1), new offer (rider; `Urgency: high`, TTL = offer TTL; the only channel that reaches tier-2 riders, R34), order accepted/picked up/delivered (customer), ops alerts (admin). Rules live in 15.
 
 ---
 
@@ -1187,6 +1221,8 @@ data: {"orderId":"0192f3a1-7c2e-7b4d-9a10-5e7c1d2f3a4b","status":"PREPARING","ve
 - **Bulk/batch endpoints**, except menu sort order and location pings.
 - **Public partner API / API keys for third parties** (POS integrations). Later, on `api.` with OAuth client credentials.
 - **Server-side cart** (ruling 12).
+- **Surge endpoints and fields** (R30), **zone GeoJSON import/export** (C15), **`geo/live`, broadcasts, tax-rule CRUD** (C20), **WhatsApp OTP** (C2), **review replies/moderation queue** (C14). All V1.1+.
+- **CORS on any host** (R27): the API is same-origin on every app host.
 - **SSE replay** (ruling 10).
 - **Field selection / sparse fieldsets.** Payloads are small.
 - **ETags on list endpoints.**
@@ -1197,7 +1233,8 @@ data: {"orderId":"0192f3a1-7c2e-7b4d-9a10-5e7c1d2f3a4b","status":"PREPARING","ve
 - `[OPEN — CA]` Inclusive fee GST presentation (ruling 8); GST base after platform-funded discounts.
 - `[OPEN — 12]` Rider access to the customer phone (masked relay vs. direct) — the `contactPhoneMasked` field is a placeholder.
 - `[OPEN — 21]` Spec linting (Spectral) and breaking-change detection (oasdiff) tooling.
-- `[OPEN — 17]` Confirm `nameI18n` instead of `name_te`.
+- ~~`[OPEN — 17]` `nameI18n` instead of `name_te`~~ — resolved by R17.
+- `[OPEN — Legal]` Gig-worker registration field list (M5) and the COD manual-refund flow wording (R29).
 - `[ASSUMPTION]` Rate-limit budgets in §1.10.
 
 ## 7. Sources (accessed 2026-10-04)
