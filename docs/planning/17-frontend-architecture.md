@@ -120,7 +120,7 @@ flowchart LR
   pwa --> api-client
 ```
 
-- `utils`, `domain`, `api-client` (except the SSE wrapper's DOM `EventSource` adapter) and the i18n **catalogs** must be **free of DOM APIs**. These are the packages a future Expo app reuses (doc 18 §9).
+- `utils`, `domain`, `api-client` (the fetch-based SSE client works in React Native too) and the i18n **catalogs** must be **free of DOM APIs**. These are the packages a future Expo app reuses (doc 18 §10).
 - No app imports from another app. Admin-only components live in `apps/admin`, not in `packages/ui`.
 - Versions are pinned through `pnpm` catalogs. One React version is used across the workspace.
 
@@ -176,7 +176,7 @@ TanStack Router with **file-based routes**, typed search params validated with z
 |---|---|---|
 | `/login`, `/login/verify` | guest | Phone + OTP |
 | `/outlets` | OWNER, STAFF | Choose outlet when the user has more than one. The selected outlet is stored per device. |
-| `/start` | OWNER, STAFF | **"Start shift" screen**: one tap unlocks audio, takes the wake lock, checks notification permission, connects SSE (doc 18 §6) |
+| `/start` | OWNER, STAFF | **"Start shift" screen**: one tap unlocks audio, takes the wake lock, checks notification permission, connects SSE (doc 18 §7) |
 | `/inbox` | OWNER, STAFF | **Live new-order inbox** (repeating alert until accept/reject) plus columns for Preparing and Ready |
 | `/orders/$orderId` | OWNER, STAFF | Details, KOT print view (`window.print`, 58/80 mm CSS) [OPEN: Bluetooth printers deferred], mark ready |
 | `/orders?status=&date=` | OWNER, STAFF | History |
@@ -339,7 +339,7 @@ sequenceDiagram
 - **Fetch-based client.** It is our own ~2 KB parser over `fetch` + `ReadableStream`, not native `EventSource`. That gives us HTTP status visibility (401 → refresh, 403 → stop), custom headers (`Last-Event-ID` on manual reconnects), our own backoff, and an `AbortController`. Doc 12 suggested `@microsoft/fetch-event-source`; we write our own small client instead because that library has not been actively maintained [ASSUMPTION – last release 2021; verify]. It is unit-tested against the SSE spec's parsing rules (multi-line `data:`, comments, `retry:`).
 - **Event → invalidation map** (in `api-client/src/realtime.ts`). Example: `order.status → [qk.orders.detail(id), qk.orders.list prefix, qk.inbox(restaurantId)]`. **The cache is never patched from event payloads.** Invalidation plus refetch keeps one source of truth and handles out-of-order events.
 - **Side effects beyond invalidation:**
-  - Restaurant `order.placed` starts the alert loop (doc 18 §6).
+  - Restaurant `order.placed` starts the alert loop (doc 18 §7).
   - Rider offer events open the offer screen with its countdown.
   - Both are deduplicated by entity id + version.
 - **One stream per tab.** [OPEN] Multi-tab leader election (`BroadcastChannel` + Web Locks) is deferred, because one tab is the norm on phones.
@@ -519,7 +519,7 @@ Techniques:
 - **2.5.7 Dragging movements:** the map pin-drop has non-drag alternatives: "Use my current location", a locality search list, and arrow buttons to nudge the pin. Address fields are always fillable without the map.
 - **2.4.11 Focus not obscured:** sticky cart bar and bottom sheets must not cover the focused element (`scroll-padding-bottom`).
 - **3.3.8 Accessible authentication:** OTP paste/autofill allowed, no CAPTCHA puzzles.
-- **Screen readers:** semantic landmarks; Radix handles ARIA patterns; live regions announce order status changes and offer countdowns; `lang` attribute correctly set so **TalkBack uses Telugu TTS** for Telugu text [ASSUMPTION – Google TTS Telugu voice must be installed; include in the device test plan, doc 18 §11].
+- **Screen readers:** semantic landmarks; Radix handles ARIA patterns; live regions announce order status changes and offer countdowns; `lang` attribute correctly set so **TalkBack uses Telugu TTS** for Telugu text [ASSUMPTION – Google TTS Telugu voice must be installed; include in the device test plan, doc 18 §12].
 - Status is shown with colour **and** icon **and** text. `prefers-reduced-motion` is respected. Zoom to 200% works, with no `maximum-scale` in the viewport.
 - **Tooling:** `eslint-plugin-jsx-a11y`, `@axe-core/playwright` in E2E (0 serious/critical violations gate), plus manual TalkBack passes per release.
 
@@ -692,10 +692,10 @@ Cross-Origin-Opener-Policy: same-origin-allow-popups   # customer (PA popups); a
 - **No micro-frontends or module federation.** Four small apps in one workspace suffice.
 - **No GraphQL, no WebSockets.** P2/P3.
 - **No server-side cart, no persisted Query cache** (§4).
-- **No live map tracking for customers** (P12; doc 18 §7).
+- **No live map tracking for customers** (P12; doc 18 §8).
 - **No machine translation of menus.** Quality risk; manual `name_te` instead.
 - **No third-party analytics or ads pixels.** DPDP and budget.
-- **No React Native / Expo for web.** Doc 18 §9 covers the native path.
+- **No React Native / Expo for web.** Doc 18 §10 covers the native path.
 
 ## 17. Requirements on other docs (summary)
 

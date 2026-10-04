@@ -37,7 +37,7 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`.
 | 019 | UUIDv7 identifiers | §3 | **Confirmed** |
 | 020 | Multi-city data model (shared schema, `city_id`) | §3 | **Confirmed** |
 | 021 | Search: Postgres FTS + pg_trgm | — | New |
-| 022 | File uploads: presigned direct-to-R2, client-side resize | — | New |
+| 022 | File uploads: presigned direct-to-object-storage, client-side resize | — | New |
 | 023 | API conventions: `/v1`, problem+json, cursor pagination, Idempotency-Key, ETag | P2 | New |
 | 024 | CI/CD: GitHub Actions, OIDC to cloud, registry push | P16 | **Confirmed** (DevOps owns the details) |
 | 025 | Cloud portability via standard interfaces | §4a | New (user directive) |
@@ -68,7 +68,7 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`.
 
 ## ADR-002: Go for the backend; HTTP routing with net/http ServeMux
 
-**Context.** We need a backend language with low memory use (cheap VM), good concurrency (thousands of SSE streams, timers), strong typing, simple deployment (static binary, multi-arch for ARM), and a healthy Postgres ecosystem. Contributors to an open-source Indian project are likely to know JS/TS, Java or Go.
+**Context.** We need a backend language with low memory use (small, cheap container tasks), good concurrency (thousands of SSE streams, timers), strong typing, simple deployment (static binary, multi-arch for ARM), and a healthy Postgres ecosystem. Contributors to an open-source Indian project are likely to know JS/TS, Java or Go.
 
 **Options (language).**
 
@@ -76,7 +76,7 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`.
 |---|---|---|
 | **Go** | Single static binary. Small memory footprint (~30–80 MB). Goroutines suit SSE and timers. Excellent pgx/sqlc/River ecosystem. Fast builds. Easy arm64 cross-compile. Readable for newcomers. | Verbose error handling. Less expressive domain modelling (no sum types). Code generation is needed for the DB layer. |
 | Node.js / TypeScript (NestJS, Fastify) | One language across front and back. Huge pool of contributors. | Higher memory per process. CPU-bound work blocks the event loop. ORMs (Prisma, TypeORM) are heavier. Dependency churn and supply-chain surface. The type system is unsound at runtime boundaries without Zod-style validation. |
-| Java / Kotlin (Spring Boot) | Mature, rich ecosystem (jOOQ, Flyway). Strong typing. Kotlin is expressive. | JVM memory (≥ 256–512 MB per process) matters on a free ARM VM. Heavier framework magic. Slower startup (GraalVM native adds complexity). |
+| Java / Kotlin (Spring Boot) | Mature, rich ecosystem (jOOQ, Flyway). Strong typing. Kotlin is expressive. | JVM memory (≥ 256–512 MB per process) raises the per-task memory size, and so the cost, on managed containers. Heavier framework magic. Slower startup (GraalVM native adds complexity). |
 | Rust (Axum) | Performance, safety | Learning curve and slower iteration. Smaller contributor pool. Overkill for this load. |
 
 **Options (router).** Go 1.22+ `net/http.ServeMux` supports method and wildcard patterns (`GET /v1/orders/{id}`). oapi-codegen can emit `std-http` servers.
@@ -225,20 +225,20 @@ All modules access the queue via `platform/queue` (an interface), never River ty
 
 ## ADR-008: Real-time via Server-Sent Events
 
-**Context.** Customers need order status updates. Restaurants need instant new-order alerts while the app is open. Riders need offers within seconds. Traffic is server → client. Client → server actions are discrete REST calls that need idempotency. Clients include low-end Android on flaky mobile networks, behind Cloudflare.
+**Context.** Customers need order status updates. Restaurants need instant new-order alerts while the app is open. Riders need offers within seconds. Traffic is server → client. Client → server actions are discrete REST calls that need idempotency. Clients include low-end Android on flaky mobile networks, behind a CDN/WAF and load balancer.
 
 **Options.**
 
 | Option | Pros | Cons |
 |---|---|---|
-| **SSE** | Plain HTTP. Auto-reconnect built into `EventSource`. Works through Cloudflare/Caddy and HTTP/2 multiplexing. Trivial in Go. Cookie auth works. | One-way. `EventSource` can't set headers (use cookies, or a fetch-based reader for bearer tokens). Idle-timeout behaviour behind proxies needs heartbeats. |
+| **SSE** | Plain HTTP. Auto-reconnect built into `EventSource`. Works through CDNs, L7 load balancers and HTTP/2 multiplexing. Trivial in Go. Cookie auth works. | One-way. `EventSource` can't set headers (use cookies, or a fetch-based reader for bearer tokens). Idle-timeout behaviour behind proxies needs heartbeats. |
 | WebSockets | Bidirectional, binary | A separate protocol to secure (origin checks, auth on upgrade). Custom reconnect and resubscribe logic. Bidirectionality is unused. More proxy edge cases. |
 | Long/short polling only | Simplest | Latency vs load trade-off. Battery and data use. |
 | Third-party realtime (Pusher, Ably, Firebase) | Offloads infra | Cost, vendor lock-in, data leaves our stack. Free tiers have connection caps. |
 
 **Decision.** **SSE** on `GET /v1/stream` (one stream per tab, server-derived topics), fed by Postgres `LISTEN/NOTIFY`. Rules:
 1. SSE messages are **hints with minimal payloads**. REST is the source of truth. Clients refetch on reconnect.
-2. A heartbeat comment every 20 s, because Cloudflare's ~100 s idle limit on non-Enterprise plans (doc 08 §6.2).
+2. A heartbeat comment every 20 s, shorter than any idle timeout in the chain (LB ≥ 120 s configured; Cloudflare ~100 s if used), plus a 30-min max stream with `retry:` (doc 08 §6.2).
 3. Fall back to polling after repeated failures.
 4. **Web Push** for backgrounded or closed apps (doc 15). SSE is not a notification system.
 
@@ -256,8 +256,8 @@ All modules access the queue via `platform/queue` (an interface), never River ty
 
 | Option | Pros | Cons |
 |---|---|---|
-| **Vite + React SPA/PWA, static on CDN** | No server runtime, so free hosting (Cloudflare Pages) and fully portable. Fast dev. Mature PWA tooling (vite-plugin-pwa/Workbox). One mental model. | No SSR, so first paint waits for the JS bundle. Needs strict bundle budgets. SEO only for prerendered public pages. |
-| Next.js (App Router, SSR/RSC) | SSR/SEO, image optimisation, routing conventions | Needs a Node server or a platform. **Vercel Hobby is "restricted to non-commercial personal use only"** and any payment processing counts as commercial (https://vercel.com/docs/limits/fair-use-guidelines, accessed 2026-10-04), so production on Vercel needs Pro. Cloudflare Workers Free allows **10 ms CPU per request** (https://developers.cloudflare.com/workers/platform/limits/, accessed 2026-10-04), which SSR of React pages commonly exceeds, so we would need the Workers Paid plan. Self-hosting means a Node process on our VM (RAM). RSC complexity. PWA/offline story is weaker. |
+| **Vite + React SPA/PWA, static on CDN** | No server runtime, so near-zero hosting cost (object storage + CDN) and fully portable. Fast dev. Mature PWA tooling (vite-plugin-pwa/Workbox). One mental model. | No SSR, so first paint waits for the JS bundle. Needs strict bundle budgets. SEO only for prerendered public pages. |
+| Next.js (App Router, SSR/RSC) | SSR/SEO, image optimisation, routing conventions | Needs a Node server or a platform. **Vercel Hobby is "restricted to non-commercial personal use only"** and any payment processing counts as commercial (https://vercel.com/docs/limits/fair-use-guidelines, accessed 2026-10-04), so production on Vercel needs Pro. Cloudflare Workers Free allows **10 ms CPU per request** (https://developers.cloudflare.com/workers/platform/limits/, accessed 2026-10-04), which SSR of React pages commonly exceeds, so we would need the Workers Paid plan. Self-hosting means an extra always-on Node service in our container runtime (cost, ops). RSC complexity. PWA/offline story is weaker. |
 | Remix / React Router v7 framework mode | Good data loading. Can run SPA mode. | SSR mode has the same runtime cost. SPA mode ≈ Vite SPA anyway. |
 | Astro + React islands | Excellent for content pages | App-like flows (cart, tracking) are mostly islands anyway |
 | SvelteKit / SolidStart | Smaller bundles | Smaller ecosystem in India. No React Native sharing. |
@@ -422,15 +422,15 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 
 ## ADR-017: Observability via OpenTelemetry
 
-**Context.** We need traces across HTTP → DB → jobs → providers, RED metrics, business metrics (orders/min, time-to-accept, time-to-assign), and structured logs, using free tiers without vendor lock-in.
+**Context.** We need traces across HTTP → DB → jobs → providers, RED metrics, business metrics (orders/min, time-to-accept, time-to-assign), and structured logs, without vendor lock-in.
 
-**Options.** (A) OTel SDK + OTLP to a hosted backend (Grafana Cloud free lean) + Sentry for errors; (B) vendor agent (Datadog/New Relic); (C) self-hosted LGTM stack on the same VM (RAM cost); (D) logs only.
+**Options.** (A) OTel SDK + OTLP to a backend chosen by DevOps (cloud-native stack via collector, or Grafana Cloud) + Sentry for errors; (B) proprietary vendor agent (Datadog/New Relic); (C) self-hosted LGTM stack in production (ops burden); (D) logs only.
 
-**Decision.** **A**, with the backend chosen by DevOps: the cloud-native stack (via the ADOT/OTel collector) or Grafana Cloud (P15 as updated). The app only speaks **OTLP** (ADR-025). Locally, `grafana/otel-lgtm` runs in Compose. OTel Go SDK v1.47.x: traces (`otelhttp`, pgx tracer, River middleware propagating trace context through job args), metrics (Prometheus-style via OTLP), `slog` JSON logs carrying `trace_id`/`span_id`. Sampling: 100% of errors, 10% head sampling on success in prod `[OPEN: DevOps]`. Keep metric cardinality low: no `order_id` labels; `city_id` is allowed. Sentry Go SDK for panics and errors, plus Sentry browser SDK for PWAs (sample rate tuned to stay in the free tier). External uptime checks. Free-tier limits are to be verified in doc 24/25.
+**Decision.** **A**, with the backend chosen by DevOps: the cloud-native stack (via the ADOT/OTel collector) or Grafana Cloud (P15 as updated). The app only speaks **OTLP** (ADR-025). Locally, `grafana/otel-lgtm` runs in Compose. OTel Go SDK v1.47.x: traces (`otelhttp`, pgx tracer, River middleware propagating trace context through job args), metrics (Prometheus-style via OTLP), `slog` JSON logs carrying `trace_id`/`span_id`. Sampling: 100% of errors, 10% head sampling on success in prod `[OPEN: DevOps]`. Keep metric cardinality low: no `order_id` labels; `city_id` is allowed. Sentry Go SDK for panics and errors, plus Sentry browser SDK for PWAs (sample rate tuned to budget). External uptime checks. Backend costs and limits are verified in docs 24/25.
 
 **Consequences.** + Vendor-neutral. − Must watch free-tier quotas (series/log GB).
 
-**Revisit when.** Free quotas are exceeded consistently. Then self-host on a second VM or pay.
+**Revisit when.** Telemetry cost exceeds budget. Then tune sampling and retention, or switch backend (OTLP makes that a config change).
 
 ---
 
