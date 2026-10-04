@@ -110,7 +110,7 @@ sequenceDiagram
   PA-->>App: authoritative records
   App->>App: upsert payments idempotently (provider_payment_id unique), re-derive order status, post missing ledger entries (idempotency keys)
   App->>App: list orders in PENDING_PAYMENT / PLACED with captured payments → flag for ops
-  Ops->>App: review recon report; contact affected customers/restaurants/riders
+  Ops->>App: review recon report, contact affected customers/restaurants/riders
   Ops->>App: replay PA webhooks (PA dashboard "resend") for the window
   Ops->>App: disable maintenance mode
 ```

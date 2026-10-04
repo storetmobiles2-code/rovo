@@ -447,7 +447,7 @@ sequenceDiagram
     participant DB as Postgres
     participant W as Worker
     PA->>EDGE: POST webhook (raw JSON, signature header, event id)
-    EDGE->>API: forwarded (WAF: no CAPTCHA/challenge on this path; size ≤ 256 KB; optional PA source-IP set)
+    EDGE->>API: forwarded (WAF: no CAPTCHA/challenge on this path, size ≤ 256 KB, optional PA source-IP set)
     API->>API: HMAC-SHA256(raw_body, webhook_secret) == signature (hmac.Equal) else 401 + audit
     API->>DB: INSERT payment_events(provider, event_id, payload_hash) ON CONFLICT DO NOTHING
     alt duplicate
@@ -460,7 +460,7 @@ sequenceDiagram
       W->>DB: PENDING_PAYMENT → PLACED (idempotent) + ledger entries
       W->>DB: mismatch → payment_anomalies + alert + auto-refund flow (14)
     end
-    Note over W,PA: Reconciliation every 2 min for PENDING_PAYMENT > 2 min; daily settlement reconciliation (14)
+    Note over W,PA: Reconciliation every 2 min for PENDING_PAYMENT > 2 min, daily settlement reconciliation (14)
 ```
 
 - The webhook secret is held in the secrets manager, with dual secrets supported during rotation.

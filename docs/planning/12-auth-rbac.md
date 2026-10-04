@@ -176,11 +176,11 @@ sequenceDiagram
     API->>SMS: send DLT template for this host "<#> 123456 is your rovo login code... @app.rovo.in #123456"
     API-->>B: 202 {challenge_id, resend_after:30} (identical whether or not the account exists)
     B->>API: POST /api/v1/auth/otp/verify {challenge_id, code} (WebOTP autofill where supported)
-    API->>DB: SELECT ... FOR UPDATE; check not expired/consumed, attempts<5; attempts++
+    API->>DB: SELECT ... FOR UPDATE, check not expired/consumed, attempts<5, attempts++
     API->>API: hmac.Equal(HMAC(pepper, challenge_id||code), code_hmac) (constant time)
     alt success
-      API->>DB: consume challenge; upsert user (CUSTOMER on first login in customer app); create session + refresh family
-      API-->>B: 200 Set-Cookie __Host-rovo_at, __Secure-rovo_rt; body {user, is_new, needs_profile}
+      API->>DB: consume challenge, upsert user (CUSTOMER on first login in customer app), create session + refresh family
+      API-->>B: 200 Set-Cookie __Host-rovo_at, __Secure-rovo_rt, body {user, is_new, needs_profile}
     else failure
       API-->>B: 401 {error:"otp_invalid", attempts_left} (after 5 → challenge dead, must request new)
     end

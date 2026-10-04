@@ -208,7 +208,7 @@ sequenceDiagram
   CI->>STG: frontends: s3 sync + invalidate
   CI->>STG: smoke (/readyz, version) + synthetic golden-flow order (fakes/sandbox)
   alt failure
-    CI->>STG: auto-rollback to previous task def revisions; alert Telegram
+    CI->>STG: auto-rollback to previous task def revisions, alert Telegram
   end
 ```
 

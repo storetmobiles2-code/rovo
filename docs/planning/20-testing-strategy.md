@@ -623,7 +623,7 @@ sequenceDiagram
   D->>D: Accept offer → delivery ASSIGNED
   D->>D: Arrived → AT_RESTAURANT, Picked up (order code check) → PICKED_UP
   C-->>C: status timeline updates via SSE
-  D->>D: Arrived at drop → AT_DROP, Delivered (COD: confirm cash ₹487; online: enter delivery code shown in customer app, R39) → DELIVERED
+  D->>D: Arrived at drop → AT_DROP, Delivered (COD: confirm cash ₹487, online: enter delivery code shown in customer app, R39) → DELIVERED
   C->>C: Rate restaurant + rider
   A->>A: Order detail shows full timeline + audit log
   A->>P: GET /_test/ledger?order=… → assert journals (§4.5)
