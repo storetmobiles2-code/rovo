@@ -317,7 +317,12 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 
 **Context.** We need COD plus online payments (UPI intent/collect, cards, netbanking, wallets) via an RBI-authorised PA, with webhooks, refunds and settlement reports. Ideally also marketplace split settlement. The market is UPI-heavy. Pricing differs materially on UPI. Full analysis and sources are in doc 14.
 
-**Key facts (accessed 2026-10-04; details and URLs in doc 14 §3).** Razorpay Standard: **2% platform fee on all domestic methods including UPI**, Route +0.1%, instant refunds ₹7.99–14.99 each, GST 18% on fees. Cashfree: ~1.95–2.0% standard (a 1.6% promo ran to 2026-04-30). Paytm PG Standard: **UPI and RuPay debit at 0%**, other debit 0.4–0.9% MDR / 1.1–1.6% platform fee, credit 1.99%. PhonePe PG: publicises 0% on UPI with a 1.99% standard plan for other methods (to verify at onboarding). Juspay is an orchestrator layered over PAs (~0.2–0.25% plus PA fees), not needed at our scale.
+**Key facts (accessed 2026-10-04; details and URLs in doc 14 §3).**
+- **Razorpay Standard:** **2% platform fee on all domestic methods, UPI included**. Route +0.1%. Instant refunds ₹7.99–14.99 each. GST 18% on fees.
+- **Cashfree standard TDR:** **1.95%** for UPI, cards, netbanking and wallets (doc dated 2026-08-10). Plus a **festive offer: 0% platform fee on domestic PG transactions up to a one-time ₹20 lakh GMV cap, for new merchants who register between 2026-07-21 and 2027-03-31** (GST still applies; exclusions apply).
+- **PhonePe PG and Paytm PG:** both publish a flat **1.99%** standard plan. Third-party sources claim 0% on UPI (Paytm: UPI and RuPay debit at 0 MDR), but the official pricing pages fetched do not itemise by method, so this is **unverified**.
+- **Juspay:** an orchestrator layered over PAs (~0.22–0.25% extra, enterprise-negotiated). Not needed at our scale.
+- **UPI MDR policy is in flux:** a 2026 amendment bill would let the government notify MDR on UPI P2M, reportedly 0.4% above ₹2,000 for large merchants. Proposed, not enacted as of Aug–Sep 2026. Most of our orders are below ₹2,000.
 
 **Cost sensitivity.** On a ₹350 average order `[ASSUMPTION]` paid via UPI, a 2% + GST fee costs ≈ ₹8.26 per order. That is more than the entire ₹5 platform fee. With 70% UPI share `[ASSUMPTION]`, the fee differential between a 2% PA and a 0%-UPI PA is the single largest variable infrastructure cost in V1.
 
@@ -325,7 +330,7 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 
 **Decision.** **E.** A `payments.Provider` Go interface (doc 14 §9) with:
 1. **Reference adapter: Razorpay** (best-documented sandbox, official Go SDK, Route for split settlement, mature webhooks). It is built first so the open-source project has a working default.
-2. **Commercial selection for the Mahabubnagar launch:** apply to **Razorpay and at least one 0%-UPI PA (PhonePe PG or Paytm PG)** in parallel. Choose on (a) onboarding success for our entity type, (b) negotiated UPI rate, (c) split-settlement support. If the winner isn't Razorpay, write its adapter (target ≤ 1 week, with the contract test suite shared across adapters).
+2. **Commercial selection for the Mahabubnagar launch:** apply to **Razorpay and Cashfree** (both have marketplace split products and good docs). Also ask PhonePe PG/Paytm PG for written UPI pricing. Choose on (a) onboarding success for our entity type, (b) the **written** UPI rate (target well below 2%, since every PA negotiates), (c) split-settlement support, (d) launch offers such as Cashfree's ₹20 lakh 0% GMV allowance. If the winner isn't Razorpay, write its adapter (target ≤ 1 week, with the contract test suite shared across adapters).
 3. **Fake provider** for local dev and E2E tests (simulates success, failure, delayed webhooks).
 
 **Money flow (changes P10's default, subject to `[LEGAL]` opinion):** P10 assumed "platform collects all, then pays restaurants manually from the ledger". Under the RBI Master Direction on Payment Aggregators (15 Sept 2025), collecting customer funds for third-party merchants and settling to them is itself payment aggregation. Doing it outside a PA's escrow risks being treated as unauthorised PA activity `[LEGAL]`. **Preferred:** use the PA's **marketplace split settlement** (Razorpay Route / Cashfree Easy Split / equivalent) so that restaurant shares settle from the PA escrow directly to KYC'd restaurant linked accounts, on hold until delivery and released on our weekly cycle. The platform's own share (commission, fees) settles to the platform. The internal ledger stays the accounting truth and drives the transfer instructions. **Fallback:** collect-and-payout manually only if counsel confirms it is permissible for our structure. Riders are paid from the platform's own funds (contractor payments, not aggregation). COD cash settlement netting is described in doc 14 §11.
@@ -581,7 +586,7 @@ Rules:
 2. **P5 bumped:** PostgreSQL **18**, not "17+" (support window, native `uuidv7()`).
 3. **P7 app split:** `restaurant` + `rider` instead of a combined `partner` app (doc 17 F2, endorsed in ADR-009). Static hosting is object storage + CDN with same-origin `/api`.
 4. **P9 refined:** hybrid EdDSA JWT + server-side session checks for partner/admin, aligned with doc 12 (ADR-011).
-5. **P10 changed:** the PA is selected on the quoted UPI rate (0%-UPI PAs vs Razorpay's 2%). Restaurant money should flow via PA **split settlement**, not collect-then-manual-payout, pending legal opinion (ADR-012, doc 14).
+5. **P10 changed:** the PA is selected on the written UPI rate and launch offers (Razorpay 2% vs Cashfree 1.95% with a 0% launch allowance; 0%-UPI claims for PhonePe/Paytm unverified). Restaurant money should flow via PA **split settlement**, not collect-then-manual-payout, pending legal opinion (ADR-012, doc 14).
 6. **P13 sharpened:** OpenFreeMap / self-hosted PMTiles. **Not** `tile.openstreetmap.org` (ADR-015).
 7. **P14/P17 replaced by user directive §4a:** managed containers + managed Postgres on a hyperscaler for staging/prod, Compose for local (ADR-016). New ADR-025 (portability) and ADR-026 (IaC).
 8. **P6 confirmed:** no Redis at launch. Managed Redis is enabled by config only on a trigger (ADR-007).
