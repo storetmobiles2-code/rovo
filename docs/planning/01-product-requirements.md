@@ -4,9 +4,18 @@
 |---|---|
 | **Purpose** | Define *what* rovo V1 must do and *why*: vision, market problem, goals, success metrics, every functional requirement (with stable IDs, priority, acceptance criteria), non-functional requirements, business rules and regulatory requirements. This is the source of truth that UX (04–07), Backend (10, 11, 13, 16), Payments (14), Notifications (15), Security (12, 19), QA (20) and Release (27–30) trace back to. |
 | **Owner** | Product Architect |
-| **Status** | Draft v1 (2026-10-04) |
-| **Depends on** | `00-planning-baseline.md` (vocabulary, states, roles, money/geo/i18n conventions, §4a environment & hosting strategy, commercial defaults). Availability/RPO/RTO and cost targets are confirmed by DevOps in 22–25. |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
+| **Depends on** | `00-planning-baseline.md` (vocabulary, states, roles, money/geo/i18n conventions, §4a environment & hosting strategy, commercial defaults, §8 rulings R1–R26, §9 rulings R27–R48 + accepted scope cuts C1–C20 + missing items M1–M17). Availability/RPO/RTO targets are owned by doc 23; cost by doc 25 §15; load model by doc 20 §12.1; timers by doc 13 §5. |
 | **Feeds** | `02-v1-scope.md`, `03-user-personas.md`, 04–07 (journeys/workflows), 10–16 (data, API, state machines, payments, notifications, zones), 19 (threat model), 20 (testing), 27 (backlog), 29 (readiness), 30 (risks). |
+
+**Changes in v1.1**
+- Restaurant accept ladder per **R1** (repeat every 30 s, owner SMS 60 s, ops 90 s, `CANCELLED`/`SYSTEM`/`RESTAURANT_UNRESPONSIVE` at 180 s, 30-min auto-pause, device-heartbeat auto-pause at 3 min now P0): M-02, RES-ORD-004, RES-HOUR-005, BR-TIME-001…003, NOT-002/003.
+- Customer grace cancel within 60 s of placement (**R2**); auto `ACCEPTED→PREPARING` after 60 s (**R3**); pickup from `PREPARING` with `restaurant_skipped_ready` (**R4**); dispatch timing (**R7**); no server cart (**R12**); address = landmark + pin required, building/street optional (**R13**); four apps/hosts (**R14**); `*_i18n` names (**R17**); fee slabs to 10 km road, `[lo,hi)` (**R18**).
+- Restaurant cannot self-cancel after accept — ops-mediated (**R40**, RES-ORD-006); COD compensation = customer's choice of manual UPI refund or coupon (**R29**); no surge, rider peak bonus via ledger adjustment (**R30**); maker-checker limited to the five **R31** families; rider dispatch tiers 3 min / 15 min (**R34**); delivery OTP stored for display (**R39**); voice escalation P1 (**R43**); device-bound sessions (**R44**).
+- Load (**R45** → doc 20), cost (**R46** → doc 25 §15) and other tunables (**R48**) now referenced, not restated (NFR-PERF-006, BR-COST-002, ADM-CFG-001).
+- Scope cuts applied: RES-ANLY-002 → P2 (C13), ADM-COUP-004 → P2 (C16), review moderation queue removed (C14), hash-chained audit → V1.1 (C6), KYC uploads images-only (R38/C5).
+- New requirements for accepted missing items: RES-ONB-008 counter-device provisioning (M3), RDR-ONB-007 gig-worker fields + ADM-RPT-005 export (M5), RDR-EARN-007 / BR-RPAY-006 minimum guarantee (M6), RES-MENU-009 ops bulk CSV import → P0 for Gate B (M7), ADM-ORD-011 ops-assisted phone ordering P1 (M8), CUS-SUPP-003 staffed support phone line (M9), X-006 device sessions (M10/R44), NOT-016 voice escalation (R43), ADM-AUTH-004 passkeys P1 (R37).
+- Register fixes (31 §14): rows 1–5, 21, 23, 30, 31, 35, 36, 48, 49, 52, 55–57, 59–62, 69–72; M-41 → thumbs-up share; reject reason `ITEMS_OUT_OF_STOCK`; coupon codes globally unique; commission bounds 0–3000 bps; rider cancel pay per doc 13 §6.2.
 
 **Conventions used in this document**
 
@@ -16,6 +25,8 @@
 - **Tags:** `[ASSUMPTION]` needs validation, `[OPEN]` needs a decision from the named owner, `[LEGAL]` needs legal/tax review before launch.
 - Requirement IDs are **stable**: never renumber; deprecate with ~~strikethrough~~ and a note.
 - "Configurable" means a per-city (and where stated per-zone/per-restaurant) setting editable by `ADMIN_SUPER`/`ADMIN_OPS` via admin config (ADM-CFG), audit-logged, with a default given here.
+- **Parameter ownership (R48).** Every tunable has one owning doc: timers/thresholds → doc 13 §5 (`app_config` keys such as `ordering.accept_window_s`, `ordering.customer_cancel_grace_s`, `ordering.auto_preparing_after_s`, `dispatch.offer_ttl_s`, `restaurant.device_offline_pause_s`); seeds/`app_config` defaults and `approvals.thresholds` → doc 10; load model → doc 20 §12.1; cost → doc 25 §15; fee/commission/rider-pay defaults → doc 16 §6. Numbers that still appear in this PRD state *product intent*; **if they ever differ from the owning doc, the owning doc wins** and this PRD is corrected.
+- **Apps (R14):** four frontend apps/hosts — `app.` (customer), `restaurant.`, `rider.`, `admin.` — each calling `/api/v1` same-origin. "Partner" remains the UI name for restaurant users and riders, not an app name.
 
 ---
 

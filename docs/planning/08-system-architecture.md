@@ -4,11 +4,23 @@
 |---|---|
 | **Purpose** | Defines the shape of the rovo system: its context, containers, the module layout of the Go modular monolith, key runtime sequences, real-time design, consistency rules, caching, scaling, multi-city expansion and failure handling. |
 | **Owner** | Solution Architect |
-| **Status** | Draft v1 (Phase 1 — planning only) |
-| **Depends on** | `00-planning-baseline.md` (vocabulary, P1–P17) |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 (Phase 1 — planning only) |
+| **Depends on** | `00-planning-baseline.md` (vocabulary, P1–P17, §4a, rulings R1–R48 in §8–§9) |
 | **Feeds / must stay consistent with** | `09-architecture-decision-records.md` (the reasons behind each choice here), `10-database-schema.md` (table names here are indicative; doc 10 is authoritative), `11-api-specification.md`, `12-auth-rbac.md`, `13-order-state-machine.md` (transition tables), `14-payment-architecture.md`, `15-notification-architecture.md`, `16-delivery-zone-architecture.md`, `17-frontend-architecture.md`, `22-deployment-architecture.md`, `24-observability-strategy.md`, `26-repository-structure.md` |
 
 Tags: `[ASSUMPTION]` = believed true, must be validated; `[OPEN]` = needs a decision by the named owner; `[LEGAL]` = needs legal/tax review before launch.
+
+**Changes in v1.1 (2026-10-04)**
+- Restaurant accept ladder per **R1**: 30 s repeat, owner SMS 60 s, ops 90 s, `CANCELLED`/`SYSTEM`/`RESTAURANT_UNRESPONSIVE` at 180 s, auto-pause; device heartbeat 3 min (§3.2, §5.3, §11, §14). Timer values are owned by doc 13 (R48).
+- Events per **R22/R42**: no `event_log`/`outbox_events` table and no fan-out hop; the publisher inserts one River job per subscriber with `InsertManyTx` (§0, §4.1, §5, §7.3). Added a latency budget and catch-up semantics for periodic jobs (**M11**, §7.4).
+- `pg_notify` queue-usage alert and LISTEN watchdog (**M12**, §6.2, §11).
+- Edge per **R14/R27**: `/api/*` same-origin on all four app hosts through the CDN, no CORS; `api.` reserved for future native bearer clients and provider webhooks (§0, §1, §2.2).
+- Server cart removed; `POST /api/v1/cart/quote` (**R12**). Webhook path `/api/v1/webhooks/payments/{provider}`. SSE topic and event names follow doc 11 §4.2. Table names follow doc 10 §1.5 (register rows 25, 63, 65, 66, 67).
+- Cross-module FKs allowed on money paths (**R41**, §4.1). Custom CI tools cut (**C9**): go-arch-lint/depguard + review checklist (§4.3).
+- Dispatch tiers per **R34**; `REVOKED` offer status (**R16**); COD headroom per **R6**; delivery OTP per **R39**; COD compensation per **R29** (§5).
+- PostgreSQL **17** on RDS (**R22**). Pilot DB Single-AZ with two IaC profiles (**R32**). Load model from doc 20 (**R45**), cost from doc 25 (**R46**). Local Docker only for dev/demo (**R24**) (§9, §13).
+- Observability per **R36** (Grafana Cloud incl. Faro; 180-day CloudWatch/S3 archive in India; no Sentry). Admin edge per **R37** (TOTP mandatory, passkeys P1, no IAP). KYC images only (**R38**). No surge (**R30**), no build-time prerender (**R33**), no WhatsApp in V1 (**C2**) (§1, §8, §11, §12).
+- Clock rule per **R19**: no SQL `now()` in business logic (§4.1, §11).
 
 ---
 
@@ -16,12 +28,12 @@ Tags: `[ASSUMPTION]` = believed true, must be validated; `[OPEN]` = needs a deci
 
 - **One Go binary** (`rovo`), three run modes: `rovo api` (HTTP + SSE), `rovo worker` (River jobs, schedulers, dispatch timers), `rovo migrate` (goose + River migrations, run as a one-off job before each deploy). The same OCI image (amd64 + arm64) runs on a laptop, in CI, in staging and in production.
 - **Environments (baseline §4a, user directive 2026-10-04):** *local* = Docker Compose on the developer machine with fakes for every paid provider. *Staging and production* = **managed services on a standard hyperscaler in an India region** (managed container runtime, managed PostgreSQL + PostGIS with PITR, object storage + CDN, secrets manager/KMS, WAF), provisioned with **Terraform/OpenTofu** (ADR-026). DevOps picks the specific cloud (docs 22/25). This document stays cloud-neutral: the application depends only on **standard interfaces** (ADR-025): Postgres wire protocol + PostGIS, S3-compatible object storage, Redis protocol (optional), OTLP, OCI images and env-var config with runtime-injected secrets.
-- **One PostgreSQL (18 preferred, 17 acceptable; ADR-005) + PostGIS database** is the only *required* stateful backend. It holds business data, the job queue (River), the event log, idempotency keys, sessions, rate-limit counters and the ledger. **No message broker.** **Redis is not required at launch.** Production can enable a managed Redis-compatible cache by configuration alone when a trigger in ADR-007 fires.
-- **Four static PWAs** (customer, restaurant, rider, admin), built with Vite and served from object storage + CDN. Each app host proxies `/api/*` to the Go API (**same-origin API**, per docs 12 and 17), so there is no CORS and each app gets host-only cookies. Clients talk REST/JSON (OpenAPI 3.1 spec-first) and receive live updates via **SSE**. The baseline's combined `partner` app is split into `restaurant` + `rider` (doc 17 decision F2, endorsed in ADR-009).
-- **Modules communicate in-process** through Go interfaces (sync) and through **domain events persisted in the same transaction** as the state change, delivered by River jobs (async). No module reads or writes another module's tables.
-- **Real-time:** a state change commits → `pg_notify` (transactional, so it is delivered only on commit) → every API replica's SSE hub fans it out to subscribed clients. SSE messages are **invalidation hints plus small payloads**. REST is the source of truth, so a missed SSE message is harmless.
+- **One PostgreSQL 17 + PostGIS database** (R22: PostgreSQL 17 on RDS; 18 only if RDS offers it with PostGIS; no 18-only features; ADR-005 as amended) is the only *required* stateful backend. It holds business data, the job queue (River, which is also the transactional outbox), idempotency keys, sessions, rate-limit counters (R21) and the ledger. **No message broker.** **Redis is not required at launch.** Production can enable a managed Redis-compatible cache by configuration alone when a trigger in ADR-007 fires.
+- **Four static PWAs** (customer, restaurant, rider, admin; workspace under `web/`, R14), built with Vite and served from object storage + CDN on hosts `app.`, `restaurant.`, `rider.`, `admin.`. Each app host routes `/api/*` to the Go API through the CDN (**same-origin API**, R14/R27, docs 12 and 17), so there is **no CORS** and each app gets host-only cookies. There is **no public `api.` host with CORS in V1**; `api.` is reserved for future native bearer clients and server-to-server provider webhooks. Clients talk REST/JSON (OpenAPI 3.1 spec-first, base path `/api/v1` on every host, R15) and receive live updates via **SSE**. The baseline's combined `partner` app is split into `restaurant` + `rider` (doc 17 decision F2, R14).
+- **Modules communicate in-process** through Go interfaces (sync) and through **domain events**: the publisher inserts **one River job per subscriber in the same transaction** as the state change (`InsertManyTx`; R22/R42). There is no event table and no fan-out hop. No module reads or writes another module's tables.
+- **Real-time:** a state change commits → `pg_notify` (transactional, so it is delivered only on commit) → every API replica's SSE hub fans it out to subscribed clients. SSE messages are **invalidation hints plus small payloads**. REST is the source of truth, so a missed SSE message is harmless. The NOTIFY queue is monitored and the LISTEN connections are watchdogged (M12, §6.2).
 - **Money:** integer paise and an append-only double-entry ledger. A licensed payment aggregator moves all electronic money (doc 14).
-- **Scaling path:** production starts at 2 API tasks + 1–2 worker tasks on managed containers with a managed (Multi-AZ, or single-AZ at pilot) Postgres → scale tasks horizontally → bigger DB instance + read replica → managed Redis by config for proven needs → extract dispatch or notifications only if they become hot spots. Kubernetes only if the chosen managed runtime requires it or the criteria in §9.5 are met.
+- **Scaling path:** production starts with the **`closed-pilot` IaC profile** (2 API tasks + 1 worker task on ECS Fargate, RDS PostgreSQL + PostGIS **Single-AZ** db.t4g.small with PITR and cross-region backups, R32) → **`public-launch` profile** (Multi-AZ, mandatory before Gate B or > 100 orders/day, whichever comes first; sizes set by the doc 20 load test) → scale tasks horizontally → bigger DB instance + read replica → managed Redis by config for proven needs → extract dispatch or notifications only if they become hot spots. Kubernetes only if the chosen managed runtime requires it or the criteria in §9.5 are met.
 
 ---
 
@@ -40,13 +52,12 @@ flowchart LR
 
     subgraph External systems
         PA[(Payment Aggregator<br/>Razorpay / Cashfree / PhonePe PG / Paytm PG)]
-        OTP[(SMS provider - DLT<br/>MSG91 / Gupshup / ...)]
-        WA[(WhatsApp Business<br/>Cloud API)]
+        OTP[(SMS provider - DLT<br/>primary + secondary aggregator<br/>MSG91 / Gupshup / ...)]
         WP[(Web Push services<br/>FCM / Mozilla autopush / Apple WebPush)]
         EM[(Email provider<br/>SES / Resend / Brevo)]
         MAP[(Map tiles<br/>OpenFreeMap or self-hosted PMTiles)]
         OBJ[(Object storage<br/>S3-compatible API)]
-        OBS[(Observability backend<br/>OTLP: cloud-native or Grafana Cloud;<br/>Sentry; uptime checker)]
+        OBS[(Observability<br/>Grafana Cloud via OTLP incl. Faro;<br/>CloudWatch Logs / S3 180-day archive in India;<br/>external uptime checks)]
         BANK[(Platform bank account<br/>manual payouts V1)]
     end
 
@@ -58,7 +69,6 @@ flowchart LR
     ROVO -- create orders, refunds; receive webhooks; fetch settlement reports --> PA
     C -- UPI intent / card / netbanking checkout --> PA
     ROVO -- OTP + transactional SMS --> OTP
-    ROVO -- OTP + utility templates --> WA
     ROVO -- push messages (VAPID) --> WP
     ROVO -- receipts, statements, admin mail --> EM
     C & R & D & A -- vector tiles --> MAP
@@ -67,12 +77,14 @@ flowchart LR
     A -- payouts recorded with UTR --> BANK
 ```
 
+WhatsApp (OTP and utility messages) is **not in V1** (scope cut C2; V1.1). Sentry is not used in V1 (R36). Automated voice-call escalation for restaurants is P1 (R43).
+
 **Trust boundaries:**
 1. Internet ↔ edge (CDN + WAF).
-2. Edge ↔ load balancer ↔ API tasks in a private network. The origin only accepts traffic from the edge (doc 22).
+2. Edge ↔ load balancer ↔ API tasks. The ALB accepts traffic only from the CDN (CloudFront origin-facing prefix list) **plus** a secret origin-verify header. The API derives the audience from `Host` and ignores any `X-Rovo-Audience` header unless the origin secret is present (RV-001/RV-025; doc 12, doc 22). Closed pilot: tasks may sit in public subnets with the compensating controls of R28 (SG ingress only from the ALB, egress allow-list, VPC endpoints); one NAT Gateway before Gate B.
 3. API/worker ↔ managed DB and cache over **private networking only**. No public DB endpoint.
-4. API/worker ↔ third-party providers. Outbound only, except PA and messaging webhooks, which arrive inbound and are signature-verified on the dedicated `api.<domain>` host (bearer-only, no cookies, per doc 12).
-5. Admin surface on `admin.<domain>`: an edge access gate plus admin audience, RBAC and TOTP (doc 12). It is served by the same API process under `/api/v1/admin/*`.
+4. API/worker ↔ third-party providers. Outbound only, except PA and SMS DLR webhooks, which arrive inbound (server-to-server, no cookies, no CORS) and are signature-verified, on `api.<domain>/api/v1/webhooks/*` (doc 12; doc 22 owns the edge routing) `[OPEN → DevOps: confirm webhook host]`.
+5. Admin surface on `admin.<domain>`: WAF rate rules plus a geo (India) rule on the admin host, admin audience, RBAC and **mandatory TOTP for all admins**; passkeys (WebAuthn) are P1; **no identity-aware proxy in V1** (R37, doc 12). It is served by the same API process under `/api/v1/admin/*`.
 
 ---
 
@@ -87,12 +99,12 @@ flowchart LR
 | Rider PWA | same stack | Online/offline, foreground location ping, offers, pickup and drop flow, COD cash, earnings | CDN | none |
 | Admin SPA | same stack (no service worker) | Onboarding, zones, pricing, live ops board, support, finance, audit | CDN | none |
 | `rovo api` | Go 1.27, net/http ServeMux, oapi-codegen strict server | Auth, REST, SSE, webhooks, presigned uploads | Horizontal tasks (stateless apart from live SSE connections) | none |
-| `rovo worker` | Go, River | Event fan-out, notifications, dispatch offers and expiry, payment polling, reconciliation, settlement statements, cleanups | Horizontal tasks (River coordinates via `SKIP LOCKED`; leader election for periodic jobs) | none |
+| `rovo worker` | Go, River | Event subscriber jobs, notifications, dispatch offers and expiry, payment polling, reconciliation, settlement statements, retention sweeps | Horizontal tasks (River coordinates via `SKIP LOCKED`; leader election for periodic jobs, which use catch-up semantics, §7.4) | none |
 | `rovo migrate` | same image | goose + River migrations, run as a one-off task/job per deploy | — | none |
-| PostgreSQL + PostGIS | PG 18.x (or 17.x), PostGIS 3.x | System of record. Also the River queue, the LISTEN/NOTIFY bus, sessions, rate limits | Instance size → read replica | yes |
+| PostgreSQL + PostGIS | PG 17.x (R22), PostGIS 3.5 | System of record. Also the River queue (= outbox), the LISTEN/NOTIFY bus, sessions, rate limits (R21) | Instance size → read replica | yes |
 | Object storage | S3-compatible API | Public media bucket (images), private docs bucket (KYC, invoices, exports) | n/a | yes |
 | Redis-compatible cache | Valkey/Redis protocol | **Optional; disabled at launch** (ADR-007). Enabled by config. | managed | ephemeral |
-| Edge | CDN + WAF + TLS | Static apps, `/api/*` path routing to the API, rate limiting, bot protection | managed | none |
+| Edge | CDN + WAF + TLS | Static apps, `/api/*` path routing to the API on all four app hosts (caching off, cookies forwarded), origin-verify header, rate limiting, bot protection | managed | none |
 
 **Why the worker is a separate process/service:** a burst of jobs (notification storm, reconciliation) cannot starve HTTP latency. API deploys don't interrupt dispatch timers. The two scale independently. Both come from the same image. Local dev may run `rovo all` (both in one process) for convenience.
 
@@ -102,7 +114,7 @@ flowchart LR
 flowchart TB
     subgraph Edge[Edge: managed CDN + WAF + TLS<br/>e.g. CloudFront+WAF / Cloud CDN+Cloud Armor / Front Door; Cloudflare optional in front]
         STATIC[Static app origins<br/>object storage buckets:<br/>customer / restaurant / rider / admin]
-        ROUTE[Path routing: /api/* → LB<br/>api.domain/webhooks/* → LB]
+        ROUTE[Path routing on app., restaurant., rider., admin.:<br/>/api/* → LB, same-origin, no CORS<br/>api.domain/api/v1/webhooks/* → LB]
     end
 
     subgraph VPC[Private network - India region]
@@ -113,14 +125,14 @@ flowchart TB
             WK1[rovo worker task 1..n<br/>always-on, no scale-to-zero]
             MIG[rovo migrate<br/>one-off task per release]
         end
-        PG[(Managed PostgreSQL + PostGIS<br/>PITR, automated backups,<br/>Multi-AZ or single-AZ at pilot)]
+        PG[(Managed PostgreSQL 17 + PostGIS<br/>PITR, automated + cross-region backups,<br/>Single-AZ closed pilot; Multi-AZ before Gate B)]
         CACHE[(Managed Redis-compatible cache<br/>NOT provisioned at launch)]
     end
 
     SM[Secrets manager + KMS]
     OBJ[(Object storage<br/>public-media, private-docs)]
-    OBS[(OTLP backend: cloud-native<br/>or Grafana Cloud; Sentry)]
-    EXT[PA, SMS, WhatsApp, Push, Email]
+    OBS[(Grafana Cloud via OTLP incl. Faro;<br/>CloudWatch Logs / S3 180-day archive)]
+    EXT[PA, SMS, Push, Email]
     REG[Container registry<br/>cloud registry and/or GHCR]
 
     Browser((PWA)) --> Edge
@@ -137,7 +149,7 @@ flowchart TB
     REG -.images.-> RUNTIME
 ```
 
-At the time of writing, doc 22 instantiates this shape on **AWS `ap-south-1` (Mumbai), with DR backups to `ap-south-2` (Hyderabad)**: CloudFront + WAF, ALB, ECS Fargate (ARM) services for `api`/`worker`, RDS PostgreSQL, S3, Secrets Manager/KMS, with OTLP to Grafana Cloud. This document stays provider-neutral so the choice remains reversible (ADR-025).
+Per **R23**, doc 22 instantiates this shape on **AWS `ap-south-1` (Mumbai), with DR backups to `ap-south-2` (Hyderabad)**: CloudFront + WAF (all four app hosts carry an `/api/*` behaviour to the ALB, R27), ALB, ECS Fargate (ARM) services for `api`/`worker`, RDS PostgreSQL + PostGIS, S3, Secrets Manager/KMS, with OTLP to Grafana Cloud and a CERT-In 180-day log archive in CloudWatch Logs / S3 in `ap-south-1` (security events ≥ 1 year, R36/M1). IaC is OpenTofu under `deploy/terraform/` with two profiles, `closed-pilot` and `public-launch` (R32). This document stays provider-neutral in its interfaces so the choice remains reversible for the application code (ADR-025). Rebuilding the infrastructure on another cloud is a matter of weeks, not hours (RV-074).
 
 Requirements this shape places on DevOps (docs 22/25):
 - **Always-on compute** for both API (SSE) and worker (timers, River). No scale-to-zero in production. On Cloud Run this means min instances ≥ 1 with instance-based billing (CPU always allocated). On Container Apps it means min replicas ≥ 1.
@@ -159,13 +171,13 @@ flowchart LR
         MAIL[Mailpit SMTP :1025 / UI :8025]
         LGTM[grafana/otel-lgtm<br/>OTLP :4317/:4318, UI :3000]
         VALKEY[(Valkey - profile 'cache', off by default)]
-        FAKES[fake providers inside rovo:<br/>fakepay, fakeotp, fakepush log sink]
+        FAKES[fake providers inside rovo:<br/>fakepay, fakeotp, fakesms, fakepush log sink,<br/>fake bot challenge, local map tiles stub]
     end
     API --> PG & MINIO & MAIL & LGTM
     WORKER[rovo worker] --> PG & MAIL & LGTM
 ```
 
-The full golden flow runs offline. `PAYMENTS_PROVIDER=fake` simulates checkout, delayed webhooks and failures. `OTP_PROVIDER=fake` writes OTPs to logs and a dev-only endpoint. Push and SMS go to log sinks. A PA sandbox (Razorpay test mode) can be enabled with real test keys and a tunnel for webhooks (doc 26 §8).
+The full golden flow runs offline. `PAYMENTS_PROVIDER=fake` simulates checkout, delayed webhooks, failures and settlement reports. `OTP_PROVIDER=fake` writes OTPs to logs and a dev-only endpoint. Push and SMS go to log sinks. Development and demos use **local Docker Compose only** (R24); a shared demo exposes the local stack through a card-free tunnel (`cloudflared` quick tunnel). A PA sandbox (test mode) is optional and mainly used in staging; nobody needs it to develop, because the fakepay contract suite covers every doc 14 §20 scenario (doc 26 §8).
 
 ## 3. Components: the Go modular monolith (C4 level 3)
 
@@ -215,15 +227,15 @@ flowchart TB
 1. Synchronous calls (Go interface calls) go **downward only**: `ordering → pricing → catalog → geo`. A lower module never imports a higher one. No cycles.
 2. Reacting to something that happened in another module is always **asynchronous via a domain event**. Examples: ledger posting on `OrderDelivered`, notifications on almost everything, dispatch starting on `OrderAccepted`.
 3. `ordering` needs to learn about payment results and dispatch progress, but it must not import `payments` or `dispatch`. Those modules depend on `ordering`'s narrow **command port** (`ordering.Transitions`), or they emit events that ordering consumes. V1 uses events consumed by ordering's handlers, so the dependency arrow stays one-way and the coupling is visible in one place (the event subscription table).
-4. `platform/*` packages (db, httpx, auth middleware, otel, config, outbox/events, queue, clock, idgen, money) are importable by everyone and import no module.
+4. `platform/*` packages (db, httpx, auth middleware, otel, config, events (publisher + static subscription table), queue, clock, idgen, money) are importable by everyone and import no module.
 
 ### 3.2 Module catalogue
 
-Table names are indicative. `10-database-schema.md` is authoritative. "Public interface" means the exported Go API in the module's root package; everything else lives under the module's nested `internal/` directory, so the **Go compiler** forbids other modules from importing it (see §4.2).
+Table names follow `10-database-schema.md` §1.5, which is authoritative (v1.1 reconciled the names and ownership that conflicted: register rows 25, 66, 67). "Public interface" means the exported Go API in the module's root package; everything else lives under the module's nested `internal/` directory, so the **Go compiler** forbids other modules from importing it (see §4.2).
 
 #### identity (auth)
-- **Responsibility:** OTP issue/verify, admin password + TOTP, sessions and refresh tokens, device registry, RBAC role grants (scoped by `city_id`), rate limits for auth endpoints.
-- **Owned tables:** `auth_identities` (phone/email ↔ user), `otp_challenges`, `sessions`, `refresh_tokens`, `role_grants`, `admin_credentials` (password hash, TOTP secret encrypted), `rate_limit_buckets` (shared platform facility, schema owned here).
+- **Responsibility:** OTP issue/verify, admin password + **mandatory TOTP** (passkeys P1, R37), sessions and refresh tokens, device registry and **device-bound long-lived sessions for restaurant order-receiver devices** (sliding 30-day idle, 90-day absolute, revocable; riders 30-day sliding; R44), RBAC role grants (scoped by `city_id`; admins are separate identities, `RIDER` ⟂ `RESTAURANT_*`, internal `SYSTEM` principal, R26), rate limits for auth endpoints.
+- **Owned tables:** `user_roles`, `otp_challenges`, `sessions`, `refresh_tokens`, `admin_credentials` (password hash, TOTP secret field-encrypted), `admin_recovery_codes`, `devices`, `rate_limit_buckets` (R21; shared platform facility, schema owned here; to be added to doc 10, M4).
 - **Public interface:**
   ```go
   type Service interface {
@@ -240,50 +252,47 @@ Table names are indicative. `10-database-schema.md` is authoritative. "Public in
 - **Consumes:** `RiderSuspended` and `RestaurantStaffRemoved` (revoke sessions).
 
 #### users
-- **Responsibility:** customer profiles, saved addresses, rider profiles (vehicle, KYC status, bank/UPI payout details by reference), restaurant staff membership, consent records (DPDP), notification preferences.
-- **Owned tables:** `users`, `customer_profiles`, `addresses`, `rider_profiles`, `rider_documents` (object keys only), `restaurant_members`, `consents`, `notification_preferences`, `push_subscriptions`.
-- **Public interface:** `GetUser`, `GetAddress(ctx, userID, addressID)` (ownership-checked), `RiderEligibility(ctx, riderID) (Eligibility, error)`, `MembershipOf(ctx, userID) ([]RestaurantMembership, error)`, `Preferences(ctx, userID)`.
+- **Responsibility:** user accounts, customer profiles, saved addresses (landmark + map pin required, building/street optional, R13), consent records (DPDP). Rider profiles live in `dispatch` (`riders`), restaurant membership in `catalog` (`restaurant_users`), push subscriptions in `notifications` (doc 10 §1.5).
+- **Owned tables:** `users`, `customer_profiles`, `customer_addresses`, `user_consents`.
+- **Public interface:** `GetUser`, `GetAddress(ctx, userID, addressID)` (ownership-checked), `Consents(ctx, userID)`.
 - **Emits:** `RiderApproved`, `RiderSuspended`, `AddressCreated`, `ConsentChanged`, `AccountDeletionRequested`.
 - **Consumes:** `UserSignedUp`.
 
 #### geo (cities, zones, localities, serviceability)
-- **Responsibility:** cities (timezone, currency, config), zone polygons, localities, serviceability checks, distance estimation (haversine × road factor), rider last-known location store, and a geo index for dispatch candidate search.
-- **Owned tables:** `cities`, `zones`, `localities`, `rider_locations` (one row per rider, upserted), `rider_location_samples` (sparse history with short retention for disputes, see doc 19/DPDP).
+- **Responsibility:** cities (timezone, currency, config), zone polygons (pause per zone), localities, serviceability checks (7 km **straight-line** radius, R18), distance estimation (haversine × road factor; fee slabs apply to the road-adjusted distance, R18), and pure spatial helpers used by dispatch.
+- **Owned tables:** `cities`, `zones`, `localities`. (Rider location moved to `dispatch`: `rider_availability.last_location`, `rider_location_pings`, per doc 10 §1.5.)
 - **Public interface:**
   ```go
   type Service interface {
       Serviceability(ctx context.Context, cityID uuid.UUID, pt LatLng, restaurantID uuid.UUID, maxRadiusM int) (Serviceable, error)
       ZoneFor(ctx context.Context, cityID uuid.UUID, pt LatLng) (*Zone, error)
       EstimateDistance(a, b LatLng, cityID uuid.UUID) Meters // straight-line × city road_factor
-      UpsertRiderLocation(ctx context.Context, riderID uuid.UUID, pt LatLng, acc float64, at time.Time) error
-      NearbyRiders(ctx context.Context, q NearbyQuery) ([]RiderCandidate, error) // used by dispatch
       City(ctx context.Context, id uuid.UUID) (City, error)
   }
   ```
 - **Emits:** `ZoneChanged` (cache invalidation), `CityConfigChanged`.
 - **Consumes:** none.
-- *Note:* `rider_locations` lives in geo, not dispatch, because it is a spatial index concern. Dispatch reads it only through `NearbyRiders`.
+- *Note (v1.1):* rider location storage and the candidate search (`NearbyRiders`) now belong to `dispatch`, which owns the rider tables (doc 10 §1.5). Dispatch uses PostGIS on its own tables and calls geo only for distance and zone helpers.
 
 #### catalog (restaurants, menus)
-- **Responsibility:** restaurant (outlet) records, FSSAI and GST identifiers, operating hours, open/close and "busy" toggles, prep-time defaults, menu categories, items, variants, add-ons, item availability (in stock), images, Telugu names, listing search (Postgres FTS + `pg_trgm`).
-- **Owned tables:** `restaurants`, `restaurant_hours`, `restaurant_status_overrides`, `menu_categories`, `menu_items`, `item_variants`, `addon_groups`, `addons`, `item_availability`.
+- **Responsibility:** restaurant (outlet) records, FSSAI and GST identifiers, KYC documents (images only, R38), restaurant staff membership, order-receiver devices and their heartbeat (no heartbeat for 3 min while open → auto-pause `DEVICE_OFFLINE`, R1; SSE presence counts as heartbeat, heartbeat cadence 60 s, R27), operating hours, open/close and pause toggles, prep-time defaults, menu categories, items, variants, add-ons, item availability (in stock), images, Telugu names (`*_i18n` JSONB, R17), listing search (Postgres FTS + `pg_trgm`).
+- **Owned tables:** `restaurants`, `restaurant_users`, `restaurant_devices`, `restaurant_kyc_documents`, `restaurant_operating_hours`, `restaurant_closures`, `cuisines`, `restaurant_cuisines`, `menu_categories`, `menu_items`, `item_variants`, `addon_groups`, `addons`, `menu_item_addon_groups`.
 - **Public interface:** `ListServiceableRestaurants(ctx, cityID, pt, filters)`, `GetMenu(ctx, restaurantID) (Menu, version)`, `PriceItems(ctx, restaurantID, lines) ([]PricedLine, error)` (current prices and availability, used by pricing), `IsOpen(ctx, restaurantID, at)`, `Restaurant(ctx, id)`.
 - **Emits:** `RestaurantOnboarded`, `RestaurantOpened` / `RestaurantClosed`, `MenuChanged` (version bump → cache/ETag invalidation), `ItemOutOfStock`.
-- **Consumes:** `OrderAccepted` (optional: auto-busy when queue is long, deferred).
+- **Consumes:** `OrderCancelled` with reason `RESTAURANT_UNRESPONSIVE` (auto-pause 30 min; 2 consecutive misses → paused until the owner resumes, R1; doc 13 O-08); `OrderAccepted` (resets the missed counter).
 
-#### cart & pricing (quote engine)
-- **Responsibility:** server-side cart (one active cart per customer per restaurant), **quote** computation: item subtotal, packaging, delivery fee slab, small-cart fee, platform fee, coupon discount, GST lines and totals. A quote is an immutable snapshot with a short TTL. Order placement must reference a valid quote. Pricing config is versioned per city/zone/restaurant with effective dates.
-- **Owned tables:** `carts`, `cart_lines`, `pricing_configs` (fee slabs, platform fee, small-cart rule, tax rates by `tax_code`), `quotes` (JSONB breakdown + hash, `expires_at`).
+#### quote & pricing (quote engine)
+- **Responsibility:** **no server cart** (R12: the cart lives on the device). **Quote** computation for `POST /api/v1/cart/quote`: item subtotal, packaging, delivery fee slab (road-adjusted distance, slabs to 10 km, `[lo,hi)`, R18), small-cart fee, platform fee, coupon discount, GST lines (fee GST presentation configurable, inclusive default), `ROUND_OFF` line to the whole rupee (R8) and totals. A quote is an immutable stored snapshot (10-min TTL) returned as a signed `quoteId`. Order placement requires `quoteId` + `Idempotency-Key`; a stale quote returns 409 with a diff. Pricing config is versioned per city/zone/restaurant with effective dates; fee/commission defaults are owned by doc 16 (R48). **No surge pricing in V1** (R30).
+- **Owned tables:** `quotes` (JSONB breakdown + hash, `expires_at`), `fee_configs`, `tax_rules`.
 - **Public interface:**
   ```go
   type Service interface {
-      UpsertCart(ctx context.Context, customerID uuid.UUID, in CartInput) (Cart, error)
-      Quote(ctx context.Context, customerID uuid.UUID, in QuoteInput) (Quote, error)          // persisted snapshot
+      Quote(ctx context.Context, customerID uuid.UUID, in QuoteInput) (Quote, error)          // device cart in, persisted snapshot out
       ValidateQuote(ctx context.Context, tx db.Tx, quoteID uuid.UUID, customerID uuid.UUID) (Quote, error) // re-checks TTL and availability inside caller's tx
   }
   ```
 - **Emits:** none of business significance (a `QuoteCreated` metric only).
-- **Consumes:** `MenuChanged` (invalidate open quotes), `PricingConfigChanged`.
+- **Consumes:** `MenuChanged` (open quotes are re-validated at order time), `PricingConfigChanged`.
 
 #### promotions (coupons)
 - **Responsibility:** coupon definitions (city/zone/restaurant scope, funding split between platform and restaurant, caps, min order, per-user limit, validity), eligibility evaluation, redemption reservation and release.
@@ -293,8 +302,8 @@ Table names are indicative. `10-database-schema.md` is authoritative. "Public in
 - **Consumes:** `OrderCancelled`, `OrderRejected`, `PaymentFailed` (release reservation), `OrderDelivered` (finalise).
 
 #### ordering (state machine)
-- **Responsibility:** order aggregate (header, line snapshot, price snapshot from quote, address snapshot), the canonical **order state machine** (doc 13), cancellation rules, restaurant accept/reject/prep-time, timeouts (accept timeout, payment pending timeout), human-friendly order code `RV-XXXXXX`, customer and restaurant order queries.
-- **Owned tables:** `orders` (with `status`, `version`, `cancel_reason`, `cancelled_by`), `order_lines`, `order_status_history`, `order_address_snapshots`.
+- **Responsibility:** order aggregate (header, line snapshot, price snapshot from quote, address snapshot), the canonical **order state machine** (doc 13), cancellation rules (free while `PLACED` or within 60 s, R2; restaurant cancel after accept is ops-mediated, R40), restaurant accept/reject/prep-time, `ACCEPTED → PREPARING` after 60 s or on tap (R3), timers `T-ACC-*` and `T-PAY` (doc 13 owns the values, R48), human-friendly order code `RV-XXXXXX`, customer and restaurant order queries.
+- **Owned tables:** `orders` (with `status`, `version`, `cancel_reason`, `cancelled_by`, `delivery_address_snapshot`), `order_items`, `order_charges`, `order_status_history`.
 - **Public interface:**
   ```go
   type Service interface {
@@ -309,53 +318,53 @@ Table names are indicative. `10-database-schema.md` is authoritative. "Public in
   }
   ```
 - **Emits:** `OrderPlaced`, `OrderAccepted`, `OrderRejected`, `OrderPreparing`, `OrderReadyForPickup`, `OrderPickedUp`, `OrderDelivered`, `OrderCancelled`, `OrderUndeliverable`, `OrderPaymentFailed`.
-- **Consumes:** `PaymentCaptured` (→ `PLACED`), `PaymentFailed`/`PaymentExpired` (→ `PAYMENT_FAILED`), `DeliveryPickedUp` (→ `PICKED_UP`), `DeliveryDelivered` (→ `DELIVERED`), `DeliveryFailed` (→ `UNDELIVERABLE`), `RestaurantAcceptTimeout` (internal timer job → `REJECTED` with `cancel_reason=RESTAURANT_TIMEOUT`).
+- **Consumes:** `PaymentCaptured` (→ `PLACED`), `PaymentFailed`/`PaymentExpired` (→ `PAYMENT_FAILED`), `DeliveryPickedUp` (→ `PICKED_UP`, allowed from `PREPARING` with `restaurant_skipped_ready`, R4), `DeliveryDelivered` (→ `DELIVERED`), `DeliveryFailed` after support approval (→ `UNDELIVERABLE`, R5). Internal timer job `T-ACC-TIMEOUT` (+180 s) → `CANCELLED` with `cancelled_by=SYSTEM`, `cancel_reason=RESTAURANT_UNRESPONSIVE` (R1; **not** `REJECTED`, which is reserved for an explicit restaurant decision).
 
 #### payments
-- **Responsibility:** payment intents/attempts against the PA (doc 14), client-side signature verification, webhook ingestion (verify, store raw, dedupe), payment polling, refunds, COD bookkeeping markers, PA settlement report ingestion, reconciliation exceptions. A `PaymentProvider` interface hides the PA (doc 14 §9).
-- **Owned tables:** `payment_intents`, `payment_attempts`, `refunds`, `webhook_events` (raw body, provider event id unique), `pa_settlements`, `pa_settlement_lines`, `recon_exceptions`.
+- **Responsibility:** payments (one row per PA order) and attempts against the PA (doc 14), client-side signature verification, webhook ingestion (verify, store redacted raw body 180 days, dedupe), payment polling, refunds (including manual UPI refunds recorded with UTR for COD compensation, R29), COD bookkeeping markers, PA split transfers, PA settlement report ingestion, reconciliation exceptions. A `PaymentProvider` interface hides the PA (doc 14 §9).
+- **Owned tables:** `payments`, `payment_attempts`, `payment_events` (raw body, provider event id unique), `refunds`, `transfers`, `pa_settlements`, `pa_settlement_lines`, `recon_exceptions` (the last four to be added to doc 10, M4).
 - **Public interface:** `CreateIntent(ctx, orderID) (ClientCheckout, error)`, `ConfirmFromClient(ctx, ClientConfirmation) error`, `HandleWebhook(ctx, provider, headers, rawBody) error`, `Refund(ctx, RefundRequest) (Refund, error)` (idempotent by `refund_key`), `Status(ctx, orderID)`.
 - **Emits:** `PaymentCaptured`, `PaymentFailed`, `PaymentExpired`, `RefundInitiated`, `RefundProcessed`, `RefundFailed`, `SettlementReportIngested`, `ReconExceptionRaised`.
 - **Consumes:** `OrderRejected`, `OrderCancelled`, `OrderUndeliverable` (→ refund policy), `OrderPlaced` with COD (no-op marker).
 
 #### dispatch (delivery)
-- **Responsibility:** delivery task per order, rider availability (online/offline, shift), the **offer cascade** (candidate scoring, 45 s offers, expiry), assignment, pickup and drop milestones (`AT_RESTAURANT`, `PICKED_UP`, `AT_DROP`, `DELIVERED`), delivery proof (OTP from customer for handover `[OPEN]` UX), manual assignment by ops, rider cash limit gate for COD (asks ledger for the balance).
-- **Owned tables:** `deliveries`, `delivery_offers`, `rider_availability` (online state, active delivery count), `delivery_events`.
-- **Public interface:** `CreateForOrder(ctx, orderID)`, `RiderGoOnline/Offline`, `RespondToOffer(ctx, riderID, offerID, accept bool)`, `Advance(ctx, riderID, deliveryID, milestone)`, `ManualAssign(ctx, adminID, deliveryID, riderID)`.
-- **Emits:** `DeliveryCreated`, `DeliveryOffered`, `DeliveryOfferExpired`, `DeliveryAssigned`, `DeliveryAtRestaurant`, `DeliveryPickedUp`, `DeliveryAtDrop`, `DeliveryDelivered`, `DeliveryFailed`, `DispatchExhausted` (ops alert).
-- **Consumes:** `OrderAccepted` (create delivery and schedule the dispatch start), `OrderCancelled`/`OrderRejected` (cancel delivery, release rider), `RiderSuspended`, `RiderCashLimitReached`/`RiderCashCleared` (from ledger).
+- **Responsibility:** rider profiles and KYC (images only, R38), rider availability (`OFFLINE`/`AVAILABLE`/`ON_DELIVERY`; no shifts or `ON_BREAK` in V1, C12), rider location (batched pings, last location), delivery task per order, the **offer cascade** (two-tier candidate search per R34, offer TTL, expiry; offers `PENDING | ACCEPTED | DECLINED | EXPIRED | REVOKED`, R16), assignment, pickup and drop milestones (`AT_RESTAURANT`, `PICKED_UP`, `AT_DROP`, `DELIVERED`), delivery OTP (on for prepaid orders ≥ ₹300, code stored so the customer app can display it, off for COD, R39), manual assignment by ops, rider COD headroom gate (asks ledger for the balance, R6).
+- **Owned tables:** `riders`, `rider_availability` (online state, `last_location`, active delivery count), `rider_kyc_documents`, `rider_location_pings`, `deliveries`, `delivery_offers`, `delivery_status_history`.
+- **Public interface:** `CreateForOrder(ctx, orderID)`, `RiderGoOnline/Offline`, `RecordLocation(ctx, riderID, points)`, `RespondToOffer(ctx, riderID, offerID, accept bool)`, `Advance(ctx, riderID, deliveryID, milestone)`, `ManualAssign(ctx, adminID, deliveryID, riderID)`, `RevokeOffer(ctx, actor, offerID, reason)`.
+- **Emits:** `DeliveryCreated`, `DeliveryOffered`, `DeliveryOfferExpired`, `DeliveryOfferRevoked`, `DeliveryAssigned`, `DeliveryAtRestaurant`, `DeliveryPickedUp`, `DeliveryAtDrop`, `DeliveryDelivered`, `DeliveryFailed`, `DispatchExhausted` (ops alert).
+- **Consumes:** `OrderAccepted` (create delivery and schedule the dispatch start, R7), `OrderCancelled`/`OrderRejected` (cancel delivery, revoke pending offer, release rider), `RiderSuspended`, `RiderCashLimitReached`/`RiderCashCleared` (from ledger).
 
 #### ledger & settlement
-- **Responsibility:** append-only double-entry ledger (accounts, journals, postings), posting rules per business event, balances, rider cash-in-hand, weekly settlement statements for restaurants and riders, payouts (manual V1, UTR recorded), invoice numbering and issuance (doc 14 §12), GST/TDS liability accounts.
-- **Owned tables:** `ledger_accounts`, `ledger_journals`, `ledger_postings`, `account_balances` (derived and locked for checks), `settlement_runs`, `settlement_statements`, `payouts`, `invoices`, `invoice_sequences`.
-- **Public interface:** `Post(ctx, tx, Journal) error` (validates balance; idempotent by `(source_type, source_id, rule)`), `Balance(ctx, accountRef) (Paise, error)`, `RiderCashInHand(ctx, riderID)`, `RunSettlement(ctx, period)`, `RecordPayout(ctx, PayoutRecord)`.
+- **Responsibility:** append-only double-entry ledger (accounts, journals, postings; chart of accounts per doc 14 §10.2), posting rules per business event, balances, rider cash-in-hand, weekly settlement statements for restaurants and riders (catch-up periodic job, §7.4), payouts (manual V1, UTR recorded, batch release under maker-checker, R31), ledger adjustments (rider peak bonus, R30; pilot `MG_TOPUP`, R47), invoice numbering and issuance (doc 14 §12), GST/TDS liability accounts.
+- **Owned tables:** `ledger_accounts`, `ledger_journals`, `ledger_postings`, `ledger_account_balances` (derived and locked for checks), `commission_plans`, `payout_accounts`, `payouts`, `payout_items`, `cod_deposits`, `invoices`, `invoice_sequences`.
+- **Public interface:** `Post(ctx, tx, Journal) error` (validates balance; idempotent by `(source_type, source_id, rule)`), `Balance(ctx, accountRef) (Paise, error)`, `RiderCashInHand(ctx, riderID)`, `RunSettlement(ctx, period)` (idempotent per period), `RecordPayout(ctx, PayoutRecord)`.
 - **Emits:** `RiderCashLimitReached`, `RiderCashCleared`, `SettlementStatementReady`, `PayoutRecorded`, `InvoiceIssued`.
 - **Consumes:** `PaymentCaptured`, `OrderDelivered`, `RefundProcessed`, `CODCollected` (via `DeliveryDelivered` with payment method COD), `RiderDepositRecorded` (admin action), `SettlementReportIngested`, `CouponRedeemed`.
 
 #### ratings (reviews)
-- **Responsibility:** post-delivery ratings for restaurant (1–5 plus tags plus optional text) and rider (1–5 plus tags), moderation flags, aggregates.
-- **Owned tables:** `ratings`, `rating_aggregates`.
+- **Responsibility:** post-delivery ratings for restaurant (1–5 plus tags plus optional text, shown with a profanity filter and admin hide; no moderation queue or replies in V1, C14) and rider (thumbs up/down plus tags, doc 10), aggregates.
+- **Owned tables:** `ratings`, `reviews`, `rating_aggregates`.
 - **Public interface:** `Submit(ctx, customerID, orderID, RatingInput)`, `AggregatesFor(ctx, restaurantID)`.
 - **Emits:** `RatingSubmitted`, `LowRatingFlagged`.
 - **Consumes:** `OrderDelivered` (open the rating window, schedule the reminder).
 
 #### notifications
-- **Responsibility:** turns domain events into messages for in-app inbox, SSE, Web Push, SMS, WhatsApp and email. Templates (en/te), user preferences and quiet hours, provider abstraction, retries, dedupe, delivery receipts, and the restaurant new-order alert loop with escalation. Full design: doc 15.
-- **Owned tables:** `notification_templates`, `notifications` (inbox), `notification_deliveries` (per channel attempt), `provider_receipts`.
-- **Public interface:** mostly event-driven. `Inbox(ctx, userID, cursor)`, `MarkRead(ctx, userID, ids)`, `SendDirect(ctx, DirectMessage)` (admin broadcast, OTP path).
+- **Responsibility:** turns domain events into messages for in-app inbox, SSE, Web Push, SMS and email (admin). **WhatsApp is deferred to V1.1** (C2). Templates (en/te), user preferences and quiet hours, push subscriptions, provider abstraction, retries, dedupe, delivery receipts, and the restaurant new-order alert loop with escalation (R1/R43). Full design: doc 15.
+- **Owned tables:** `notifications` (inbox), `notification_deliveries` (per channel attempt, including provider receipt status), `notification_templates`, `push_subscriptions`.
+- **Public interface:** mostly event-driven. `Inbox(ctx, userID, cursor)`, `MarkRead(ctx, userID, ids)`, `SendDirect(ctx, DirectMessage)` (OTP path, ops messages; admin broadcasts are cut, C20).
 - **Emits:** `NotificationDelivered`, `NotificationFailed`, `RestaurantAlertEscalated`.
 - **Consumes:** nearly all order, delivery, payment, settlement and identity events.
 
 #### support (disputes)
 - **Responsibility:** customer and partner tickets tied to an order (missing item, late, wrong item, payment issue), agent notes, resolution actions (refund request → payments, goodwill credit → ledger), SLA timers.
-- **Owned tables:** `tickets`, `ticket_messages`, `ticket_actions`.
+- **Owned tables:** `support_tickets`, `ticket_messages` (actions as `kind='ACTION'`).
 - **Public interface:** `Open`, `Reply`, `Resolve(ctx, adminID, ticketID, Resolution)`.
 - **Emits:** `TicketOpened`, `TicketResolved`, `GoodwillRefundRequested`.
 - **Consumes:** `OrderDelivered` (enables "help with this order"), `RefundProcessed`.
 
 #### admin & audit
-- **Responsibility:** admin-only use cases that orchestrate other modules through their public interfaces (onboarding approvals, manual overrides), the **audit log** of every privileged mutation (who, what, before/after, reason), and feature flags/config per city.
-- **Owned tables:** `audit_log` (append-only, partitioned monthly), `feature_flags`.
+- **Responsibility:** admin-only use cases that orchestrate other modules through their public interfaces (onboarding approvals, manual overrides), **maker-checker** `approval_requests` for the five R31 action families only (refunds/goodwill/ledger or cash adjustments above threshold, payout batch release, commission/fee-config changes, payout bank/UPI detail changes, admin role grants; break-glass self-approval with mandatory 24 h post-review), reason codes, the **audit log** of every privileged mutation (who, what, before/after, reason), and feature flags/`app_config` per city.
+- **Owned tables:** `audit_logs` (append-only via DB grants: no UPDATE/DELETE for the app role; no per-row hash chain, C6; not partitioned at V1, C8), `approval_requests`, `reason_codes`, `feature_flags`, `app_config`, `report_exports`.
 - **Public interface:** `Record(ctx, AuditEntry)` (called by middleware/use cases), `Flags(ctx, cityID)`.
 - **Emits:** `FeatureFlagChanged`.
 - **Consumes:** none required (the audit trail is written synchronously in the same tx as the change).
@@ -371,7 +380,8 @@ Table names are indicative. `10-database-schema.md` is authoritative. "Public in
 - **Name:** past-tense PascalCase (`OrderAccepted`). **Type key:** `ordering.order_accepted.v1`.
 - **Envelope:** `{event_id (UUIDv7), type, version, occurred_at, city_id, aggregate_type, aggregate_id, aggregate_version, actor {type,id}, trace_id, payload}`.
 - **Payloads carry IDs and the minimal facts that consumers need.** Example: `OrderDelivered{order_id, restaurant_id, rider_id, customer_id, payment_method, totals_ref}`. Consumers that need more call the owner's read interface. Payloads are versioned. Breaking changes create `.v2` and run both for one release.
-- **Event schemas** are Go structs in the emitting module's root package (`ordering.OrderAccepted`), so the import graph is visible in CI. A JSON Schema export is generated for docs.
+- **Event schemas** are Go structs in the emitting module's root package (`ordering.OrderAccepted`), so the import graph is visible in CI. Compatibility is guarded by **JSON fixtures per event** (doc 20 §6.7), not a custom schema tool (C9).
+- **Delivery:** the envelope travels in the River job args of each subscriber job, together with the W3C trace context (no relay span; register row 44).
 
 ---
 
@@ -379,13 +389,13 @@ Table names are indicative. `10-database-schema.md` is authoritative. "Public in
 
 ### 4.1 The rules
 
-1. **No cross-module SQL.** A module's sqlc queries may reference only the tables it owns, plus read-only `*_report` views (reporting module only). No foreign keys **across** module boundaries except to `cities` and `users`. Those two are reference data owned by geo and users and are allowed for integrity. Any other cross-module reference is a plain UUID column with no FK. This lets a module be extracted later without untangling constraints.
+1. **No cross-module SQL.** A module's sqlc queries may reference only the tables it owns, plus read-only `*_report` views (reporting module only). **Foreign keys (R41, amended 2026-10-04):** cross-module FKs are allowed on **money paths**: `payments`, `refunds`, `deliveries`, `invoices` and ledger references (`ledger_postings.order_id`) → `orders`. Otherwise FKs exist only within a module and to `cities`/`users` (reference data). Other cross-module references are plain UUID columns. FKs do not grant query access: the Go import rules still apply. If a module is ever extracted, dropping an FK is a one-line migration.
 2. **Synchronous communication** happens only through the target module's exported Go interface. DTOs are exported structs, never sqlc row types.
-3. **Asynchronous communication** happens only through domain events. The emitter writes the event **in the same DB transaction** as the state change. Delivery to subscribers is at-least-once, and **every handler is idempotent** (dedupe on `(handler, event_id)`).
-4. **Shared transactions are the exception.** A module method may accept the caller's `db.Tx` only where atomicity is essential and the method is documented as "tx-participating". V1 has exactly these: `pricing.ValidateQuote`, `promotions.Reserve`, `ledger.Post`, `audit.Record`, and the event recorder. Each addition needs an ADR note.
+3. **Asynchronous communication** happens only through domain events. The publisher inserts **one River job per subscriber in the same DB transaction** as the state change (`InsertManyTx`, R42; §7.3). Delivery to subscribers is at-least-once, and **every handler is idempotent** (dedupe on `(handler, event_id)`).
+4. **Shared transactions are the exception.** A module method may accept the caller's `db.Tx` only where atomicity is essential and the method is documented as "tx-participating". V1 has exactly these: `pricing.ValidateQuote`, `promotions.Reserve`, `ledger.Post`, `audit.Record`, and the event publisher (`events.Publish`). Each addition needs an ADR note.
 5. **No module touches River directly.** Modules use `platform/queue` (an interface), so job transport is swappable.
 6. **HTTP handlers are thin.** Generated strict-server interface → module app service. No business logic in `http` packages.
-7. **Time and IDs are injected** (`platform/clock`, `platform/idgen`) for deterministic tests.
+7. **Time and IDs are injected** (`platform/clock`, `platform/idgen`) for deterministic tests. Business deadlines and cut-offs take `:now` from the injected clock; **no SQL `now()` in business logic** (R19). River `ScheduledAt` values are computed from the app clock.
 
 ### 4.2 Compiler-enforced encapsulation (cheap and strong)
 
@@ -410,19 +420,19 @@ Go's `internal/` rule means `modules/dispatch` **cannot** import `modules/orderi
 | Check | Tool | What it enforces |
 |---|---|---|
 | Module dependency DAG | **go-arch-lint** (`.go-arch-lint.yml`) *or* golangci-lint **depguard** rules | Allowed module → module imports, matching §3.1. No upward imports, no cycles. `platform/*` imports no module. |
-| Table ownership | `tools/tableowner` (small Go program, Phase 2) that parses every module's `queries/*.sql` with the sqlc catalog and a `table_ownership.yaml` manifest | No query touches a table owned by another module. Fails the PR otherwise. |
-| Migration ownership | same tool: every `CREATE TABLE` in `migrations/` must appear in the manifest with one owner | Prevents orphan tables. |
-| Event schema compat | `tools/eventschema`: generate JSON Schemas from event structs and diff against main | Breaking change to `.v1` payload fails CI. |
-| OpenAPI drift | regenerate code from `openapi/` and `git diff --exit-code` | Generated server and TS client always match the spec. |
+| Table ownership | **Review checklist** against `backend/table_ownership.yaml` (PR template item; `CODEOWNERS` on `migrations/` and `queries/`). Per **C9** no custom `tools/tableowner` in V1; build it only after the first cross-module SQL incident. | No query touches a table owned by another module. |
+| Migration ownership | same checklist: every `CREATE TABLE` in `migrations/` appears in the manifest with one owner, and the migration file name carries the module | Prevents orphan tables. |
+| Event schema compat | **JSON fixtures per event** checked by unit tests (doc 20 §6.7). No custom `tools/eventschema` (C9). | Breaking change to a `.v1` payload fails the fixture test. |
+| OpenAPI drift | regenerate code from `openapi/` and `git diff --exit-code`; `oasdiff breaking` | Generated server and TS client always match the spec. |
 | sqlc vet / `sqlc diff` | sqlc | Queries compile against migrations. |
 
-`[OPEN]` for DevOps/QA: wire these into the CI pipeline in doc 21.
+Doc 21 wires these into CI.
 
 ---
 
 ## 5. Key runtime sequences
 
-Conventions: `API` = `rovo api`, `W` = `rovo worker`, `PG` = PostgreSQL, `PA` = payment aggregator. "Event" means "event row + River job inserted in the same transaction" (ADR-006).
+Conventions: `API` = `rovo api`, `W` = `rovo worker`, `PG` = PostgreSQL, `PA` = payment aggregator. "Event" means "one River job per subscriber inserted in the same transaction with `InsertManyTx`" (ADR-006 as amended per R42). Timer and threshold values shown are illustrative; doc 13 owns them (R48).
 
 ### 5.1 Place order: online payment (UPI / card / netbanking)
 
@@ -436,40 +446,40 @@ sequenceDiagram
     participant W as rovo worker
     actor R as Restaurant PWA
 
-    C->>API: POST /api/v1/quotes {cart, address_id, coupon}
-    API->>PG: read menu, zones, pricing config, insert quote (TTL 10 min)
-    API-->>C: 201 quote {breakdown, total_paise, quote_id}
-    C->>API: POST /api/v1/orders {quote_id, payment_method: ONLINE}<br/>Idempotency-Key: k1
+    C->>API: POST /api/v1/cart/quote {restaurantId, lines, addressId, paymentMethod, couponCode}
+    API->>PG: read menu, zones, fee config, insert quote (TTL 10 min)
+    API-->>C: 200 quote {bill lines incl. ROUND_OFF, payable, quoteId (signed)}
+    C->>API: POST /api/v1/orders {quoteId, paymentMethod: ONLINE}<br/>Idempotency-Key: k1
     API->>PG: BEGIN, insert idempotency_keys(k1, in_progress)
-    API->>PG: ValidateQuote, Reserve coupon,<br/>insert order (PENDING_PAYMENT, v=1), lines, snapshots,<br/>insert payment_intent (CREATED), event OrderCreated, COMMIT
-    API->>PA: create PA order {amount, receipt=order_id, notes}<br/>(outside tx, retried with same receipt)
+    API->>PG: ValidateQuote, Reserve coupon,<br/>insert order (PENDING_PAYMENT, v=1), items, snapshots,<br/>insert payments row (CREATED), subscriber jobs for OrderCreated, COMMIT
+    API->>PA: create PA order {amount, receipt=payment_id, notes}<br/>(outside tx, retried with same receipt)
     PA-->>API: pa_order_id
-    API->>PG: update payment_intent (pa_order_id), store idempotent response
+    API->>PG: update payments row (pa_order_id), store idempotent response
     API-->>C: 201 {order_id, code RV-7K3P9Q, checkout{pa_order_id, key_id}}
     C->>PA: open checkout (UPI intent / card / netbanking)
     PA-->>C: success {payment_id, signature}
     par Fast path (client)
         C->>API: POST /api/v1/payments/confirm {pa_order_id, payment_id, signature}
         API->>API: verify HMAC(order_id|payment_id) with key secret
-        API->>PG: BEGIN, payment_intent CAPTURED (CAS), event PaymentCaptured, COMMIT
+        API->>PG: BEGIN, payments row CAPTURED (CAS), event PaymentCaptured, COMMIT
     and Authoritative path (webhook)
-        PA->>API: POST /webhooks/pa/razorpay (order.paid / payment.captured)
+        PA->>API: POST /api/v1/webhooks/payments/razorpay (order.paid / payment.captured)
         API->>API: verify X-Razorpay-Signature over raw body
-        API->>PG: insert webhook_events (unique provider_event_id) + River job, COMMIT
+        API->>PG: insert payment_events (unique provider_event_id) + River job, COMMIT
         API-->>PA: 200 (fast, < 1 s)
-        W->>PG: process webhook → payment_intent CAPTURED (CAS: no-op if already)
+        W->>PG: process webhook → payments row CAPTURED (CAS: no-op if already)
     end
-    W->>PG: handle PaymentCaptured → ordering.Transition(PENDING_PAYMENT→PLACED, v1→v2)<br/>+ event OrderPlaced + pg_notify
-    W->>PG: handle OrderPlaced → notifications: create inbox rows, enqueue push + alert loop
-    PG-->>API: NOTIFY rt {topic: restaurant:R1:inbox, order_id}
+    W->>PG: handle PaymentCaptured → ordering.Transition(PENDING_PAYMENT→PLACED, v1→v2)<br/>+ subscriber jobs for OrderPlaced + pg_notify
+    W->>PG: notifications job for OrderPlaced: inbox rows, push, T-ACC-* alert ladder
+    PG-->>API: NOTIFY rt {topic: inbox:R1, order_id}
     API-->>R: SSE event: order.placed (+ Web Push if no live SSE)
     API-->>C: SSE event: order.status PLACED
 ```
 
 Notes:
-- Both confirmation paths converge on a **CAS update** (`WHERE status='CREATED'`), so double confirmation is a no-op.
+- Both confirmation paths converge on a **CAS update** (`WHERE status IN ('CREATED','PENDING')`), so double confirmation is a no-op.
 - If the PA create-order call fails after the order commit, the order stays `PENDING_PAYMENT` with no `pa_order_id`. The client retry with the same Idempotency-Key re-attempts PA creation. The payment-timeout job cancels it after N minutes.
-- **Payment pending timeout:** when the order is created, a River job `payment.expire_check` is scheduled at `+15 min` `[ASSUMPTION: product to confirm N]`. It polls the PA. If the order is paid, it converges to captured. If not, it moves the order to `PAYMENT_FAILED` and releases the coupon. A **late capture** after that (the webhook arrives later) triggers an automatic full refund (doc 14 §7).
+- **Payment pending timeout:** when the order is created, a River job `payment.expire_check` is scheduled at the doc 13 `T-PAY` deadline (15 min proposed, computed from the app clock, R19). It polls the PA. If the order is paid, it converges to captured. If not, it moves the order to `PAYMENT_FAILED` and releases the coupon. A **late capture** after that (the webhook arrives later) triggers an automatic full refund (doc 14 §7).
 
 ### 5.2 COD order
 
@@ -483,20 +493,20 @@ sequenceDiagram
     actor R as Restaurant PWA
 
     C->>API: POST /api/v1/orders {quote_id, payment_method: COD}<br/>Idempotency-Key: k2
-    API->>PG: check COD eligibility: city/zone COD enabled,<br/>total ≤ COD max, customer not COD-blocked (no-show count)
+    API->>PG: check COD eligibility: city/zone COD enabled,<br/>payable ≤ ₹1,000 (₹600 first order, R6),<br/>customer not COD-blocked (2 customer-fault COD failures, R5)
     alt not eligible
         API-->>C: 422 problem+json {code: COD_NOT_AVAILABLE, reason}
     else eligible
-        API->>PG: BEGIN, quote+coupon, insert order (PLACED, v=1),<br/>payment_intent(method=COD, status=PENDING_COLLECTION),<br/>event OrderPlaced, pg_notify, COMMIT
+        API->>PG: BEGIN, quote+coupon, insert order (PLACED, v=1),<br/>payments row (provider=COD, status=COD_PENDING),<br/>subscriber jobs for OrderPlaced, pg_notify, COMMIT
         API-->>C: 201 {order_id, status PLACED}
-        W->>PG: OrderPlaced → notifications (restaurant alert loop)
+        W->>PG: notifications job for OrderPlaced (restaurant alert ladder)
         API-->>R: SSE order.placed
     end
 ```
 
-COD rider-side gating: dispatch only offers COD deliveries to riders whose `cash_in_hand + order_total ≤ cash_limit` (ledger balance). See §5.4 and doc 14 §14.
+COD rider-side gating (R6): dispatch only offers a COD delivery to a rider whose `cash_in_hand + order_payable ≤ cash_limit` (₹2,000 default, ledger balance). See §5.4 and doc 14 §14.
 
-### 5.3 Restaurant accept (with accept-timeout)
+### 5.3 Restaurant accept (with the R1 accept ladder)
 
 ```mermaid
 sequenceDiagram
@@ -505,22 +515,29 @@ sequenceDiagram
     participant API as rovo api
     participant PG as Postgres
     participant W as rovo worker
+    actor OPS as Admin ops
     actor C as Customer PWA
 
-    Note over W: On OrderPlaced, schedule job ordering.accept_timeout at +N min [ASSUMPTION N=4]
-    R->>API: POST /api/v1/restaurant/orders/{id}/accept {prep_minutes: 20}<br/>Idempotency-Key, If-Match: "v2"
-    API->>PG: BEGIN, UPDATE orders SET status='ACCEPTED', version=3, prep_eta=...<br/>WHERE id=$1 AND status='PLACED' AND version=2
+    Note over W: On OrderPlaced schedule T-ACC-RING every 30 s, T-ACC-OWNER +60 s,<br/>T-ACC-OPS +90 s, T-ACC-TIMEOUT +180 s (doc 13 owns values, R1)
+    R->>API: POST /api/v1/partner/restaurants/{rid}/orders/{id}/accept {prepTimeMinutes: 20}<br/>Idempotency-Key, If-Match: "v2"
+    API->>PG: BEGIN, UPDATE orders SET status='ACCEPTED', version=3, prep_eta=...<br/>WHERE id=$1 AND status='PLACED' AND version=2 AND :now < placed_at + 180 s
     alt 1 row updated
-        API->>PG: insert order_status_history, event OrderAccepted, pg_notify, COMMIT
+        API->>PG: insert order_status_history, subscriber jobs for OrderAccepted, pg_notify, COMMIT
         API-->>R: 200 {status ACCEPTED, version 3}
         API-->>C: SSE order.status ACCEPTED (ETA)
-        W->>PG: OrderAccepted → notifications: stop alert loop, dispatch: create delivery
-    else 0 rows (already rejected by timeout / cancelled)
+        W->>PG: OrderAccepted jobs: notifications stop the ladder, dispatch creates delivery,<br/>T-PREP-AUTO moves ACCEPTED to PREPARING after 60 s unless tapped (R3)
+    else 0 rows (already cancelled by timeout or by customer)
         API->>PG: ROLLBACK
-        API-->>R: 409 problem+json {code: ORDER_STATE_CONFLICT, current_status}
+        API-->>R: 409 problem+json {code: ACCEPT_WINDOW_CLOSED or ORDER_STATE_CONFLICT}
     end
-    W->>PG: accept_timeout fires → CAS PLACED→REJECTED (reason RESTAURANT_TIMEOUT)<br/>no-op if already ACCEPTED
+    W->>R: +60 s still PLACED: owner SMS + push
+    W->>OPS: +90 s still PLACED: ops board flag + sound, customer told "taking a little longer"
+    OPS-->>R: ops phones the restaurant (manual, staffed desk, R43), may accept on behalf (audited)
+    W->>PG: +180 s T-ACC-TIMEOUT: CAS PLACED to CANCELLED<br/>cancelled_by=SYSTEM, reason RESTAURANT_UNRESPONSIVE, no-op if already ACCEPTED
+    W->>PG: full refund if prepaid, coupon released, restaurant auto-paused 30 min<br/>(2 consecutive misses: paused until the owner resumes)
 ```
+
+`REJECTED` is used only when the restaurant explicitly rejects (§5.6). Automated voice-call escalation is **P1** (R43), triggered if the pilot shows more than 5% of orders reaching the 90 s mark. Separately, an open outlet with no order-receiver heartbeat (or SSE presence) for **3 min** is auto-paused (`DEVICE_OFFLINE`, R1).
 
 ### 5.4 Dispatch offer cascade with timeout
 
@@ -534,13 +551,13 @@ sequenceDiagram
     actor D2 as Rider 2
     actor OPS as Admin ops
 
-    Note over W: OrderAccepted → delivery UNASSIGNED, schedule dispatch.start at<br/>max(now, accepted_at + prep_eta − est_travel − buffer)
-    W->>PG: BEGIN, SELECT delivery FOR UPDATE,<br/>candidates = geo.NearbyRiders(restaurant, radius r0)<br/>filter: online, location age < 3 min, 0 active deliveries,<br/>COD cash headroom, not previously offered,<br/>score = distance + fairness (idle time)
+    Note over W: OrderAccepted → delivery UNASSIGNED, schedule dispatch.start at<br/>accepted_at + max(0, prep_time − rider_approach − buffer) (R7)
+    W->>PG: BEGIN, SELECT delivery FOR UPDATE,<br/>candidates = dispatch.NearbyRiders(restaurant, radius r0)<br/>tier 1: online, location age ≤ 3 min, ranked by distance<br/>tier 2 if tier 1 empty: online, location age ≤ 15 min, reached by push + SSE (R34)<br/>filter: 0 active deliveries, COD headroom (R6), not previously offered,<br/>score = distance + fairness (idle time)
     W->>PG: insert delivery_offer(D1, PENDING, expires_at=now+45s),<br/>delivery → OFFERED, event DeliveryOffered, pg_notify, job dispatch.expire_offer @ +45s, COMMIT
     API-->>D1: SSE offer + Web Push (high urgency), in-app sound
     alt D1 declines or no response
         D1->>API: POST /api/v1/rider/offers/{id}/decline  (or nothing)
-        W->>PG: expire_offer: CAS offer PENDING→EXPIRED/DECLINED,<br/>next candidate D2 (exclude D1), new offer +45s
+        W->>PG: expire_offer: CAS offer PENDING→EXPIRED or DECLINED,<br/>next candidate D2 (exclude D1), new offer +45s
         API-->>D2: SSE offer
         D2->>API: POST /api/v1/rider/offers/{id}/accept
         API->>PG: BEGIN, lock delivery FOR UPDATE, check offer PENDING and now < expires_at,<br/>offer ACCEPTED, delivery ASSIGNED(rider=D2), rider_availability.active=1,<br/>event DeliveryAssigned, COMMIT
@@ -552,7 +569,9 @@ sequenceDiagram
     end
 ```
 
-Parameters (per city config, defaults): offer TTL 45 s; radius steps 2 km → 4 km → 7 km; max 8 offers or 10 min before `DispatchExhausted`. One active delivery per rider (P11). A rider who misses 3 consecutive offers is auto-set offline with a notification `[ASSUMPTION]`.
+Parameters live in `app_config` and are **owned by doc 13** (R34, R48); the diagram shows illustrative defaults (offer TTL 45 s; radius steps 2 → 4 → 7 km; exhaustion after 8 offers or 10 min, after which the cascade continues at max radius). Dispatch tiers (R34): **tier 1** = location fresh ≤ 3 min, ranked by distance; **tier 2** = location stale but ≤ 15 min, reached via Web Push (`Urgency: high`) + SSE; a rider with no ping or heartbeat for **15 min** is auto-set offline. One active delivery per rider (P11). A rider who misses 3 consecutive offers is auto-set offline with a notification (doc 13).
+
+Offer statuses are `PENDING | ACCEPTED | DECLINED | EXPIRED | REVOKED` (R16). `REVOKED` is used when the system or an admin withdraws a pending offer (order cancelled, manual assignment, rider suspended); the rider gets `offer.revoked` over SSE.
 
 Concurrency: the accept handler and the expiry job both take `SELECT … FOR UPDATE` on the **delivery** row, so exactly one wins. A rider can hold at most one PENDING offer at a time (partial unique index `delivery_offers(rider_id) WHERE status='PENDING'`).
 

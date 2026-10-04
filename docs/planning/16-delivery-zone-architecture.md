@@ -2,11 +2,19 @@
 
 | | |
 |---|---|
-| **Purpose** | Defines rovo's geography model (city → zones → localities). Covers the serviceability algorithm, distance and ETA models, delivery fee, surge and rider pay computation, efficient restaurant discovery and rider candidate search, zone-level operational controls, the admin zone-drawing tooling, the multi-city expansion path, and Mahabubnagar test fixtures. |
+| **Purpose** | Defines rovo's geography model (city → zones → localities). Covers the serviceability algorithm, distance and ETA models, delivery fee and rider pay computation, the **commercial (fee/commission) defaults this doc owns (R48)**, efficient restaurant discovery and rider candidate search, zone-level operational controls, the admin zone-drawing tooling, the multi-city expansion path, and Mahabubnagar test fixtures. |
 | **Owner** | Backend Architect |
-| **Status** | Draft v1 (2026-10-04) |
-| **Depends on** | 00 baseline §3 (geo conventions, road factor 1.3) and §5 (fees, rider pay); 08 system architecture (`geo` module, caching); 10 database schema (`cities`, `zones`, `localities`, `restaurants`, `rider_availability`, `fee_configs`); 13 state machines (dispatch timing, ETA updates); 17/18 frontend (MapLibre pin-drop, admin map); P13 maps |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
+| **Depends on** | 00 baseline §3 (geo conventions, road factor 1.3), §5 (fees, rider pay), §8 R18/R19, §9 R30/R34/R48; 08 system architecture (`geo` module, caching); 10 database schema (`cities`, `zones`, `localities`, `restaurants`, `rider_availability`, `fee_configs`); 13 state machines (dispatch timing and **all timer/threshold values**, ETA updates); 17/18 frontend (MapLibre pin-drop, admin map); P13 maps |
 | **Consumed by** | 11 API (serviceability, discovery, quote, admin zones), 13 (dispatch), 20 testing (fixtures), 07 admin workflow |
+
+**Changes in v1.1**
+- **R18 / RV-084 (register rows 36–38):** the serviceability radius is checked on **straight-line** distance (default 7,000 m, `fee_configs.max_serviceable_radius_m`, renamed from `max_serviceable_distance_m`). Fee slabs apply to **road-adjusted** distance, extend to 10 km (8–10 km ₹60) and are **`[lo, hi)`** (lower bound inclusive). Golden fixtures in §4.2/§10.2 regenerated (R2→C1 is now serviceable at ₹50; 2,000 m road → ₹30). New property: every serviceable point has exactly one slab (§6.1, §10.3).
+- **R30 / C1 (RV-078):** manual surge removed from V1 (fee, rider bonus, rain speed factor, endpoints). Bad weather and rider shortage are handled by zone pause and a manual rider peak bonus posted as a ledger adjustment (§6.2). Surge is V1.1.
+- **R34 / RV-055 (row 51):** rider candidate search has two tiers: fresh location ≤ 3 min, and stale ≤ 15 min reached by push + SSE (§7.2). The values are owned by doc 13 §5.1.
+- **R19 / RV-005 (row 40):** no SQL `now()` in business queries; the injected app clock is passed as `:now`.
+- **C15 / C20:** zone GeoJSON import/export, the impact dry-run analytics, the drop heat map and the `geo/live` endpoint are V1.1 (§8).
+- **R48:** §6.5 is the single source for fee, commission and rider-pay defaults. Other docs reference these keys.
 
 ---
 
@@ -15,13 +23,14 @@
 | ID | Decision |
 |---|---|
 | GEO-D01 | **Zones are planar polygons** `geometry(MultiPolygon, 4326)`, drawn by ops on a Web-Mercator map. **Points are `geography(Point, 4326)`.** Point-in-zone uses `ST_Covers(boundary, point::geometry)`, so a point exactly on the boundary is inside. |
-| GEO-D02 | **Serviceability** = the customer pin is in an `ACTIVE`, un-paused zone of a `LIVE` city **AND** the restaurant is `ACTIVE`, in the same city, and its own zone is un-paused **AND** `haversine(restaurant, customer) × road_factor ≤ min(restaurant.max_delivery_radius_m, fee_config.max_serviceable_distance_m)`. Cross-zone delivery inside a city **is allowed**. Zones gate *where we deliver* and set *pricing*; they do not partition restaurants. |
+| GEO-D02 | **Serviceability** = the customer pin is in an `ACTIVE`, un-paused zone of a `LIVE` city **AND** the restaurant is `ACTIVE`, in the same city, and its own zone is un-paused **AND** the **straight-line** distance `haversine(restaurant, customer) ≤ min(restaurant.max_delivery_radius_m, fee_config.max_serviceable_radius_m)` (both straight-line metres; default 7,000 m, R18). The road-adjusted distance (`× road_factor`) is used **only** for the fee slab, rider pay and ETA. Cross-zone delivery inside a city **is allowed**. Zones gate *where we deliver* and set *pricing*; they do not partition restaurants. |
 | GEO-D03 | **Canonical distance is computed in Go** (haversine on a sphere with R = 6,371,008.8 m) × `road_factor` (default 1.3, per zone config). PostGIS is used for **indexed candidate filtering** with a 2% safety margin. The final decision and the price always use the Go value, so quote, order and pay are deterministic and unit-testable. |
 | GEO-D04 | **ETA V1** = prep + pickup buffer + road distance ÷ speed (by time-of-day band) + handover, shown as a 10-minute range. All parameters are per city/zone config. It is calibrated from real timestamps after launch. |
-| GEO-D05 | **Delivery fee** = distance slab (per zone `fee_configs`) − free-delivery threshold + **manual surge** (V1: yes, a flat per-zone surcharge that ops toggle with a mandatory expiry; most of it is passed to riders). No automatic or dynamic surge. |
+| GEO-D05 | **Delivery fee** = the distance slab (per zone `fee_configs`) that contains the **road-adjusted** distance, with `[lo, hi)` bounds, minus the free-delivery threshold if one applies. **No surge in V1** (R30, C1): no surcharge of any kind. Bad weather or rider shortage → zone pause and/or a manual rider peak bonus posted as a ledger adjustment (§6.2). |
 | GEO-D06 | **Start Mahabubnagar with ONE zone** (`MBNR-CORE`) drawn around the dense urban area. Add an outer-ring zone (higher fee slab, or paused at night) only when data shows it is needed. |
-| GEO-D07 | **Admin tooling:** MapLibre GL JS + a draw library, with GeoJSON import/export (RFC 7946). Server-side validation, versioning and audit. A **dry-run impact preview** is shown before saving. |
+| GEO-D07 | **Admin tooling:** MapLibre GL JS + a draw library. The polygon is sent as GeoJSON geometry (RFC 7946) in the zone create/update body. Server-side validation, versioning and audit, plus a **blocking check** for active restaurants that would fall outside every zone. Bulk GeoJSON import/export, dry-run impact analytics and heat maps are **V1.1** (C15). |
 | GEO-D08 | **No paid geocoding or routing in V1** (P13). Upgrade path: a self-hosted OSRM/Valhalla behind a `RoutingProvider` interface, used first for calibration and then for pricing if it is worth it. |
+| GEO-D09 | **Parameter ownership (R48):** this doc owns fee, commission and rider-pay defaults (§6.5). Timers and thresholds (offer TTL, staleness tiers, radius steps) are owned by 13 §5.1; seeds and `app_config` mechanics by 10 §15. Business queries take `:now` from the injected app clock (R19). |
 
 ---
 
