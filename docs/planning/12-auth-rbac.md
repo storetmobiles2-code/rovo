@@ -5,7 +5,7 @@
 | **Purpose** | Define how every actor of rovo (customer, restaurant owner/staff, rider, admin) proves identity, how sessions and tokens work across the three web apps (and future native apps), and how every API action is authorised (RBAC + resource/attribute checks, maker-checker, audit). This is the contract Backend, Frontend and QA implement and test against. |
 | **Owner** | Security Architect |
 | **Status** | Draft v1 (Phase 1 — planning only) |
-| **Depends on** | `00-planning-baseline.md` (roles, P6, P7, P9, P14, P17), `01/02` (scope), `08-system-architecture.md` (hosts, topology), `10-database-schema.md` (tables named here), `11-api-specification.md` (endpoints, `x-rovo-permission`), `13-order-state-machine.md` (who may trigger which transition), `14-payment-architecture.md` (refunds, payouts), `15-notification-architecture.md` (SMS/OTP provider), `17/18` (frontend session handling, PWA), `19-security-threat-model.md` (threats → SEC-xxx requirements), `22-deployment-architecture.md` (Caddy/Cloudflare routing), `24-observability-strategy.md` (audit/log pipelines) |
+| **Depends on** | `00-planning-baseline.md` (roles, P6, P7, P9, P14, P17), `01/02` (scope), `08-system-architecture.md` (hosts, topology), `10-database-schema.md` (tables named here), `11-api-specification.md` (endpoints, `x-rovo-permission`), `13-order-state-machine.md` (who may trigger which transition), `14-payment-architecture.md` (refunds, payouts), `15-notification-architecture.md` (SMS/OTP provider), `17/18` (frontend session handling, PWA), `19-security-threat-model.md` (threats → SEC-xxx requirements), `22-deployment-architecture.md` (CDN/load-balancer path routing, managed runtime, secrets manager/KMS), `24-observability-strategy.md` (audit/log pipelines) |
 | **Consumed by** | Backend, Frontend, QA (`20-testing-strategy.md`), DevOps, Release (`27`, `29`) |
 
 Tags: `[ASSUMPTION]` assumption to validate · `[OPEN]` decision pending · `[LEGAL]` needs legal review. Requirement IDs `SEC-xxx` are defined in `19-security-threat-model.md` §9 and referenced here.
@@ -18,11 +18,11 @@ Tags: `[ASSUMPTION]` assumption to validate · `[OPEN]` decision pending · `[LE
 |---|---|---|
 | AUTH-D01 | One `users` table for all **members** (customers, restaurant people, riders) keyed by phone. **Admins are separate identities** (`users.kind = 'staff'`) that log in by email and cannot hold member roles. | Keeps phone-OTP (weaker, SIM-swap-prone) away from privileged accounts; limits blast radius. |
 | AUTH-D02 | The same phone **may** hold `CUSTOMER` + `RIDER`, or `CUSTOMER` + `RESTAURANT_*`. **`RIDER` and `RESTAURANT_OWNER/STAFF` are mutually exclusive** in V1. | Real people order food and also ride; but a rider attached to a restaurant creates conflicts of interest (self-dispatch, fake deliveries). |
-| AUTH-D03 | Sessions are **per app audience** (`customer`, `partner`, `admin`). Each web app talks to the API **same-origin** via `https://<app-host>/api/*`, so each app has its own host-only cookie jar. | Isolates app sessions from each other without `Domain` cookies; removes CORS; simplest CSRF story. Challenge to P7 (see §11). |
+| AUTH-D03 | Sessions are **per app audience** (`customer`, `partner`, `admin`). Each web app talks to the API **same-origin** via `https://<app-host>/api/*`: the CDN distribution for each app host routes `/api/*` to the API load balancer and everything else to the static bucket. Each app therefore has its own host-only cookie jar. | Isolates app sessions from each other without `Domain` cookies; removes CORS; simplest CSRF story. Fits P7 (object storage + CDN) via standard path-based CDN routing (§4.1). |
 | AUTH-D04 | Access token = **JWT signed with EdDSA (Ed25519)**, `kid` header, **10 min** (admin **5 min**). Refresh = **opaque 256-bit random token, SHA-256-hashed in DB, rotated on every use, with reuse detection that revokes the whole family**. | Asymmetric signing means verifiers don't hold signing keys (future edge/native/other services). Opaque refresh is revocable server-side. |
 | AUTH-D05 | Partner and admin requests also check **server-side session state** on every request (cached ≤ 30 s, admin uncached). Customer requests are stateless JWT checks. | Fast revocation where privilege is high; cheap where volume is high. |
 | AUTH-D06 | CSRF = `SameSite` (Lax for customer/partner, Strict for admin) **+** Fetch-Metadata/Origin check (Go 1.25 `http.CrossOriginProtection`) **+** mandatory `X-Rovo-Client` header and JSON-only bodies on unsafe methods. **No double-submit token.** | Same-origin topology makes these sufficient; double-submit adds complexity without protection beyond this. |
-| AUTH-D07 | OTP: 6 digits, 5 min TTL, 5 verify attempts, HMAC-SHA-256 with a server-side pepper, India `+91` mobiles only, Cloudflare Turnstile on **every** OTP request, layered rate limits, global SMS budget breaker. | SMS pumping and OTP brute force are the top auth threats (19 §4). |
+| AUTH-D07 | OTP: 6 digits, 5 min TTL, 5 verify attempts, HMAC-SHA-256 with a server-side pepper, India `+91` mobiles only, a bot challenge (Cloudflare Turnstile, provider-abstracted) on **every** OTP request, layered rate limits, global SMS budget breaker. | SMS pumping and OTP brute force are the top auth threats (19 §5.1). |
 | AUTH-D08 | Admin: email + password (**argon2id m=64 MiB, t=3, p=1**) + **mandatory TOTP** (RFC 6238) + 10 single-use recovery codes. WebAuthn/passkeys in **V1.1** (mandatory for `ADMIN_SUPER`/`ADMIN_FINANCE` once available). Idle 30 min / absolute 12 h. Step-up TOTP for sensitive actions. No self-signup. | Matches NIST SP 800-63B-4 AAL2 timeouts; phishing-resistant factor added soon after. |
 | AUTH-D09 | Authorisation is **deny by default**: route-level permission from OpenAPI `x-rovo-permission` (middleware) **plus** ownership/scope policy in the domain service **plus** scope predicates in every repository query. Unauthorised access to another party's resource returns **404**. | Defence in depth against IDOR; avoids leaking existence. |
 | AUTH-D10 | **Maker-checker** for high-risk admin actions (refunds above threshold, payout batch release, commission/fee changes, admin role grants, bank-detail changes, manual ledger adjustments, bulk PII export). | Insider-abuse control; money movement needs two people. |
@@ -124,7 +124,7 @@ How it works:
 - **Separate apps, separate sessions.** The customer app (`app.` host) issues `aud=customer` sessions, which only ever carry `CUSTOMER` permissions. The partner app (`partner.` host) issues `aud=partner` sessions, which carry only `RIDER` or `RESTAURANT_*` permissions. A stolen customer session can never act as a rider, and the reverse holds too.
 - **Context switching inside the partner app.** An owner of several outlets, or an owner who is also staff elsewhere, picks an **active context** (`restaurant:<id>`). This calls `POST /api/v1/auth/context`, which re-issues the access token with a new `ctx` claim in the same session family. A rider's context is always `rider`.
 - **Mutual exclusion.** `RIDER` and `RESTAURANT_*` are never granted to the same user in V1. A DB constraint or trigger plus a domain check enforces it. Exceptions need `ADMIN_SUPER` and are `[OPEN]` for V1.1.
-- **Fraud guards for dual-role people** (enforced in the domain, tested as SEC-0xx):
+- **Fraud guards for dual-role people** (enforced in the domain, tested as SEC-047):
   - A rider is never offered or assigned a delivery for an order placed by their own user id, or delivered to an address on their own account.
   - A restaurant member cannot rate or review a restaurant they are assigned to, and cannot redeem restaurant-funded coupons at it.
   - Rider earnings and customer refunds go to separate wallets/ledgers; no cross-netting.
@@ -146,7 +146,7 @@ Indian operators recycle deactivated numbers after an inactivity period, commonl
 sequenceDiagram
     autonumber
     participant B as Browser (app./partner.)
-    participant CF as Cloudflare (WAF + Turnstile)
+    participant CF as Edge (CDN + cloud WAF) / Turnstile
     participant API as rovo API (auth module)
     participant DB as Postgres
     participant SMS as SMS provider (primary/secondary)
@@ -183,14 +183,14 @@ sequenceDiagram
 | Sends per device id | 5/hour | `rovo_did`, a random first-party cookie. Weak (clearable), so it only feeds risk scoring. |
 | Global SMS budget breaker | Alert at 2× the trailing-7-day hourly p95; at **4×**, global "strict mode" (interactive Turnstile for everyone, per-IP hard limits), page on-call | Caps toll-fraud spend. Daily hard budget in provider console as a second layer `[ASSUMPTION: provider supports it]`. |
 | Number filter | E.164 `+91`, 10 digits, first digit 6–9, libphonenumber `MOBILE` type; reject known test/invalid ranges; **no international numbers in V1** | Removes international revenue-share (IRSF) pumping, the costliest variant. |
-| Turnstile | **Required on every OTP request** from web (managed mode, `action=otp_request`), validated server-side with `remoteip`, `hostname` and `action` checked, single-use token | Free plan: unlimited challenges, 20 widgets, 10 hostnames per widget (Cloudflare docs, accessed 2026-10-04). If Turnstile siteverify itself is down: **fail closed for new devices, fail open with hard per-phone limit of 1/10 min for devices with a valid prior session** `[ASSUMPTION — product to accept]`. |
-| OTP storage | `code_hmac = HMAC-SHA-256(K_otp, challenge_id ‖ code)`; `phone_hmac = HMAC-SHA-256(K_phone, e164)` for rate-limit keys | A slow hash adds nothing for a 10⁶ space. The **pepper `K_otp` lives outside the DB** (SOPS secret), so a DB dump alone does not reveal live codes. Comparison uses `hmac.Equal`. Rows are purged after 24 h; aggregates stay in metrics. |
+| Turnstile | **Required on every OTP request** from web (managed mode, `action=otp_request`), validated server-side with `remoteip`, `hostname` and `action` checked, single-use token | Turnstile works standalone (no Cloudflare proxy needed). Free plan: unlimited challenges, 20 widgets, 10 hostnames per widget (Cloudflare docs, accessed 2026-10-04). Behind a `BotChallenge` interface so AWS WAF CAPTCHA/Challenge or reCAPTCHA Enterprise can replace it `[OPEN — DevOps cost/UX comparison]`. If Turnstile siteverify itself is down: **fail closed for new devices, fail open with hard per-phone limit of 1/10 min for devices with a valid prior session** `[ASSUMPTION — product to accept]`. |
+| OTP storage | `code_hmac = HMAC-SHA-256(K_otp, challenge_id ‖ code)`; `phone_hmac = HMAC-SHA-256(K_phone, e164)` for rate-limit keys | A slow hash adds nothing for a 10⁶ space. The **pepper `K_otp` lives outside the DB** (cloud secrets manager, see 19 §7.5), so a DB dump alone does not reveal live codes. Comparison uses `hmac.Equal`. Rows are purged after 24 h; aggregates stay in metrics. |
 | Purposes | `login`, `phone_change_old`, `phone_change_new`, `step_up` | A code is only valid for its purpose and challenge. |
 | SMS content | DLT-registered template; **no links**; contains the domain-bound WebOTP line `@app.rovo.in #123456` (or `@partner.rovo.in`) and the Android SMS Retriever hash for future native apps | WebOTP binds autofill to our origin, which blunts phishing relays. TRAI/DLT template compliance is owned by `15-notification-architecture.md`. |
 
 **Account enumeration:** `otp/request` responses and timings are identical for known and unknown numbers. `is_new` is only revealed after successful verification. Blocked accounts get the same 202 and the verify step returns a generic `account_unavailable`.
 
-**Rate-limiter storage (challenge to P6):** OTP and auth limits must be **durable and shared**, so they go in Postgres: `rate_limit_buckets` with an `UPSERT … RETURNING` sliding window, partitioned by day. Otherwise a deploy or restart resets the counters, which an attacker can exploit. General API limits may use the in-memory implementation while there is one replica.
+**Rate-limiter storage (clarifies P6):** OTP and auth limits must be **durable and shared across replicas**, so they go in Postgres from day one: `rate_limit_buckets` with an `UPSERT … RETURNING` sliding window, partitioned by day. Otherwise a deploy, restart or scale-out resets or splits the counters, which an attacker can exploit. They move to the managed Redis-compatible cache only if/when P6's adapter is enabled. General API limits may use in-memory buckets per replica as a soft layer behind the edge WAF rate rules.
 
 ### 2.3 Account creation
 
@@ -232,8 +232,8 @@ sequenceDiagram
 |---|---|
 | Identifier | Work email (citext, unique). Admin accounts are `users.kind='staff'` and cannot log in via OTP or hold member roles. |
 | Password policy | 12–128 chars, any characters, Unicode NFKC-normalised. **No composition rules, no periodic expiry.** Rejected if it appears in a breached-password corpus (offline top-1M list bundled at build time; online HIBP k-anonymity range API optional `[OPEN]`). Rejected if it contains the email local-part. Follows NIST SP 800-63B-4. |
-| Hash | **argon2id, m = 64 MiB, t = 3, p = 1**, 16-byte salt, 32-byte output, PHC string format. This exceeds the OWASP minimum (m=19 MiB, t=2, p=1). A global semaphore allows at most 4 concurrent hashes to avoid memory-exhaustion DoS on the single VM. Re-hash on login when params change. Benchmark target: ≤ 400 ms on the production VM `[ASSUMPTION — benchmark on Ampere A1]`. |
-| Lockout | Progressive delay after 3 failures (1 s, 2 s, 4 s…). After **10 failures per account in 1 h**, the account is locked for 15 min, `ADMIN_SUPER` is alerted, and the event is audited. Failed-attempt counters per IP sit at the edge (Cloudflare rate-limit rule on `admin.` `/api/v1/auth/*`) and in the app. |
+| Hash | **argon2id, m = 64 MiB, t = 3, p = 1**, 16-byte salt, 32-byte output, PHC string format. This exceeds the OWASP minimum (m=19 MiB, t=2, p=1). A per-replica semaphore allows at most 4 concurrent hashes to avoid memory-exhaustion DoS (size the API task memory accordingly). Re-hash on login when params change. Benchmark target: ≤ 400 ms on the production task size `[ASSUMPTION — benchmark on chosen vCPU/arch]`. |
+| Lockout | Progressive delay after 3 failures (1 s, 2 s, 4 s…). After **10 failures per account in 1 h**, the account is locked for 15 min, `ADMIN_SUPER` is alerted, and the event is audited. Failed-attempt counters per IP sit at the edge (cloud WAF rate-based rule on `admin.` `/api/v1/auth/*`) and in the app. |
 | Second factor | **TOTP mandatory** for every admin, enrolled at first login; the account can do nothing else until enrolment is complete. |
 
 ### 3.2 TOTP (RFC 6238)
@@ -248,10 +248,10 @@ sequenceDiagram
 
 ### 3.3 Provisioning, reset, offboarding
 
-1. **Bootstrap:** the first `ADMIN_SUPER` is created by a one-time server CLI command (`rovo admin bootstrap --email …`). It refuses to run if any `ADMIN_SUPER` exists, prints a one-time setup link (24 h TTL), and writes an audit event. There is no seeded default credential.
+1. **Bootstrap:** the first `ADMIN_SUPER` is created by a one-time CLI command (`rovo admin bootstrap --email …`). In production it runs as a one-off task (e.g. ECS RunTask / Cloud Run job) started by a named human through SSO, so the cloud audit log (CloudTrail / Cloud Audit Logs) records who ran it. It refuses to run if any `ADMIN_SUPER` exists, delivers a one-time setup link (24 h TTL) to the given email (never to stdout/logs in prod), and writes an audit event. There is no seeded default credential.
 2. **Provisioning:** only `ADMIN_SUPER` creates admin users (email, display name, roles, city scope). This is an **admin role grant, so it goes through maker-checker** (§6.5). Once approved, the system emails a one-time **setup link** (random 256-bit token, hashed in DB, 24 h TTL, single use). The invitee sets a password, enrols TOTP and saves recovery codes. **No self-signup endpoint exists on the admin audience.**
 3. **Password reset:** a "forgot password" email link (30 min, single use). The reset requires a current TOTP code (or a recovery code). The response is identical for unknown emails. A completed reset revokes all sessions.
-4. **Offboarding:** "deactivate" revokes all sessions immediately (admin requests check session state uncached, AUTH-D05), revokes role assignments, and is audited. Accounts with no login for 60 days are auto-disabled, and `ADMIN_SUPER` gets a monthly access-review report (19 SEC-0xx).
+4. **Offboarding:** "deactivate" revokes all sessions immediately (admin requests check session state uncached, AUTH-D05), revokes role assignments, and is audited. Accounts with no login for 60 days are auto-disabled, and `ADMIN_SUPER` gets a monthly access-review report (19 SEC-024).
 
 ### 3.4 Sessions, timeouts and step-up
 
@@ -273,15 +273,15 @@ NIST SP 800-63B-4 AAL2 guidance is ≤ 24 h overall and ≤ 1 h inactivity; admi
 
 ### 3.5 Network restrictions for the admin console
 
-- **Option A (recommended V1):** put `admin.rovo.in` behind **Cloudflare Access (Zero Trust)** with one-time-PIN-to-work-email or Google Workspace IdP as an *outer* gate, keeping rovo's own password+TOTP as the inner gate. The Zero Trust free plan is commonly cited as covering up to 50 users `[ASSUMPTION — verify current Cloudflare Zero Trust free-plan seat limit; official plan page did not state it on 2026-10-04]`. The origin must verify the `Cf-Access-Jwt-Assertion` header (signature + `aud`), otherwise Access can be bypassed by hitting the origin directly.
-- **Option B:** optional **IP allowlist** per admin account or role (`admin_ip_allowlist` CIDRs), checked in-app using `CF-Connecting-IP`. This is trustworthy **only** because the origin accepts traffic solely from Cloudflare (Authenticated Origin Pulls / Cloudflare-IP firewall, see 22). One of the 5 free-plan WAF custom rules can also enforce it at the edge.
+- **Option A (recommended V1): an identity-aware proxy as an outer gate** in front of `admin.rovo.in`, tied to the operator's workforce IdP (Google Workspace / Microsoft Entra / IAM Identity Center) with its own MFA. Examples: AWS Verified Access, Google Cloud IAP (with an external Application Load Balancer), or Cloudflare Access if Cloudflare fronts the zone. rovo's own password + TOTP stays as the inner gate, so an attacker needs two independent sets of factors. The API must **verify the proxy's signed identity header** (e.g. IAP `x-goog-iap-jwt-assertion`, Verified Access `x-amzn-ava-user-context`, `Cf-Access-Jwt-Assertion`) for signature and audience. The admin origin must be reachable **only** through the proxy (private ALB / security-group or serverless NEG restriction), otherwise the gate can be bypassed `[OPEN — DevOps picks per cloud; cost check in 25]`.
+- **Option B (minimum):** a **WAF IP-set allowlist** rule on the admin host (AWS WAF IP set / Cloud Armor rule) plus an optional in-app per-account allowlist (`admin_ip_allowlist` CIDRs). The in-app check uses the client IP derived only from the **trusted proxy chain** (CDN/LB-appended `X-Forwarded-For` hops counted from the right; never the left-most, client-controlled value).
 - Admin console sends `X-Frame-Options: DENY`, strict CSP, `Cache-Control: no-store`, and `Referrer-Policy: no-referrer`.
 
 ---
 
 ## 4. Tokens, sessions, cookies, CSRF, CORS, SSE
 
-### 4.1 Host topology (decision AUTH-D03, challenge to P7)
+### 4.1 Host topology (decision AUTH-D03, refines P7)
 
 | Host | Serves | API base | Cookie jar |
 |---|---|---|---|
@@ -290,13 +290,21 @@ NIST SP 800-63B-4 AAL2 guidance is ≤ 24 h overall and ≤ 1 h inactivity; admi
 | `admin.rovo.in` | Admin SPA | `https://admin.rovo.in/api/v1/…` | admin session cookies, host-only |
 | `api.rovo.in` | **Bearer-only** API for future native apps; **payment webhooks** `/webhooks/*` | `https://api.rovo.in/v1/…` | **No cookies accepted** (cookie auth disabled on this host) |
 
-All four hosts are proxied by Cloudflare to Caddy on the VM. Caddy routes `/api/*` to the Go API (setting `X-Rovo-Audience` from the host, overwriting any client-supplied value) and serves the SPA's static build for everything else. Hashed assets get `Cache-Control: public, max-age=31536000, immutable`, so Cloudflare caches them at the edge, keeping most CDN benefit with **no second origin**.
+**Production routing (cloud-agnostic, examples in brackets):**
+- Each app host is one **CDN distribution** (CloudFront / Cloud CDN on a global external Application LB / Azure Front Door) with **two origins**:
+  1. the private static bucket for the SPA build (S3 with Origin Access Control / GCS backend bucket); default behaviour, long-cache hashed assets;
+  2. the **API load balancer** (ALB / regional LB → managed containers) for path `/api/*`, **caching disabled**, all cookies and the needed headers forwarded.
+- The CDN or LB adds `X-Rovo-Audience` from the host, overwriting any client-supplied value (CloudFront origin custom header / LB custom request header). The API also cross-checks `Host`.
+- The API LB accepts traffic **only from the CDN**: CloudFront managed prefix list in the ALB security group **plus** a secret origin-verify header rotated via the secrets manager, or the GCP LB serving directly. This stops WAF/CDN bypass.
+- Hashed assets get `Cache-Control: public, max-age=31536000, immutable`; `index.html` gets `no-cache`. Authenticated `/api/*` responses are never cached (`Cache-Control: no-store` plus CDN behaviour with caching disabled).
+- **Local dev:** Vite dev server proxy `/api` → API container gives the same same-origin shape.
+- If Cloudflare is put in front (allowed by P7), it proxies the same hostnames to the cloud CDN/LB. Cookie and CSRF design is unchanged.
 
-Why not Cloudflare Pages + `api.rovo.in` (baseline P7 reading)?
+Why not a shared `api.rovo.in` for all SPAs?
 - (a) All three apps would share one `api.rovo.in` cookie jar, so an XSS in the customer app could make credentialed same-site requests to admin endpoints while an admin is logged in in the same browser.
 - (b) CORS with credentials becomes mandatory and error-prone.
-- (c) Routing `/api/*` on a Pages host to the VM needs a Worker (request quotas, SSE through Workers) because Cloudflare **Free Origin Rules cannot override host/DNS**, only the destination port (Cloudflare docs, accessed 2026-10-04).
-- **Fallback** if the Frontend/DevOps architects keep Pages: use `api.rovo.in` with **distinct cookie names and `Path` scoping per audience** (`Path=/v1/admin` for admin cookies), a strict per-path CORS allowlist, and the same custom-header + Origin checks. Documented as a weaker but acceptable alternative.
+- (c) Path-based multi-origin routing is a standard CDN/LB feature on every hyperscaler, so same-origin costs nothing extra.
+- **Fallback** if Frontend/DevOps need a separate API host: use `api.rovo.in` with **distinct cookie names and `Path` scoping per audience** (`Path=/v1/admin` for admin cookies), a strict per-path CORS allowlist, and the same custom-header + Origin checks. Documented as a weaker but acceptable alternative.
 
 ### 4.2 Access token (JWT)
 
@@ -346,7 +354,7 @@ Why not Cloudflare Pages + `api.rovo.in` (baseline P7 reading)?
 | `rovo_did` | random device id (not a credential) | `Secure; Path=/; SameSite=Lax; Max-Age=2y`; not HttpOnly so the client can send it in telemetry `[OPEN]` |
 
 - `SameSite=Lax` is used for customer/partner access cookies so top-level navigations work: SMS deep links, and the **payment return URL** after the PA hosted checkout.
-- The PA may return via a cross-site **POST** form (Razorpay `callback_url` behaves this way `[ASSUMPTION — verify in 14]`). That POST carries no Lax cookies. Therefore the payment-return endpoint is **unauthenticated, idempotent and non-trusting**: it only redirects to `GET /orders/{id}/status`, and payment truth comes from webhooks and server-side fetch (19 §5).
+- The PA may return via a cross-site **POST** form (Razorpay `callback_url` behaves this way `[ASSUMPTION — verify in 14]`). That POST carries no Lax cookies. Therefore the payment-return endpoint is **unauthenticated, idempotent and non-trusting**: it only redirects to `GET /orders/{id}/status`, and payment truth comes from webhooks and server-side fetch (19 §6.5).
 - The refresh cookie is `Strict` and path-scoped, so it is never sent on cross-site navigations or to non-auth endpoints.
 
 ### 4.5 CSRF strategy (AUTH-D06)
@@ -365,7 +373,7 @@ Bearer-authenticated requests (`api.rovo.in`) are not CSRF-prone. The API **igno
 
 - App hosts: **no CORS headers emitted at all** (same-origin only). A preflight for `/api/*` returns 403.
 - `api.rovo.in`: no CORS (native apps don't need it). Webhook endpoints are server-to-server.
-- Never emit `Access-Control-Allow-Origin: *` with credentials, and never reflect `Origin`. A test (SEC-0xx) asserts the absence of `Access-Control-Allow-*` on every route.
+- Never emit `Access-Control-Allow-Origin: *` with credentials, and never reflect `Origin`. A test (SEC-034) asserts the absence of `Access-Control-Allow-*` on every route.
 
 ### 4.7 SSE authentication
 
@@ -376,8 +384,13 @@ Bearer-authenticated requests (`api.rovo.in`) are not CSRF-prone. The API **igno
   - `offers` is limited to the rider's own offers.
 - Events are published to per-principal channels after policy filtering. No broadcast topics carry PII.
 - **Lifetime:** the server closes the stream at access-token `exp` (≤ 10 min) with a final `event: reauth`. The client refreshes and reconnects with `Last-Event-ID`. Session revocation closes all streams for that `sid` immediately. Recommended client: fetch-based SSE (e.g. `@microsoft/fetch-event-source`) for control over refresh and backoff (see 17).
-- **Heartbeat** comment every 20 s. The Cloudflare proxy read timeout is 125 s on non-Enterprise plans (Cloudflare docs, accessed 2026-10-04).
-- **Connection caps:** 3 streams per session, 5 per user, 50 per IP (CGNAT), a global cap computed from VM file-descriptor and memory budget (e.g. 5,000) `[ASSUMPTION — 22 to size]`, and HTTP 429 with `Retry-After` beyond those. Idle subscriptions without any topic are dropped after 60 s.
+- **Heartbeat** comment every **15 s**, which stays below every idle timer in the path:
+  - CloudFront origin response timeout (default 30 s, applied between packets) — set the `/api/*` origin to 60 s;
+  - ALB idle timeout (default 60 s);
+  - Cloudflare's 125 s if in front.
+  - **No response-completion timeout** may be set on the `/api/*` behaviour, otherwise long-lived streams are cut. GCP LB backend-service timeout must likewise allow long streams `[ASSUMPTION — verify GCP semantics in 22]`.
+  - Sources: CloudFront and Cloudflare docs, accessed 2026-10-04.
+- **Connection caps:** 3 streams per session, 5 per user, 50 per IP (CGNAT), a per-replica cap computed from the task's file-descriptor and memory budget (e.g. 2,000 per replica), with autoscaling on connection count `[ASSUMPTION — 22 to size]`. Fan-out across replicas uses Postgres `LISTEN/NOTIFY` (or Redis pub/sub once P6's adapter is enabled), and HTTP 429 with `Retry-After` beyond those. Idle subscriptions without any topic are dropped after 60 s.
 
 ### 4.8 Native apps (later)
 
@@ -394,11 +407,12 @@ Bearer-authenticated requests (`api.rovo.in`) are not CSRF-prone. The API **igno
 
 ### 4.10 Signing-key management and rotation
 
-- Ed25519 private keys are delivered as SOPS-encrypted files (19 §7), mounted read-only into the API container and never stored in the DB.
+- Ed25519 private keys live in the **cloud secrets manager** (AWS Secrets Manager / GCP Secret Manager / Azure Key Vault secrets), encrypted under a KMS customer-managed key. They are injected into the API task at start (task-definition secret reference / Cloud Run secret), readable only by the API's workload identity, and never stored in the DB, image or repo.
+- **Option (V1.1, `[OPEN]`):** KMS-held asymmetric signing keys (non-exportable; sign calls only at token issuance, about one per refresh). Because **ES256 (P-256) is supported by every major KMS**, choosing this option switches the allowlist for those `kid`s to ES256. The `TokenSigner` interface keeps this a configuration change.
 - Keyset: `active` (signs) plus up to two `previous` (verify only). `kid` = first 8 bytes of SHA-256(pubkey), base64url.
 - **Scheduled rotation every 90 days:** add the new key as verify-only, deploy, promote it to active, then drop the old key after max access TTL + leeway (≥ 15 min).
 - **Emergency rotation:** remove the compromised key. All access tokens die within seconds, refresh tokens (DB) still work, and clients silently refresh. Separately, a global `sessions_not_before` timestamp can kill all refresh families if the DB or pepper is suspected compromised.
-- **JWKS:** `GET /internal/jwks.json` on the internal admin listener only (not routed by Caddy) for future internal verifiers. Public keys are not secret, but there is no external consumer in V1, so the endpoint is not exposed.
+- **JWKS:** `GET /internal/jwks.json` on the internal listener only (not routed by the CDN/LB) for future internal verifiers. Public keys are not secret, but there is no external consumer in V1, so the endpoint is not exposed.
 - **Peppers/HMAC keys** (`K_otp`, `K_phone`, `K_rc`) use the same versioned keyset pattern (`key_version` column stored alongside each HMAC).
 
 ---
@@ -509,7 +523,7 @@ Notes:
 
 ```mermaid
 flowchart LR
-  R[Request] --> A1[Caddy: sets X-Rovo-Audience from Host]
+  R[Request] --> A1[CDN/LB: routes /api/*, sets X-Rovo-Audience from Host]
   A1 --> M1[authn middleware<br/>verify JWT EdDSA, aud, session state]
   M1 --> M2[CSRF guard<br/>CrossOriginProtection + X-Rovo-Client]
   M2 --> M3[permission middleware<br/>x-rovo-permission vs roles]
@@ -556,7 +570,7 @@ flowchart LR
 ### 5.7 Audit logging
 
 - **Table `audit_events` (append-only):** `id` (UUIDv7), `occurred_at`, `actor_type` (`user|admin|system|provider_webhook`), `actor_id`, `actor_roles`, `session_id`, `request_id`, `ip` (stored; masked in UI), `user_agent_hash`, `action` (dot-namespaced), `resource_type`, `resource_id`, `city_id`, `outcome` (`success|denied|error`), `reason`, `approval_id`, `changes` (JSON diff with PII fields replaced by `"[redacted]"` or last-4), `prev_hash`, `hash`.
-- **Tamper evidence:** `hash = SHA-256(prev_hash ‖ canonical_json(row))` hash chain. A daily anchor (last hash + count) is written to an R2 bucket with a **bucket lock** retention rule (R2 bucket locks exist per Cloudflare docs, accessed 2026-10-04; plan availability `[ASSUMPTION — verify]`) and posted to the ops channel.
+- **Tamper evidence:** `hash = SHA-256(prev_hash ‖ canonical_json(row))` hash chain. A daily anchor (last hash + count) is written to an object-storage bucket with **WORM retention** (S3 Object Lock in compliance mode / GCS Bucket Lock / Azure immutable blob), held in the separate security/log-archive account or project, and posted to the ops channel.
 - **DB privileges:** the app role has `INSERT, SELECT` only. `UPDATE/DELETE/TRUNCATE` are revoked, and a trigger raises on update/delete. Partition drops for retention run only under the migration role (19 §7.1).
 - **Events logged (minimum):**
   - **Auth:** `auth.otp.requested` (phone HMAC only), `auth.otp.verified`, `auth.otp.failed`, `auth.otp.locked`, `auth.login`, `auth.logout`, `auth.refresh.reuse_detected`, `auth.session.revoked`, `auth.step_up`, `auth.phone_changed`, `auth.admin.password_failed`, `auth.admin.totp_failed`, `auth.admin.recovery_code_used`, `auth.admin.locked`, `auth.context_switched`.
@@ -589,14 +603,14 @@ flowchart LR
 
 ### 6.2 Storage and access
 
-- Uploads go to a **dedicated private R2 bucket `rovo-kyc`**, separate from the public `rovo-media` bucket used for menu and restaurant images.
+- Uploads go to a **dedicated private bucket `rovo-kyc-<env>`** in the India region. It has public access blocked at account and bucket level, default server-side encryption with a **KMS customer-managed key** (`kms-kyc`), versioning, and access logging / data-access audit logs. It is separate from the `rovo-media` bucket, which is served only through the CDN via origin access control, never public-read.
 - Upload flow: `POST /api/v1/kyc/uploads` returns a presigned PUT with conditions: content-type ∈ {`image/jpeg`, `image/png`, `application/pdf`}, size ≤ 5 MB, TTL 5 min, random object key.
 - The worker then:
   - (1) validates magic bytes;
   - (2) re-encodes images (strips EXIF/GPS);
   - (3) rejects PDFs with JavaScript, embedded files or encryption;
   - (4) scans with ClamAV (decision in 19 §6.10);
-  - (5) **encrypts with a per-object DEK** (AES-256-GCM, DEK wrapped by the KYC KEK);
+  - (5) **encrypts at the application layer with a per-object DEK** from KMS `GenerateDataKey` under `kms-kyc` (AES-256-GCM; wrapped DEK stored with the object). This sits on top of bucket SSE-KMS, so a leaked bucket credential or misconfigured bucket policy alone yields ciphertext, and every decrypt is a KMS call recorded in the cloud audit log;
   - (6) writes the final object and deletes the staging object.
 - **Viewing** goes through the API (`GET /api/v1/admin/kyc/{doc_id}/view`), which streams the decrypted file. No long-lived URLs. Responses carry `Cache-Control: no-store`, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`, and a sandboxing CSP for PDFs.
 - **If** a presigned GET is ever used (e.g. before app-layer encryption lands): TTL **60 s**, single object, `response-content-disposition=inline`, generated per view and audited.
@@ -645,7 +659,7 @@ flowchart LR
 - **Postgres RLS:** see §5.1.
 - **Impersonation:** §5.6.
 - **DPoP / mTLS sender-constrained tokens:** web cookies are already non-exportable by JS; revisit with native apps.
-- **Separate auth service / IdP** (Keycloak, Ory): one more stateful service on a single free VM. The auth module stays inside the monolith behind an interface, so an external IdP for **admins** (OIDC) can be swapped in later.
+- **Separate auth service / IdP** (Keycloak, Ory, Cognito, Identity Platform): one more stateful service and vendor coupling for little V1 gain. The auth module stays inside the monolith behind an interface, so an external IdP for **admins** (OIDC) can be swapped in later.
 
 ## 9. Open items
 
@@ -653,7 +667,7 @@ flowchart LR
 - `[OPEN]` WhatsApp OTP and voice OTP channel costs.
 - `[OPEN]` Account-merge policy after lost SIM.
 - `[OPEN]` Break-glass procedure.
-- `[OPEN]` Cloudflare Access for admin (free-plan seat limit verification).
+- `[OPEN]` Identity-aware proxy choice for the admin console (Verified Access / IAP / Cloudflare Access) and cost.
 - `[ASSUMPTION]` All refund/coupon thresholds.
 
 ## 10. Sources (accessed 2026-10-04)
@@ -662,16 +676,16 @@ flowchart LR
 - OWASP Password Storage Cheat Sheet (argon2id minimum m=19 MiB, t=2, p=1): https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
 - Go 1.25 release notes, `net/http.CrossOriginProtection`: https://go.dev/doc/go1.25
 - Cloudflare Turnstile plans (free: unlimited challenges, 20 widgets, 10 hostnames/widget): https://developers.cloudflare.com/turnstile/plans/
-- Cloudflare Origin Rules availability (Free: 10 rules, destination-port override only): https://developers.cloudflare.com/rules/origin-rules/
-- Cloudflare 524 / proxy read timeout 125 s: https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-524/
-- Cloudflare R2 bucket locks: https://developers.cloudflare.com/r2/buckets/bucket-locks/
+- Amazon CloudFront origin settings (response timeout default 30 s, applies between packets; optional response-completion timeout): https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesOrigin.html
+- Cloudflare 524 / proxy read timeout 125 s (only relevant if Cloudflare is put in front): https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-524/
 - DoT instruction: 24-hour SMS barring after SIM swap/replacement (27 Sep 2022): https://dotws.cdot.in/sites/default/files/SIM%20Exchange%2024%20Hours%20Barring%20formal%20instructions%2027092022.pdf ; news summary: https://telecomtalk.info/?p=623029
 - UIDAI masked Aadhaar FAQ: https://www.uidai.gov.in/283-faqs/aadhaar-online-services/e-aadhaar/1887-what-is-masked-aadhaar.html ; UIDAI Dos & Don'ts for OVSEs: https://www.uidai.gov.in/images/DosandDon_ts_for_Offline_Verification_Seeking_entities.pdf
 - RFC 6238 (TOTP), RFC 8037 (EdDSA in JOSE), RFC 9068 (JWT access-token profile `at+jwt`), RFC 9449 (DPoP), W3C WebOTP API — standards, not re-fetched.
 
 ## 11. Challenges to baseline (summary; full list in report)
 
-1. **P7 hosting of SPAs:** serve each SPA and its `/api` same-origin via Caddy behind Cloudflare, instead of Pages + a shared `api.` host (cookie-jar isolation, no CORS, simpler CSRF). Fallback documented in §4.1.
+1. **P7 hosting of SPAs (refinement, not reversal):** keep static SPAs on object storage + CDN, but give each app host a second CDN origin for `/api/*` → API load balancer, so the API is **same-origin per app** (cookie-jar isolation, no CORS, simpler CSRF). A shared `api.` host for browsers is the documented fallback (§4.1).
 2. **P9:** JWT-only sessions are insufficient for admin and partner. Add per-request server-side session checks (hybrid) and a 5-min admin access TTL.
-3. **P6:** auth/OTP rate limits must be durable (Postgres), not in-memory.
+3. **P6:** auth/OTP rate limits must be durable and shared across replicas (Postgres, or managed Redis when enabled), never in-memory only.
+5. **§4a production:** JWT signing keys and peppers live in the cloud secrets manager under KMS CMKs. KYC files get KMS-based envelope encryption on top of bucket SSE-KMS. The admin console sits behind an identity-aware proxy as an outer gate.
 4. **Roles:** add an internal `SYSTEM` principal; admins are separate identities; `RIDER` ⟂ `RESTAURANT_*`.

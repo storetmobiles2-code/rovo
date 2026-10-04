@@ -20,7 +20,7 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`.
 | 002 | Go for the backend; net/http ServeMux router | P1 | **Confirmed** (router: stdlib, not chi) |
 | 003 | REST + OpenAPI spec-first; oapi-codegen + openapi-typescript | P2 | **Confirmed**, with a 3.1 tooling gate |
 | 004 | No gRPC in V1 | P2 | **Confirmed** |
-| 005 | PostgreSQL 18 + PostGIS; pgx + sqlc; goose | P5 | **Confirmed** (PG 18, not 17) |
+| 005 | PostgreSQL 18 (or 17) + PostGIS; pgx + sqlc; goose | P5 | **Confirmed** (PG 18 preferred if the managed service supports it) |
 | 006 | Async: River-as-outbox | P4 | **Refined**: no separate outbox relay; River `InsertTx` is the outbox |
 | 007 | No Redis at launch; managed Redis by config later | P6 | **Confirmed** (decided) |
 | 008 | SSE for real-time | P3 | **Confirmed** (plus heartbeat and invalidation-hint rules) |
@@ -165,7 +165,7 @@ Hand-written (not generated) endpoints: `GET /v1/stream` (SSE) and `POST /webhoo
 | atlas | Declarative diffing, lint (destructive-change detection) | Larger tool. Some features are commercial. A declarative model can surprise reviewers. |
 | golang-migrate | Popular | Fewer features than goose. No Go migrations. |
 
-**Decision.** **PostgreSQL 18.x** (current 18.6; supported until Nov 2030; https://www.postgresql.org/support/versioning/, accessed 2026-10-04) with **PostGIS 3.x**. The baseline said "17+". We pick 18 because it is current, gives a longer support window and has native `uuidv7()` (ADR-019). Data access: **pgx v5 + sqlc**. One sqlc package per module, limited to owned tables. Migrations: **goose**, SQL-first, timestamped, embedded. River's own migrations run through `rivermigrate` inside `rovo migrate`. Optionally use `atlas migrate lint` in CI (free/OSS features only) as a destructive-change detector `[OPEN: DevOps]`.
+**Decision.** **PostgreSQL 18.x** (current 18.6; supported until Nov 2030; https://www.postgresql.org/support/versioning/, accessed 2026-10-04) with **PostGIS 3.x**, **provided the chosen managed Postgres service offers PG18 + PostGIS as GA at Phase 2 start**. Otherwise use **17.x** (supported until Nov 2029), as doc 22 currently plans for RDS. The baseline said "17+". 18 is preferred for its longer support window and native `uuidv7()` (ADR-019), but **no code may depend on PG18-only features**: IDs are app-generated, so the `uuidv7()` default is only used if available. Local, CI and prod must run the **same major version**. Data access: **pgx v5 + sqlc**. One sqlc package per module, limited to owned tables. Migrations: **goose**, SQL-first, timestamped, embedded. River's own migrations run through `rivermigrate` inside `rovo migrate`. Optionally use `atlas migrate lint` in CI (free/OSS features only) as a destructive-change detector `[OPEN: DevOps]`.
 
 **Consequences.** + SQL is reviewable, fast and explicit. − Contributors must be comfortable with SQL. − Expand/contract migration discipline is required for zero-downtime deploys (doc 21).
 
@@ -419,6 +419,8 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 - **Deploy flow:** CI builds multi-arch images once → pushes them to the cloud registry (and optionally GHCR for the open-source community) → auto-deploys to staging → production on an approved tag (GitHub environment protection), via OIDC (no long-lived keys). Migrations run first (expand/contract), then a rolling update of `api` and `worker`.
 - **Runtime contract for any platform:** listens on `$PORT`; `/healthz` (liveness) and `/readyz` (DB reachable, LISTEN connected, migrations at the expected version); SIGTERM → stop accepting, send `retry:` to SSE clients, drain within 25 s; logs as JSON to stdout; config only from env/files.
 
+**Current instantiation (doc 22):** AWS `ap-south-1`, ECS Fargate (ARM) behind ALB + CloudFront/WAF, RDS PostgreSQL, S3, Secrets Manager/KMS, with DR backups to `ap-south-2`.
+
 **Consequences.** + Production-grade availability, backups and security controls from managed services. + The same images flow from laptop to prod. − A real monthly cloud bill (DevOps estimates it in INR, doc 25). − Platform request-timeout and CPU-throttling behaviour must be validated for SSE and workers in staging.
 
 **Revisit when.** Cost or limits of the managed container service become a problem (then consider managed K8s), or multi-region becomes necessary.
@@ -461,7 +463,7 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 
 **Options.** `BIGSERIAL` (leaks volume, needs the DB round-trip, merges badly across cities later); UUIDv4 (random index inserts, B-tree bloat); **UUIDv7** (time-ordered, good locality); ULID (similar, non-standard type); Snowflake (needs worker IDs).
 
-**Decision.** **UUIDv7**, generated in the app (`github.com/google/uuid` `NewV7`, via `platform/idgen` for test determinism), stored as the native `uuid` type. On PG18, column defaults are also `uuidv7()` as a safety net (https://www.postgresql.org/docs/18/functions-uuid.html, accessed 2026-10-04). Human-facing **order code** `RV-XXXXXX`: 6 chars of Crockford base32 (≈ 1.07 billion space), randomly generated with a unique index and retry on collision. It is not derived from the UUID, to avoid leaking timing.
+**Decision.** **UUIDv7**, generated in the app (`github.com/google/uuid` `NewV7`, via `platform/idgen` for test determinism), stored as the native `uuid` type. On PG18 (if adopted, ADR-005), column defaults can also be `uuidv7()` as a safety net (https://www.postgresql.org/docs/18/functions-uuid.html, accessed 2026-10-04). Human-facing **order code** `RV-XXXXXX`: 6 chars of Crockford base32 (≈ 1.07 billion space), randomly generated with a unique index and retry on collision. It is not derived from the UUID, to avoid leaking timing.
 
 **Consequences.** + Sortable by creation time, so cursor pagination is easy. − UUIDv7 reveals creation time to anyone holding the ID (acceptable; IDs are not secrets and authorization is always checked).
 
@@ -513,7 +515,7 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 
 ---
 
-## ADR-024: CI/CD on GitHub Actions with images on GHCR
+## ADR-024: CI/CD on GitHub Actions with OIDC to the cloud
 
 **Context and decision.** P16 (as updated) is confirmed: GitHub Actions (free for public repos) runs lint, test, build, scan, boundary checks (doc 08 §4.3), OpenAPI drift and oasdiff, sqlc vet, migration lint, `tofu plan` on IaC changes, multi-arch image build and push to the cloud registry (and GHCR), auto-deploy to staging, and production deploy on an approved tag. **Cloud authentication via GitHub OIDC federation**, so there are no long-lived cloud keys in GitHub secrets. DevOps owns the details in doc 21. Supply chain: pin actions by SHA, Dependabot/Renovate, `govulncheck`, `pnpm audit`, SBOM (syft) and image scan (trivy or grype).
 
@@ -583,7 +585,7 @@ Rules:
 ## Appendix: challenges to the baseline (summary for the Lead Architect)
 
 1. **P4 refined:** River's transactional insert is the outbox. No custom relay (ADR-006).
-2. **P5 bumped:** PostgreSQL **18**, not "17+" (support window, native `uuidv7()`).
+2. **P5 clarified:** PostgreSQL **18 preferred, 17 acceptable**, matched to managed-service GA availability. No PG18-only code dependencies.
 3. **P7 app split:** `restaurant` + `rider` instead of a combined `partner` app (doc 17 F2, endorsed in ADR-009). Static hosting is object storage + CDN with same-origin `/api`.
 4. **P9 refined:** hybrid EdDSA JWT + server-side session checks for partner/admin, aligned with doc 12 (ADR-011).
 5. **P10 changed:** the PA is selected on the written UPI rate and launch offers (Razorpay 2% vs Cashfree 1.95% with a 0% launch allowance; 0%-UPI claims for PhonePe/Paytm unverified). Restaurant money should flow via PA **split settlement**, not collect-then-manual-payout, pending legal opinion (ADR-012, doc 14).

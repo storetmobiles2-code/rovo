@@ -1,31 +1,60 @@
-# 25 — Free Hosting Comparison & Recommendation
+# 25 — Hosting Comparison: Free Tiers (dev/preview) & Production Cloud
 
 | | |
 |---|---|
-| **Purpose** | Check the current (2026-10-04) free tiers for every hosting layer rovo needs, cite each one, score the options, and recommend a **primary** stack, a **fallback** stack and a **first paid step** stack, with a capacity check against V1 load. |
+| **Purpose** | (A) Check current free tiers for the **dev/preview/demo** environment and recommend a free stack for it. (B) Compare the three hyperscalers' **India regions** for **staging + production** and recommend one primary production cloud and one alternative, with monthly INR estimates at pilot scale and at 10× growth. |
 | **Owner** | DevOps Architect |
-| **Status** | Draft v1 |
-| **Depends on** | `00-planning-baseline.md` (P4–P6, P14–P17), `08-system-architecture.md` (runtime topology), `10-database-schema.md` (data volume drivers), `14-payment-architecture.md` (webhooks), `17-frontend-architecture.md` (static SPA/PWA build output) |
+| **Status** | Draft v1 (revised 2026-10-04 after user directive §4a) |
+| **Depends on** | `00-planning-baseline.md` (§4a, P4–P7, P14–P17), `08-system-architecture.md`, `10-database-schema.md` (data volumes), `14-payment-architecture.md` (webhooks), `17-frontend-architecture.md` |
 | **Feeds** | `21-cicd-strategy.md`, `22-deployment-architecture.md`, `23-backup-disaster-recovery.md`, `24-observability-strategy.md`, `29-production-readiness-checklist.md`, `30-risks-assumptions-decisions.md` |
 
-> **How to read citations.** `[Sn]` points to the source list in §11. Every source was fetched (or, where marked *search*, seen only in a search result) on **2026-10-04**. Free tiers change often and sometimes without notice (see the Oracle change in §2.1). **Check every number again on the day an account is created**, and again each quarter (§9.4).
-> Anything I could not confirm from a primary source is labelled **UNVERIFIED**.
+> **Scope change (user directive, baseline §4a, 2026-10-04).** Production and staging run on a **standard hyperscaler in an India region with managed services**. Free tiers and local Docker are only for **local / CI / dev-preview / demo**. Part A below is the free-tier research, now scoped to dev/preview. Part B is the production decision.
+>
+> **How to read citations.** `[Sn]` (free tiers) and `[Cn]` (production cloud) point to the source lists in §11 and §17. All were fetched (or, where marked *search*, seen only in a search result) on **2026-10-04**. For AWS, prices come from the **official AWS Price List API** offer files (publication dates shown). For Azure they come from the **Azure Retail Prices API**. For GCP they come from the official pricing pages' embedded per-region tables. Anything not confirmed from a primary source is labelled **UNVERIFIED**. INR uses **₹95/USD [ASSUMPTION]**. **Prices exclude 18% GST**, which applies to Indian-billed cloud services [LEGAL/ASSUMPTION].
 
 ---
 
 ## 0. Executive summary
 
-1. **Always-on compute is the deciding constraint.** rovo's `worker` runs River timers (45 s rider-offer expiry, 3-min restaurant-accept timeout), and the `api` keeps SSE connections open. Any platform that sleeps, scales to zero or throttles CPU between requests fails the golden flow. That rules out Render Free (spins down after 15 min [S12]), Koyeb Free (scales to zero after 1 h, Frankfurt/Washington only [S13]), Neon Free (compute suspends after 5 min and this "cannot be turned off" [S35]) and Cloud Run with request-based billing (CPU "only allocated during request processing" [S10]).
-2. **Oracle Cloud Always Free is still the only realistic $0, always-on, India-region VM, but it is now smaller.** Oracle's own docs give A1 Always Free as **1,500 OCPU-h + 9,000 GB-h per month, equal to 2 OCPU / 12 GB** for Always Free tenancies [S1]. That is half the old 4 OCPU / 24 GB. InfoQ reports the cut took effect on 2026-06-15 without announcement [S6]. Oracle's machine-readable price list (updated 2026-10-01) still shows the A1 free band as 0–3,000 OCPU-h and 0–18,000 GB-h [S4], so **whether Pay-As-You-Go tenancies keep 4/24 is [OPEN]**. Oracle has India regions in **Hyderabad (ap-hyderabad-1)** and **Mumbai (ap-mumbai-1)**, one availability domain each [S3]. Always Free resources exist **only in the home region**, which you choose at sign-up [S2].
-3. **PostGIS limits the managed-DB choices.** Supabase (Mumbai region, PostGIS) and Neon (PostGIS, Singapore but **no India region**) qualify. CockroachDB does not ("Not all PostGIS spatial functions are supported" [S43]). Prisma Postgres, Nile and Xata do not document PostGIS (**UNVERIFIED → excluded**).
-4. **New finding: the official `postgis/postgis` Docker image is amd64-only** (tag `17-3.5`, updated 2026-08-31 [S83]). Oracle A1 is ARM, so we must **build our own `postgres:17` + PGDG `postgresql-17-postgis-3` image** in CI, or use the community multi-arch `imresamu/postgis` [S84] (decision in `22`).
-5. **Recommendation**
-   - **Primary ($0/month):** Cloudflare Free (DNS, CDN, WAF, Tunnel, Access) + Cloudflare Workers Static Assets for the 3 SPAs + **one Oracle A1 VM in Hyderabad (2 OCPU/12 GB, 200 GB block)** running Docker Compose (api, worker, Postgres 17 + PostGIS, Alloy, cloudflared, backups) + R2 (public images, backups) + Oracle Object Storage Hyderabad (KYC docs, kept in India) + Backblaze B2 (second backup copy, Object Lock) + Grafana Cloud Free + Sentry Developer + UptimeRobot Free + GitHub Actions/GHCR (public repo).
-   - **Fallback (cold standby, $0 while idle, about ₹1,150–2,300/month when active):** the same Compose bundle rebuilt from IaC on a **DigitalOcean Bangalore (BLR1)** Droplet [S22, S23], or **AWS Lightsail Mumbai** [S21], restored from R2/B2 backups. No free managed combination works as a production fallback (§3.3).
-   - **First paid step (about ₹3,000–4,300/month):** DigitalOcean BLR1: Droplet 2–4 GB for api/worker plus **Managed PostgreSQL** (PostGIS supported [S25], daily backups + 7-day PITR [S26]) at $15.15/month [S24]. The Oracle free VM becomes staging and a warm DR target. A cheaper interim (₹0–2,650/month) is to upgrade Oracle to PAYG and pay for A1 above the free band (§7).
-6. **Baseline check:** **P6 (no Redis at V1) holds and is reinforced.** Upstash Free is 500K commands/month [S44], about 11 commands/minute, so it cannot serve rate limiting. **P17 partly holds.** Oracle is still the primary, but at half the size, with capacity, home-region and account-suspension risks. **The P17 managed-free fallback does not hold** (§3.3).
+**Production (Part B)**
+
+1. **Primary production cloud: AWS, Mumbai `ap-south-1`, with DR in Hyderabad `ap-south-2`.**
+   - ECS on **Fargate (ARM/Graviton)**: an always-on `api` service behind an ALB (SSE OK, idle timeout configurable 1–4000 s [C9]) and a separate always-on `worker` service. Fargate ARM in Mumbai costs $0.02383/vCPU-h and $0.00261/GB-h [C1].
+   - **RDS for PostgreSQL 17 with PostGIS 3.5.6** [C5], Multi-AZ. db.t4g.medium Multi-AZ is $0.167/h [C2].
+   - RDS **cross-Region automated backups Mumbai → Hyderabad are supported** [C6].
+   - S3 + **CloudFront flat-rate Pro ($15/mo, includes WAF)** [C12] for SPAs and images; AWS WAF on the ALB for the API [C10]; Secrets Manager ($0.40/secret [C8]); KMS ($1/key [C8]).
+   - Hyderabad offers the same Fargate, RDS and ElastiCache prices [C1, C2, C4].
+2. **Alternative: GCP `asia-south1` (Mumbai) with DR in `asia-south2` (Delhi).**
+   - Cloud Run with **instance-based billing** for `api` and a **Cloud Run worker pool** for `worker` [S9]; Cloud SQL PostgreSQL 17 + PostGIS 3.5.2 [C16].
+   - About 33% more expensive at pilot scale: ≈ ₹40,600 vs ₹30,600 (always-on Cloud Run vCPU ≈ $47/month vs Fargate ARM ≈ $17/month per vCPU; Cloud SQL HA ≈ $118/month for 1 vCPU) [S9, C15].
+   - It has the strongest startup credit offer ($2k pre-funded; $200k Seed–Series A [C20]).
+3. **Azure** (Central India) is viable: Container Apps with min replicas; PG Flexible with PostGIS 3.6.1 [C18]. However, **zone-redundant HA is not supported on Burstable** [C19], so HA starts at General Purpose (D2ds_v5 ≈ $183/month per node [C17]). That makes it the most expensive HA option at pilot scale.
+4. **AWS App Runner is closed to new customers.** AWS points to ECS Express Mode instead [C7], so App Runner is excluded.
+5. **Cost (prod only, excl. GST)**
+
+   | Configuration | ≈ USD/month | ≈ INR/month |
+   |---|---|---|
+   | AWS pilot, **lean** (Multi-AZ t4g.small; Cloudflare Free in front instead of AWS WAF, which §4a allows as optional; Grafana Free; Sentry Developer) | $178 | **₹16,900** |
+   | AWS pilot, **recommended** (Multi-AZ t4g.medium + AWS WAF + Grafana Pro + Sentry Team) | $320 | **₹30,600** |
+   | AWS staging (scaled down, stoppable) | $40–64 | ₹3,800–6,100 |
+   | AWS **10× growth** | $1,415 | **₹1.34 lakh** (before Savings Plans/RIs) |
+
+   Details are in §15. AWS Activate Founders gives **up to $5,000** in credits (initial $1,000) to self-funded startups [C21], roughly 3–5 months of lean pilot.
+
+**Dev / preview / demo (Part A)**
+
+6. Always-on compute decides this too (River timers, SSE). Render, Koyeb, Neon Free and Cloud Run request-based all sleep or throttle [S10, S12, S13, S35].
+   - **Recommended free preview stack:** Oracle Cloud Always Free A1 VM (Hyderabad; now **2 OCPU / 12 GB**, cut from 4/24 on 2026-06-15 [S1, S6]) running the same Docker Compose as local dev, + Cloudflare Free (Tunnel, Workers Static Assets) + R2 + Grafana Cloud Free + Sentry Developer.
+   - **Fallback:** demo on the AWS staging environment (stopped when idle) or a ₹1,150/month DO Bangalore droplet.
+7. **New finding:** the official `postgis/postgis` Docker image is **amd64-only** [S83]. Local/preview ARM hosts need our own `postgres:17` + PGDG PostGIS image (or `imresamu/postgis`, multi-arch [S84]). Production is unaffected because it uses managed RDS.
+8. **Baseline check:**
+   - **P6 (no Redis at V1) holds.** Free Redis tiers are tiny (Upstash 500K commands/month [S44]); in production, ElastiCache Valkey t4g.micro is $0.016/h [C4] when needed.
+   - **P17 is superseded as directed.** Oracle and other free tiers are now dev/preview only.
+   - **P15 decision:** Grafana Cloud (ap-south-1 region) is the production telemetry backend. CloudWatch is limited to AWS-vended metrics and alarms, because CloudWatch custom metrics at $0.30/metric-month [C11] make an OTel metrics pipeline about 10× costlier (see `24`).
 
 ---
+
+# Part A — Free tiers for local / CI / dev-preview / demo
 
 ## 1. Requirements recap (from baseline)
 
@@ -50,8 +79,8 @@
 
 | Provider / tier | Free resources (verified) | Always-on? | India / SG region | Card | Key terms & risks | Verdict |
 |---|---|---|---|---|---|---|
-| **Oracle Cloud Always Free – Ampere A1** | 1,500 OCPU-h + 9,000 GB-h/month = **2 OCPU / 12 GB** for Always Free tenancies; 1–2 A1 instances; **200 GB** block storage total (boot + block); 5 volume backups; **10 TB/month** outbound; 2× AMD E2.1.Micro (1/8 OCPU, 1 GB) [S1] | **Yes** (normal VM) | **Hyderabad, Mumbai** (1 AD each); also Singapore ×2 [S3]. Always Free only in the **home region**, chosen at sign-up [S2] | Required for sign-up; "not charged unless you upgrade" [S2] | **Idle reclamation**: instance is idle if over 7 days CPU p95 < 20% **and** network < 20% **and** memory < 20% (A1) [S1]. Allowance cut from 4/24 to 2/12, effective 2026-06-15, no notice [S6, S7]. A1 capacity is "out of host capacity" in busy regions [S1]. Community reports of tenancies disabled without warning [S8 *search*]. Commercial use on Always Free: **UNVERIFIED** (Oracle T&Cs not fetched) [LEGAL] | **Primary** |
-| Oracle PAYG (upgraded tenancy) | Price list free band: A1 0–3,000 OCPU-h, 0–18,000 GB-h; then **$0.01/OCPU-h, $0.0015/GB-h**; APAC egress free to 10,240 GB then $0.025/GB [S4]. Compute pricing page also says "first 3K OCPU-hrs and first 18K GB-hrs each month is free" [S5] | Yes | Same | Yes | Docs [S1] say 2/12 for "Always Free tenancies". Price list [S4, S5] still says 3,000/18,000. **Which applies to PAYG is [OPEN]**. Exemption of PAYG from idle reclamation: **UNVERIFIED** (docs only say "Idle Always Free compute instances may be reclaimed") | **Recommended upgrade with a budget alert** (§9) |
+| **Oracle Cloud Always Free – Ampere A1** | 1,500 OCPU-h + 9,000 GB-h/month = **2 OCPU / 12 GB** for Always Free tenancies; 1–2 A1 instances; **200 GB** block storage total (boot + block); 5 volume backups; **10 TB/month** outbound; 2× AMD E2.1.Micro (1/8 OCPU, 1 GB) [S1] | **Yes** (normal VM) | **Hyderabad, Mumbai** (1 AD each); also Singapore ×2 [S3]. Always Free only in the **home region**, chosen at sign-up [S2] | Required for sign-up; "not charged unless you upgrade" [S2] | **Idle reclamation**: instance is idle if over 7 days CPU p95 < 20% **and** network < 20% **and** memory < 20% (A1) [S1]. Allowance cut from 4/24 to 2/12, effective 2026-06-15, no notice [S6, S7]. A1 capacity is "out of host capacity" in busy regions [S1]. Community reports of tenancies disabled without warning [S8 *search*]. Commercial use on Always Free: **UNVERIFIED** (Oracle T&Cs not fetched) [LEGAL] | **Preview primary** |
+| Oracle PAYG (upgraded tenancy) | Price list free band: A1 0–3,000 OCPU-h, 0–18,000 GB-h; then **$0.01/OCPU-h, $0.0015/GB-h**; APAC egress free to 10,240 GB then $0.025/GB [S4]. Compute pricing page also says "first 3K OCPU-hrs and first 18K GB-hrs each month is free" [S5] | Yes | Same | Yes | Docs [S1] say 2/12 for "Always Free tenancies". Price list [S4, S5] still says 3,000/18,000. **Which applies to PAYG is [OPEN]**. Exemption of PAYG from idle reclamation: **UNVERIFIED** (docs only say "Idle Always Free compute instances may be reclaimed") | Optional for preview (adds card + budget alert) |
 | Google Cloud Run (asia-south1 Mumbai = Tier 1 [S9]) | Instance-based: 240,000 vCPU-s + 450,000 GiB-s/month; request-based: 180,000 vCPU-s + 360,000 GiB-s + 2M requests [S9] | **No** under request-based billing: "CPU is only allocated during request processing" [S10]. Instance-based + min-instances keeps CPU, but 240k vCPU-s ≈ **66.7 vCPU-h ≈ 9% of a month** | Mumbai, Delhi, Singapore [S9] | Yes (billing account) | Google's own example: a 1 vCPU/512 MiB worker pool running all month costs **$11.61** (europe-west1) [S9]. Free tier is a spending discount at Tier 1 pricing [S9] | Paid option only |
 | GCP Compute e2-micro Always Free | 1 non-preemptible e2-micro/month, 30 GB-month disk, 1 GB egress from North America [S11] | Yes | **US only** (us-west1, us-central1, us-east1) [S11] | Yes | 1 GB RAM (e2-micro), US latency (about 250 ms RTT [ASSUMPTION]) | Reject (latency, RAM) |
 | Render Free web service | 750 instance-h/month; spins down after **15 min** with no inbound traffic, about 1 min to spin up; no persistent disk; free Postgres **expires after 30 days** [S12] | **No** | — | No | May suspend for high outbound traffic [S12] | Reject |
@@ -62,7 +91,7 @@
 | AWS Free Tier (post-July-2025 model) | $100 credit + up to $100 more; Free plan ends after **6 months** or when credits run out [S19, S20] | Yes while credits last | Mumbai, Hyderabad (AWS regions) | Yes | "The account closes on its own 6 months after you open it" (Free plan) [S20] | Reject for long-term; fine for experiments |
 | Azure free account | 12-month free services + always-free services [S29]; specific VM/PG quotas **UNVERIFIED** (page is JS-rendered) | Yes for 12 months (UNVERIFIED) | Central/South/West India | Yes | Time-limited | Not evaluated further |
 
-### 2.2 Low-cost paid reference (fallback and first paid step)
+### 2.2 Low-cost paid VM reference (preview fallback only)
 
 | Provider | Plan | Specs | USD/month | ≈ INR/month* | Region | Source |
 |---|---|---|---|---|---|---|
@@ -84,8 +113,8 @@
 
 | Option | Free limits (verified) | PostGIS | Region | Sleep / cold start | Backups / PITR (free) | Connections / River fit | Verdict |
 |---|---|---|---|---|---|---|---|
-| **Self-hosted on Oracle A1** (Docker) | Bounded by the VM: about 4 GB RAM for PG, up to about 100 GB block volume | Yes (custom ARM image, §0.4) | Hyderabad | None | **We build it**: pgBackRest → R2 + pg_dump → B2 (`23`) | Unlimited; LISTEN/NOTIFY works | **Primary** |
-| Supabase Free | 2 active projects; **500 MB DB**; Nano: shared CPU, 0.5 GB RAM, 60 direct connections, 200 pooler clients; 5 GB egress; 1 GB file storage [S30, S34] | Yes, install into `extensions` schema [S32] | **Mumbai (ap-south-1)**, Singapore [S31] | "Free projects are **paused after 1 week of inactivity**" [S30] | **No backups, no PITR** on Free [S30] | Direct connection is IPv6 unless you buy the IPv4 add-on; shared pooler is IPv4. **Transaction mode breaks LISTEN/NOTIFY** and prepared statements, so River must use **session mode (5432)** or direct [S33] | Best managed fallback, but 500 MB and no backups make it a pilot-only stopgap |
+| **Self-hosted on Oracle A1** (Docker) | Bounded by the VM: about 4 GB RAM for PG, up to about 100 GB block volume | Yes (custom ARM image, §0 item 7) | Hyderabad | None | Optional nightly `pg_dump` to R2 (preview data is disposable) | Unlimited; LISTEN/NOTIFY works | **Preview primary** |
+| Supabase Free | 2 active projects; **500 MB DB**; Nano: shared CPU, 0.5 GB RAM, 60 direct connections, 200 pooler clients; 5 GB egress; 1 GB file storage [S30, S34] | Yes, install into `extensions` schema [S32] | **Mumbai (ap-south-1)**, Singapore [S31] | "Free projects are **paused after 1 week of inactivity**" [S30] | **No backups, no PITR** on Free [S30] | Direct connection is IPv6 unless you buy the IPv4 add-on; shared pooler is IPv4. **Transaction mode breaks LISTEN/NOTIFY** and prepared statements, so River must use **session mode (5432)** or direct [S33] | Possible preview DB; 500 MB and no backups |
 | Neon Free | 100 CU-h/project/month; 1 GB/project; up to 2 CU; 6 h history; 5 GB egress [S35] | Yes (PG17: PostGIS 3.5.7) [S37] | **No India**; Singapore `aws-ap-southeast-1` [S36] | Scale-to-zero after 5 min, "cannot be turned off" on Free [S35] | 6 h history window [S35] | River polling keeps compute awake: 0.25 CU × 730 h = **182 CU-h > 100** | Reject for prod; useful for **CI preview branches** |
 | Aiven Free PostgreSQL | 1 CPU, 1 GB RAM, 1 GB storage; backups included; no card [S38] | Yes [S38] | "No choice of cloud provider or specific cloud region" (Developer tier text) [S39] | Powered off after inactivity, with prior notice [S39] | Included [S38] | — | Reject (1 GB, region not selectable, "not recommended for high-traffic production" [S38]) |
 | Prisma Postgres Free | 200k operations/month, 500 MB, 50 DBs [S40] | **Not documented (UNVERIFIED)** | UNVERIFIED | — | — | — | Reject |
@@ -93,13 +122,12 @@
 | Nile Free | 1 GB, 50M query tokens, 500 connections, always-on [S42] | **Not documented (UNVERIFIED)** | "All" regions (no list) | No cold start [S42] | — | — | Reject (PostGIS unverified) |
 | CockroachDB | — | **Partial**: "Not all PostGIS spatial functions are supported"; no KNN, no custom SRIDs [S43] | — | — | — | — | Reject (no PostGIS parity) |
 | DigitalOcean Managed PG (paid) | $15.15/mo, 1 GB RAM [S24] | Yes [S25] | Bangalore [S23] | None | Daily + PITR 7 days [S26] | — | **First paid step** |
-| Supabase Pro (paid) | $25/mo; 8 GB disk; $10 compute credit (Micro, 1 GB) [S30, S34] | Yes | Mumbai | None | PITR add-on **$100/mo per 7 days** [S30] | as above | Alternative first paid step |
+| Supabase Pro (paid) | $25/mo; 8 GB disk; $10 compute credit (Micro, 1 GB) [S30, S34] | Yes | Mumbai | None | PITR add-on **$100/mo per 7 days** [S30] | as above | Not needed (production uses hyperscaler, Part B) |
 
-### 3.2 Why self-hosted Postgres on the VM is acceptable for a pilot
+### 3.2 Why self-hosted Postgres on the VM is acceptable for preview (and not for production)
 
-- Same latency domain as the API (localhost socket), no connection-pooler surprises, no LISTEN/NOTIFY restrictions, and all extensions (PostGIS, `pg_stat_statements`) available.
-- The cost is operational: we own backups, upgrades and restore drills. `23` makes this explicit (pgBackRest continuous WAL archiving with RPO ≤ 5–15 min, monthly drills).
-- Exit path: `pg_dump`/pgBackRest restore into DO Managed PG or Supabase Pro takes hours, not weeks, because we use only standard Postgres + PostGIS.
+- For preview it is the same latency domain as the API, has no pooler surprises or LISTEN/NOTIFY restrictions, and gives all extensions. It is also **identical to local dev Compose**.
+- For production, §4a requires managed Postgres with automated backups, PITR and Multi-AZ. Self-hosting would make us own backups, failover and upgrades, so **production uses RDS (Part B)**.
 
 ### 3.3 Why the baseline's "managed free fallback" does not work
 
@@ -111,7 +139,7 @@
 | Supabase Free + Northflank Sandbox | Sandbox ToS: "should not be used for production applications" [S18] |
 | Supabase Free + Fly.io | No free tier for new orgs [S15] |
 
-**Conclusion:** the honest fallback is a **cold-standby recipe on a cheap paid India VM** that costs nothing until activated. It is rebuilt from the same Compose files plus the latest backup (see §6 and `23`).
+**Conclusion:** no free managed combination gives always-on India compute. For preview the fallback is a cheap paid VM or the stoppable AWS staging environment (§9.2).
 
 ---
 
@@ -144,7 +172,7 @@
 
 | Option | Free limits (verified) | Commercial use on free | Notes | Verdict |
 |---|---|---|---|---|
-| **Cloudflare Workers Static Assets** | "Requests to static assets are **free and unlimited**" [S54]; 20,000 files/version, 25 MiB/file [S55]. Worker script requests capped at 100,000/day on Free [S55] | Allowed (no restriction found) | Do **not** set `run_worker_first`, or requests count against the 100k/day quota and can return 429 [S54] | **Primary** |
+| **Cloudflare Workers Static Assets** | "Requests to static assets are **free and unlimited**" [S54]; 20,000 files/version, 25 MiB/file [S55]. Worker script requests capped at 100,000/day on Free [S55] | Allowed (no restriction found) | Do **not** set `run_worker_first`, or requests count against the 100k/day quota and can return 429 [S54] | **Preview primary** (prod: S3 + CloudFront, Part B) |
 | Cloudflare Pages | 500 builds/month, 1 concurrent, 20 min timeout, 20,000 files, 25 MiB/file, 100 projects [S53] | Allowed | Equivalent; we build in GitHub Actions and upload with `wrangler`, so the build quota is irrelevant | Equivalent alternative |
 | Vercel Hobby | 100 GB Fast Data Transfer, 1M invocations [S62] | **No**: "Hobby teams are restricted to non-commercial personal use only"; any payment processing counts as commercial [S62] | — | **Reject (ToS)** |
 | Netlify Free | **300 credits/month**; bandwidth = 20 credits/GB; production deploy = 15 credits [S63, S64] | Not stated | When credits run out, "**all of your web projects … are paused**" until the next cycle; Free cannot buy credits [S64]. 300 credits ≈ 15 GB with zero deploys | Reject (hard pause) |
@@ -181,7 +209,7 @@
 
 | Service | Free limits (verified) | Commercial on free | Verdict |
 |---|---|---|---|
-| **Grafana Cloud Free** | **10k active metric series**, **50 GB logs**, **50 GB traces**, 50 GB profiles, **14-day retention**, 3 active users, 3 IRM users, 100k synthetic API checks + 10k browser checks, 50k frontend sessions [S71, S72]. Regions incl. AWS **ap-south-1 (Mumbai)** and ap-southeast-1 [S73] (free-tier eligibility per region **UNVERIFIED**). Behaviour on overage and inactive-stack policy **UNVERIFIED** | No restriction found | **Primary** |
+| **Grafana Cloud Free** | **10k active metric series**, **50 GB logs**, **50 GB traces**, 50 GB profiles, **14-day retention**, 3 active users, 3 IRM users, 100k synthetic API checks + 10k browser checks, 50k frontend sessions [S71, S72]. Regions incl. AWS **ap-south-1 (Mumbai)** and ap-southeast-1 [S73] (free-tier eligibility per region **UNVERIFIED**). Behaviour on overage and inactive-stack policy **UNVERIFIED** | No restriction found | **Dev/preview; Pro tier also chosen for production telemetry (§14.6)** |
 | **Sentry Developer** | 5k errors, 5M spans, 50 replays, 1 cron monitor, 1 uptime monitor, **1 user**, 30-day lookback [S75] | No restriction found | **Use for FE + BE errors** (sampled) |
 | **UptimeRobot Free** | 50 monitors, **5-min interval**, 1 status page [S76]; ToS: "**available for any use, including commercial and business use**" [S77] | **Allowed** | **Use** (external uptime) |
 | Better Stack Free | 10 monitors, 30 s checks, 3 GB logs/3 days [S78] | Free tier "covers **personal projects**" [S78] | Reject (ToS) |
@@ -200,7 +228,7 @@
 
 ---
 
-## 8. Scoring matrix
+## 8. Scoring matrix (dev/preview hosting only — production is Part B)
 
 Weights reflect rovo's constraints. Scores run 1 (poor) to 5 (best). The weighted total is out of 5.
 
@@ -220,95 +248,61 @@ Calculation for A: 0.25×5 + 0.15×5 + 0.15×4 + 0.15×2 + 0.10×5 + 0.10×2 + 0
 
 ---
 
-## 9. Recommendation
+## 9. Dev / preview / demo recommendation
 
-### 9.1 Primary stack: "Free pilot" (₹0/month + domain)
+> Per §4a these stacks **must not carry real customers, real money or real KYC data**. Preview uses the **fake OTP and fake payment providers**, or PA **sandbox** keys, and synthetic seed data only.
+
+### 9.1 Primary preview stack (₹0/month + domain)
 
 ```mermaid
 flowchart LR
-  U[Users: customer / partner / admin browsers] -->|HTTPS| CF[Cloudflare Free<br/>DNS · CDN · WAF 5 rules · 1 rate-limit rule]
-  CF -->|app. partner. admin.| WSA[Workers Static Assets<br/>3 SPAs/PWAs]
-  CF -->|cdn.| R2P[(R2 public bucket<br/>menu images)]
-  CF -->|api.| TUN[Cloudflare Tunnel]
-  TUN -->|outbound-only| VM
-  subgraph VM[Oracle A1 · Hyderabad · 2 OCPU / 12 GB · Ubuntu LTS]
-    CFD[cloudflared] --> CAD[Caddy] --> API[rovo api]
-    WRK[rovo worker / River]
-    PG[(Postgres 17 + PostGIS)]
-    ALY[Grafana Alloy]
-    BKP[pgBackRest + dump jobs]
+  U[Stakeholder browsers] -->|HTTPS| CF[Cloudflare Free<br/>DNS · CDN · WAF · Access]
+  CF -->|preview-app. / preview-partner. / preview-admin.| WSA[Workers Static Assets]
+  CF -->|preview-api.| TUN[Cloudflare Tunnel]
+  TUN --> VM
+  subgraph VM[Oracle A1 · Hyderabad · 2 OCPU / 12 GB]
+    CFD[cloudflared] --> API[rovo api]
+    WRK[rovo worker]
+    PG[(Postgres 17 + PostGIS<br/>custom arm64 image)]
+    MINIO[(MinIO)]
+    MAIL[Mailpit]
+    LGTM[Grafana LGTM or Alloy→Grafana Cloud Free]
     API --> PG
     WRK --> PG
+    API --> MINIO
   end
-  API -->|presigned| OOS[(Oracle Object Storage HYD<br/>private KYC)]
-  BKP -->|WAL + base, encrypted| R2B[(R2 backup bucket<br/>bucket lock)]
-  BKP -->|nightly pg_dump, age-encrypted| B2[(Backblaze B2<br/>Object Lock)]
-  ALY -->|OTLP| GC[Grafana Cloud Free]
-  API -.errors.-> SEN[Sentry Developer]
-  UR[UptimeRobot Free] -.checks.-> CF
-  GH[GitHub Actions + GHCR] -->|images| VM
-  GH -->|wrangler deploy| WSA
+  GH[GitHub Actions] -->|images GHCR + SSH via Access| VM
 ```
 
 | Layer | Choice | Key verified limit |
 |---|---|---|
-| DNS/CDN/WAF | Cloudflare Free | 5 custom rules, 1 rate-limit rule, 125 s proxy read timeout [S56, S59, S60] |
-| Ingress | Cloudflare Tunnel (no inbound ports) + Access for admin/staging | Tunnel on all plans [S57]; Access ≤ 50 users [S61] |
-| Frontends | Workers Static Assets (×3) | Unlimited static requests [S54] |
-| Compute + DB | Oracle A1 Hyderabad, 2 OCPU/12 GB, 200 GB block | [S1, S3] |
-| Public images | R2 | 10 GB, 1M A / 10M B, free egress [S48] |
-| KYC docs | Oracle Object Storage (Hyderabad) | 20 GB / 50k req/month (Always-Free-only); 10 GB Std if PAYG [S1] |
-| Backups | R2 (pgBackRest) + B2 (dump) | B2 10 GB free, Object Lock free [S51, S52] |
-| Observability | Grafana Cloud Free + Sentry Developer + UptimeRobot Free | §7.3 |
-| CI/CD | GitHub Actions (public) + GHCR | Free standard runners incl. arm64 [S67, S68]; GHCR free [S69] |
+| Compute + DB | Oracle Always Free A1 (Hyderabad), **same `compose.yaml` as local dev** plus a `preview` override | 2 OCPU/12 GB, 200 GB block, 10 TB egress [S1]; idle-reclaim rule [S1] |
+| Ingress | Cloudflare Tunnel; **Cloudflare Access** in front of everything (stakeholders log in by email OTP) | Tunnel on all plans [S57]; Access ≤ 50 users [S61] |
+| Frontends | Workers Static Assets | Unlimited static requests [S54] |
+| Object storage | MinIO on the VM (mirrors local dev); R2 optional | R2 10 GB free [S48] |
+| Observability | Local LGTM container, or Grafana Cloud Free stack `rovo-dev` | 10k series / 50 GB logs [S71] |
+| Errors | Sentry Developer project `rovo-preview` | 5k errors, 1 user [S75] |
+| CI/registry | GitHub Actions + GHCR (public repo) | Free standard + arm64 runners [S67, S68]; GHCR free [S69] |
 
-**Mandatory mitigations for running real money on this stack:**
+Data-loss tolerance for preview is "rebuild from seed". Backups are optional (a nightly `pg_dump` to R2 for convenience only).
 
-1. **Upgrade the Oracle tenancy to PAYG** with a **budget alert at $1** and compartment quotas that cap A1 at the free band. This adds a card and a billing relationship, and in community experience reduces capacity and reclamation problems. Both effects are **UNVERIFIED**; the [OPEN] question is whether PAYG keeps the 3,000/18,000 band [S4].
-2. **Avoid idle reclamation by design:** reclamation needs CPU p95 **and** network **and** memory all below 20% over 7 days [S1]. Postgres `shared_buffers` + page cache + containers keep RAM use above 20% of 12 GB (> 2.4 GB) as a side effect. Alert if RAM use falls below 30% (`24`). Do **not** run "CPU-burner" scripts, which would likely breach the fair-use spirit.
-3. **Choose the home region carefully at sign-up:** Hyderabad first, Mumbai second. Always Free only exists in the home region [S2]. Retry A1 creation if "out of host capacity" [S1].
-4. **Assume the provider can disappear at any time.** Keep backups at **two other providers** (R2 + B2), keep IaC/Compose in git, and practise the cold-standby rebuild on DO/Lightsail (`23` §DR-2) quarterly. RTO target ≤ 4 h.
-5. **Payment truth lives at the PA** (Razorpay etc.). After any restore, reconcile against PA settlement reports (`14`, `23`).
-6. Run a **legal review** of the Oracle Cloud Services Agreement for commercial use on Always Free, and of DPDP cross-border transfer for backups in R2/B2 [LEGAL].
+### 9.2 Fallback preview options
 
-### 9.2 Fallback stack: "Cold standby on paid India VM" (₹0 idle; ≈ ₹1,150–2,300/month active)
+| Option | Cost | When |
+|---|---|---|
+| Spin up **AWS staging** (§15) for the demo and stop it afterwards | ≈ ₹100–200 per demo day | Oracle capacity unavailable or account issue |
+| DigitalOcean BLR1 droplet 2 GB with the same Compose | $12 ≈ ₹1,140/month [S22, S23] | Need a persistent preview without Oracle |
+| Laptop + `cloudflared` quick tunnel | ₹0 | Ad-hoc demo |
 
-| Layer | Fallback |
-|---|---|
-| Compute + DB | **DigitalOcean BLR1** Basic Droplet 2 GB ($12) or 4 GB ($24) [S22, S23]; alternative **Lightsail Mumbai** $12/$24 (half transfer in Mumbai) [S21]. The same Compose bundle with **amd64** images (that is why we build multi-arch, `21`) |
-| Everything else | Unchanged: Cloudflare, Workers Static Assets, R2, B2, Grafana, Sentry, UptimeRobot are all independent of Oracle |
-| KYC store | Restore from B2 mirror to R2 private bucket (`apac` hint) or DO Spaces (UNVERIFIED pricing) until Oracle access returns [LEGAL] |
-| Activation | `23` §DR-2 runbook: provision → restore → DNS/Tunnel cut-over; target ≤ 4 h |
+Oracle-specific risks (limit cut without notice [S6], capacity [S1], account suspension reports [S8]) are **acceptable for preview only**, because nothing of value lives there.
 
-**Free managed fallback (degraded, emergency only, not recommended):** Supabase Free (Mumbai, 500 MB, no backups) + api/worker on a GCP e2-micro (US, 1 GB). It technically runs but adds about 250 ms per DB round-trip [ASSUMPTION]. Use only if no card is available.
+### 9.3 Re-verification cadence
 
-### 9.3 First paid step: "Pilot+ (≈ ₹2,850–4,300/month)"
+Re-fetch every page in §11 and §17 before creating an account, then quarterly. A scheduled CI job (`21` §9) diffs key numbers and opens an issue on change.
 
-**When:** any of: DB > 40 GB or growth > 5 GB/month; sustained CPU > 60% at peak; > 3,000 orders/day; first Oracle incident (capacity, suspension, silent limit change); investor/partner requiring an SLA; team > 3 on-call people.
+## 10. Capacity model (V1 load): preview fit + production sizing input
 
-| Item | Plan | USD | INR (₹95) | Source |
-|---|---|---|---|---|
-| App VM | DO BLR1 Basic 4 GB / 2 vCPU | 24.00 | 2,280 | [S22] |
-| (or lean) | DO BLR1 Basic 2 GB / 1 vCPU | 12.00 | 1,140 | [S22] |
-| Database | DO Managed PostgreSQL 1 GB (PostGIS, daily + 7-day PITR) | 15.15 | 1,440 | [S24–S26] |
-| VM backups | DO weekly backups (20% of Droplet) | 2.40–4.80 | 230–455 | [S27] |
-| Staging + DR target | Oracle A1 Always Free (existing) | 0 | 0 | [S1] |
-| R2 above 10 GB | $0.015/GB-month | ≈ 0.15 | ≈ 15 | [S48] |
-| Observability | Grafana Free; Sentry Team $26 only when 5k errors/1 user hurts | 0 (→ 26) | 0 (→ 2,470) | [S71, S75] |
-| **Total** | | **≈ $30–44** | **≈ ₹2,850–4,200** (+ ₹2,470 if Sentry Team) | |
-
-**Cheaper interim (₹0–2,650):** stay on Oracle, upgrade to PAYG and grow A1 to 4 OCPU / 24 GB. If the PAYG free band is still 3,000/18,000 this costs $0, otherwise about $27.74/month [S4]. It does not reduce single-provider risk.
-
-**Later steps** (see `22` §Scaling): 2nd app VM + Valkey → managed PG HA → Kubernetes only when the K8s readiness checklist is met.
-
-### 9.4 Re-verification cadence
-
-- Before creating each account: re-fetch the pages in §11 and record the date in `30-risks-assumptions-decisions.md`.
-- Quarterly: a scripted check in CI (`21` §Scheduled jobs) that fetches the R2, Grafana, Oracle docs and price list and diffs key numbers. Open an issue on change.
-
----
-
-## 10. Capacity estimate (does the free stack fit?)
+> The load model below sizes **production** (Part B §15). It also shows that a free preview stack could technically carry pilot load, but per §4a it must not.
 
 ### 10.1 Load assumptions [ASSUMPTION]
 
@@ -380,7 +374,7 @@ flowchart LR
 | CI minutes | Public repo: unlimited standard runners [S67]. (If private: ≈ 60 PRs × 25 job-min + 40 main/tag builds × 20 = **2,300 min** > 2,000 [S67]) | Unlimited (public) | Yes (public only) |
 | Grafana users | Founders + 1 ops | 3 [S71] | Tight; use shared viewer and Telegram alerts |
 
-**Verdict: the primary free stack fits V1 high-scenario load for at least 12 months.** The first limits to hit are **R2/B2 10 GB (backups)** around months 9–12 (overage costs pennies), and **Grafana 3 users / Sentry 1 user** (people, not load).
+**Verdict:** a free stack *could* technically carry V1 load for about 12 months, but §4a forbids it for production. For production the same volumes drive the AWS sizing in §15 (RDS 50 GB gp3 at pilot, ≈ 21 GB/month logs, < 10k metric series, ≈ 25 GB/month traces). The first limits to hit are **R2/B2 10 GB (backups)** around months 9–12 (overage costs pennies), and **Grafana 3 users / Sentry 1 user** (people, not load).
 
 ---
 
@@ -476,14 +470,267 @@ flowchart LR
 
 ---
 
-## 12. Challenges to baseline
+
+---
+
+## 12. Why free tiers are not acceptable for production (risk summary)
+
+| Risk | Evidence | Impact on a real-money business |
+|---|---|---|
+| No SLA, no support | No SLA found for Cloudflare Free / Oracle Always Free; Sentry/Grafana free = community support [S71, S75] | Outage resolution depends on goodwill |
+| Silent limit changes | Oracle A1 halved without notice [S6, S7] | Capacity can disappear overnight |
+| Account suspension / reclamation | Oracle idle-reclaim rules [S1]; community reports of disabled tenancies [S8] | Total loss of the environment; payments mid-flight |
+| Commercial-use restrictions | Vercel Hobby, GitHub Pages, Better Stack Free, Northflank Sandbox forbid or discourage it [S18, S62, S65, S78] | ToS breach → takedown |
+| Hard pauses on quota exhaustion | Netlify pauses all projects [S64]; New Relic stops ingest [S81] | Self-inflicted outage at peak |
+| No managed PITR / Multi-AZ | Supabase Free: no backups [S30] | Data loss beyond RPO |
+
+Mitigations (backups to other providers, IaC rebuild, PA as source of truth) make free tiers fine for **preview**. They do not meet §4a for **production**.
+
+---
+
+# Part B — Production cloud comparison (staging + production)
+
+## 13. Production requirements (from baseline §4a)
+
+| Requirement | Implication for the platform |
+|---|---|
+| Always-on `worker` (River timers 45 s / 3 min) + SSE on `api` | Container service with min replicas ≥ 1 and **CPU allocated outside requests**; LB idle timeout > SSE heartbeat (send heartbeats every 20–25 s) |
+| Managed PostgreSQL 17 + **PostGIS**, automated backups + **PITR**, Multi-AZ (or documented single-AZ) | RDS / Cloud SQL / PG Flexible |
+| Private networking for DB/cache | VPC with private DB subnets; no public DB endpoint |
+| S3-compatible object storage, CDN, WAF/rate limiting | Native object storage + CDN + WAF |
+| Secrets manager + KMS | Native |
+| OIDC from GitHub Actions, no long-lived keys | Native OIDC federation (AWS IAM OIDC provider / GCP Workload Identity Federation / Azure federated credentials) |
+| India data residency (DPDP-friendly) [LEGAL] | Primary + DR region both in India |
+| Budgets & alerts | Native budgets |
+| Same images local → CI → staging → prod; IaC (Terraform/OpenTofu) | All three have mature Terraform providers |
+
+## 14. Service-by-service comparison (India regions)
+
+### 14.1 Region availability & DR pairing
+
+| | AWS | GCP | Azure |
+|---|---|---|---|
+| India regions | Mumbai `ap-south-1`, Hyderabad `ap-south-2` | Mumbai `asia-south1`, Delhi `asia-south2` [S9] | Central India (Pune), South India (Chennai), West India [ASSUMPTION: names per Azure portal] |
+| Core services in 2nd India region | **Verified via Price List API**: Fargate, RDS PostgreSQL (t4g same price), ElastiCache Valkey, WAF, Secrets Manager, KMS, S3 all have `ap-south-2` offer files [C1, C2, C4] | Cloud Run lists Delhi (asia-south2) [S9]; Cloud SQL Delhi **UNVERIFIED** | **UNVERIFIED** for South India |
+| Managed DB cross-region backup between India regions | **RDS cross-Region automated backups: Mumbai → Hyderabad and Hyderabad → Mumbai supported** (incl. Multi-AZ DB instances) [C6] | Cloud SQL cross-region replicas/backups: **UNVERIFIED** in this pass | Geo-redundant backup to paired region: **UNVERIFIED** |
+| Distance to Mahabubnagar | Hyderabad ≈ 100 km; Mumbai ≈ 600 km [ASSUMPTION] | Mumbai / Delhi | Pune / Chennai |
+
+### 14.2 Managed containers (always-on worker + SSE)
+
+| Option | Always-on worker? | SSE fit | Pricing (India, verified) | Notes |
+|---|---|---|---|---|
+| **AWS ECS on Fargate** | Yes: an ECS *service* with desiredCount ≥ 1, no request coupling | ALB idle timeout default 60 s, **range 1–4000 s** [C9] | **ARM**: $0.02383/vCPU-h, $0.00261/GB-h; x86: $0.04256/vCPU-h, $0.004655/GB-h (Mumbai, offer 2026-09-11) [C1] | Separate `api` and `worker` services; migrations as one-off `RunTask`. ECS Express Mode simplifies the ALB + service setup [C7] |
+| AWS App Runner | — | — | — | **Closed to new customers**; AWS recommends ECS Express Mode [C7] → **excluded** |
+| AWS EKS | Yes | Yes | Control-plane fee **UNVERIFIED** in this pass | Overkill for V1 (P14) |
+| **GCP Cloud Run services, instance-based billing** | Yes, with min instances; CPU allocated for the whole instance lifecycle [S10] | Yes | Tier 1 (asia-south1 is Tier 1 [S9]): **$0.000018/vCPU-s, $0.000002/GiB-s** ≈ **$47.30/vCPU-month**, $5.26/GiB-month [S9] | Request-based billing throttles CPU outside requests [S10], so `api` must use instance-based |
+| **GCP Cloud Run worker pools** | Yes (built for background work) | n/a | **$0.000011244/vCPU-s, $0.000001235/GiB-s** ≈ $29.55/vCPU-month [S9] | Ideal for `worker` |
+| GKE Autopilot | Yes | Yes | **UNVERIFIED** | Overkill for V1 |
+| **Azure Container Apps (consumption)** | Yes, min replicas ≥ 1; idle rate when vCPU < 0.01 and < 1,000 B/s [C22] | Yes (ingress timeouts **UNVERIFIED**) | Central India: active $0.000024/vCPU-s, idle $0.000003/vCPU-s, memory $0.000003/GiB-s; free grant 180k vCPU-s + 360k GiB-s + 2M req/month [C17, C22] | Good fit; worker billed mostly at idle rate |
+
+### 14.3 Managed PostgreSQL + PostGIS
+
+| | AWS RDS for PostgreSQL | GCP Cloud SQL for PostgreSQL | Azure DB for PostgreSQL Flexible |
+|---|---|---|---|
+| PostGIS on PG17 | **3.5.6** (latest minors) [C5] | **3.5.2** [C16] | **3.6.1** [C18] |
+| Smallest sensible prod size (Mumbai/Central India, on-demand) | db.t4g.small (2 vCPU burst, 2 GiB): **$0.042/h Single-AZ, $0.084/h Multi-AZ**; db.t4g.medium (4 GiB): **$0.084 / $0.167**; db.m7g.large (8 GiB): $0.240 / $0.479 [C2] | Enterprise: **$0.0496/vCPU-h, $0.0084/GiB-h; HA ×2** ($0.0991, $0.0168). db-f1-micro $9.20/mo, db-g1-small $30.66/mo (shared core) [C15] | Burstable B1ms **$0.0245/h**, B2s $0.098/h; General Purpose Ddsv5 **$0.125/vCore-h** (2 vCore $0.251/h) [C17] |
+| Storage | gp3 **$0.131/GB-mo** (SAZ), **$0.262** (MAZ) [C2] | SSD **$0.204/GiB-mo**, HA **$0.408** [C15] | **$0.131/GB-mo** [C17] |
+| Backup storage beyond free | $0.095/GB-mo [C2] | $0.096/GiB-mo [C15] | $0.095/GB-mo (LRS) [C17] |
+| HA | Multi-AZ DB instance (sync standby) | Regional (HA) instance | Zone-redundant HA, **not on Burstable** [C19]; zonal/zone-redundant SLA ≈ 99.95% / 99.99% [C19] |
+| PITR | Yes (automated backups) | Yes | Yes |
+| Cross-region DR in India | **Verified** Mumbai ↔ Hyderabad [C6] | UNVERIFIED | UNVERIFIED |
+| Cheapest **HA** config (≈/month) | t4g.small MAZ ≈ **$61** | 1 vCPU/3.75 GB HA ≈ **$118** | D2ds_v5 HA ≈ **$366** (2 × $183) |
+
+### 14.4 Cache (only when P6 triggers)
+
+| AWS ElastiCache | GCP Memorystore | Azure Cache/Managed Redis |
+|---|---|---|
+| **Valkey cache.t4g.micro $0.016/h (≈ $11.7/mo)**; t4g.small $0.0328/h; Redis OSS t4g.micro $0.020/h (Mumbai) [C4] | UNVERIFIED | UNVERIFIED |
+
+### 14.5 Object storage, CDN, WAF, secrets, KMS, LB, NAT
+
+| Item | AWS (Mumbai unless noted) | GCP | Azure |
+|---|---|---|---|
+| Object storage | S3 Standard **$0.025/GB-mo** (first 50 TB); PUT $0.005/1k; GET $0.004/10k [C13]; S3 API native | GCS (S3 interop via XML API + HMAC) **UNVERIFIED prices** | Blob Storage, **not S3-API compatible**, so it needs a second storage adapter (portability cost) |
+| CDN | CloudFront PAYG India: **$0.109/GB** (first 10 TB), HTTPS $0.012/10k requests [C14]. **Flat-rate plans:** Free $0 (1M req, 100 GB); **Pro $15** (10M req, 50 TB, **WAF 25 rules**, 50 GB S3); Business $200 (125M req, 50 TB, 50 WAF rules, bot mgmt); "no overage charges" [C12] | Cloud CDN **UNVERIFIED** | Front Door **UNVERIFIED** |
+| WAF | AWS WAF regional: **$5/web ACL, $1/rule, $0.60/M requests** [C10] | Cloud Armor **UNVERIFIED** | Front Door/App GW WAF **UNVERIFIED** |
+| Load balancer | ALB **$0.0239/h + $0.008/LCU-h** [C3] | External App LB: **$0.025/h first 5 forwarding rules**, $0.008/GiB processed in+out [C23] | UNVERIFIED |
+| NAT | NAT Gateway **$0.056/h + $0.056/GB** [C24]; public IPv4 **$0.005/h** per address [C25] | Cloud NAT UNVERIFIED | UNVERIFIED |
+| Secrets | Secrets Manager **$0.40/secret-month, $0.05/10k API** [C8] | Secret Manager: 6 active versions + 10k accesses free/month [C26] | Key Vault UNVERIFIED |
+| KMS | **$1/key-month**, $0.03/10k requests, 20k free requests/month [C8] | Cloud KMS UNVERIFIED | Key Vault keys UNVERIFIED |
+| Container registry | ECR **$0.10/GB-mo** [C27] | Artifact Registry UNVERIFIED | ACR UNVERIFIED |
+
+### 14.6 Observability (native vs Grafana Cloud)
+
+| | AWS native | GCP native | Grafana Cloud |
+|---|---|---|---|
+| Logs | CloudWatch Logs ingest **$0.67/GB** (Standard), $0.335 (IA), storage $0.03/GB-mo (Mumbai) [C11] | Cloud Logging **$0.50/GiB**, first **50 GiB/project/month free**, 30 days incl. [C28] | Free: 50 GB/mo, 14 d; Pro $19/mo platform fee + usage [S71] |
+| Metrics | CloudWatch custom metrics **$0.30/metric-month** (first 10k) [C11]; 5,000 OTel series ≈ **$1,500/month** | Managed Prometheus UNVERIFIED | Free: 10k active series [S71] |
+| Traces | X-Ray UNVERIFIED | Cloud Trace UNVERIFIED | Free: 50 GB/mo [S71] |
+| Alarms | $0.10/alarm-month (10 free) [C11] | — | Alerting incl.; Telegram/Discord/email contact points [S74] |
+| Region | In-region | In-region | Stack region **AWS ap-south-1 (Mumbai) available** [S73] |
+
+**Decision (P15):** **OTel → Grafana Cloud (Mumbai stack) for app logs, metrics and traces**, plus CloudWatch only for AWS-vended metrics and the few alarms that must fire even if Grafana is down (RDS storage, ALB 5xx, ECS task count). Rationale: custom-metric cost on CloudWatch, vendor neutrality (OTLP), and one pane for local LGTM ↔ prod. Details in `24`.
+
+### 14.7 Startup credits (all fetched 2026-10-04)
+
+| Program | Verified amounts | Eligibility (as stated) |
+|---|---|---|
+| **AWS Activate** | Founders: **up to $5,000** (initial $1,000) self-funded; Portfolio: **up to $200,000** via an Activate Provider [C21] | Pre-Series B, founded < 10 years, AWS Paid Tier account [C21] |
+| **Google for Startups Cloud Program** | Pre-funded: **$2,000** (1 year); Seed–Series A: **up to $200,000** (Y1 100% up to $100k, Y2 20% up to $100k), up to $350k for AI-first [C20] | Founded within 5 years; ≤ $5k prior credits [C20] |
+| **Microsoft for Startups** | "**up to $150,000** in credits" [C29] | Detailed eligibility **UNVERIFIED** |
+
+### 14.8 Portability / lock-in
+
+| Concern | AWS | GCP | Azure |
+|---|---|---|---|
+| App code coupling | None (PG wire, S3 API, OTLP, env vars) | None (GCS S3-interop for object storage, UNVERIFIED edge cases) | **Blob adapter needed** (non-S3 API) |
+| Runtime definition | ECS task definitions (proprietary JSON, thin) | Cloud Run (Knative-shaped YAML; most portable to K8s) | ACA (proprietary, K8s-based) |
+| Exit path | pg_dump / logical replication; images portable; Terraform rewrite of infra modules only | same | same |
+
+## 15. Cost estimates (on-demand, excl. GST; ₹95/USD)
+
+### 15.1 AWS: pilot (≈ 50 restaurants, 100 riders, 500–2,000 orders/day; load model §10)
+
+| Line item | Sizing | Calculation (verified unit prices) | USD/mo |
+|---|---|---|---|
+| ECS Fargate ARM — `api` | 2 tasks × 0.5 vCPU / 1 GB (2 AZs) | 2 × (0.5×0.02383 + 1×0.00261) × 730 [C1] | 21.21 |
+| ECS Fargate ARM — `worker` | 2 tasks × 0.25 vCPU / 0.5 GB | 2 × (0.25×0.02383 + 0.5×0.00261) × 730 [C1] | 10.60 |
+| Public IPv4 | 4 task ENIs + 2 ALB (pilot: tasks in public subnets, SG-locked, **no NAT**; see `22` §4.3) | 6 × 0.005 × 730 [C25] | 21.90 |
+| ALB | 1 ALB, ≈ 0.75 LCU avg | 0.0239×730 + 0.75×0.008×730 [C3] | 21.83 |
+| RDS PostgreSQL | **db.t4g.medium Multi-AZ** | 0.167 × 730 [C2] | 121.91 |
+| RDS storage | 50 GB gp3 Multi-AZ | 50 × 0.262 [C2] | 13.10 |
+| Cross-region backup copy (→ Hyderabad) | ≈ 15 GB | 15 × 0.095 [C2] + transfer (UNVERIFIED, ≈ $0.6) | 2.00 |
+| AWS WAF (on ALB) | 1 web ACL, 5 rules/rule groups, ≈ 40M req | 5 + 5 + 40 × 0.60 [C10] | 34.00 |
+| CloudFront flat-rate **Pro** | SPAs + public images (≈ 3–6M req/mo at pilot) | flat [C12] | 15.00 |
+| S3 | ≈ 15 GB (images, KYC, exports) + requests | 15 × 0.025 + ≈ $1 [C13] | 1.50 |
+| Secrets Manager + KMS | 10 secrets, 3 CMKs | 10×0.40 + 3×1 [C8] | 7.00 |
+| CloudWatch | 20 alarms (10 free) + ≈ 5 GB platform logs | 10×0.10 + 5×0.67 [C11] | 4.35 |
+| ECR | ≈ 3 GB | 3 × 0.10 [C27] | 0.30 |
+| Route 53 | 1 hosted zone + queries | UNVERIFIED | ≈ 1.00 |
+| Grafana Cloud **Pro** | 50 GB logs/traces, < 10k series | $19 platform fee [S71] | 19.00 |
+| Sentry **Team** | > 1 user needed for real on-call | $26/mo (annual) [S75] | 26.00 |
+| **Total: recommended pilot** | | | **≈ $320 → ₹30,600** |
+| **Lean pilot variant** | RDS **db.t4g.small Multi-AZ** + 30 GB (61.32 + 7.86); Cloudflare Free (optional per §4a) in front of ALB instead of AWS WAF (−34); Grafana Free and Sentry Developer (−45) | | **≈ $178 → ₹16,900** |
+
+**Staging (scaled-down copy, separate AWS account):** 1 `api` + 1 `worker` (0.25 vCPU/0.5 GB each) $10.60; 4 public IPv4 $14.60; ALB ≈ $18.50; RDS db.t4g.micro Single-AZ $15.33 + 20 GB $2.62; secrets ≈ $2. Always-on total is **≈ $64 → ₹6,100**. Scaling services to 0 and stopping RDS nights and weekends (scheduled) cuts this to **≈ $40 → ₹3,800**.
+
+**Credits:** AWS Activate Founders ($1,000 initial, up to $5,000 [C21]) covers about 3–5 months of lean pilot + staging.
+
+### 15.2 AWS: 10× growth (≈ 5,000–20,000 orders/day, ~1,000 riders, ~15k SSE connections)
+
+| Line item | Sizing | Calculation | USD/mo |
+|---|---|---|---|
+| Fargate ARM `api` | 4 × 1 vCPU / 2 GB | 4 × (0.02383 + 2×0.00261) × 730 | 84.83 |
+| Fargate ARM `worker` | 2 × 0.5 vCPU / 1 GB | | 21.21 |
+| NAT Gateway (tasks move to private subnets) | 2 AZ × NAT + 500 GB processed | 2×0.056×730 + 500×0.056 [C24] | 109.76 |
+| Public IPv4 (ALB/NAT) | 3 | 3 × 3.65 | 10.95 |
+| ALB | ≈ 6 LCU | 17.45 + 6×0.008×730 | 52.49 |
+| RDS | **db.m7g.large Multi-AZ** + 200 GB gp3 MAZ | 0.479×730 + 200×0.262 [C2] | 402.07 |
+| Cross-region backups | ≈ 150 GB | 150 × 0.095 | 14.25 |
+| ElastiCache Valkey (P6 trigger: > 1 api replica) | 2 × cache.t4g.small (primary + replica) | 2 × 0.0328 × 730 [C4] | 47.89 |
+| AWS WAF | ≈ 400M req | 5 + 10 + 400 × 0.60 [C10] | 255.00 |
+| CloudFront flat-rate **Business** | up to 125M req, 50 TB, WAF + bot mgmt | flat [C12] | 200.00 |
+| S3 + Secrets + KMS + ECR + CloudWatch + Route 53 | | estimates from §14.5 rates | ≈ 40.00 |
+| Grafana Cloud Pro usage (≈ 210 GB logs, ≈ 100 GB traces) | | $19 + usage **UNVERIFIED** [ASSUMPTION ≈ $130] | ≈ 150.00 |
+| Sentry Team | | [S75] | 26.00 |
+| **Total (on-demand)** | | | **≈ $1,415 → ₹1.34 lakh** |
+
+Levers (not priced here, **UNVERIFIED %**): RDS Reserved Instances and Compute Savings Plans for Fargate (typically 20–40%); moving WAF to CloudFront in front of ALB on a flat-rate plan; sampling logs harder. At 10×, consider a **read replica** for admin/reporting queries.
+
+### 15.3 GCP alternative (asia-south1)
+
+| Line item | Pilot | 10× |
+|---|---|---|
+| Cloud Run `api` instance-based | 2 × 1 vCPU / 1 GiB: 2 × 2,628,000 s × (0.000018 + 0.000002) − free tier ≈ **$99.9** [S9] | 4 × 2 vCPU / 2 GiB ≈ **$420** |
+| Cloud Run worker pool | 2 × 1 vCPU / 1 GiB − free tier ≈ **$60.4** [S9] | 2 × 1 vCPU ≈ $65.6 |
+| Cloud SQL Enterprise HA | 1 vCPU / 3.75 GB HA: 72.343 + 3.75×12.264 = **$118.3** + 50 GiB SSD HA × 0.408 = $20.4 [C15] | 2 vCPU / 8 GB HA $242.8 + 200 GiB × 0.408 = $81.6 → $324.4 |
+| Backups | ≈ $1.5 [C15] | ≈ $15 |
+| External App LB | $18.25 + data ≈ $2.4 [C23] | ≈ $50 |
+| Cloud Armor, Cloud CDN, Memorystore, KMS | **UNVERIFIED** ≈ $60 | **UNVERIFIED** ≈ $600 |
+| Observability (Grafana Pro + Sentry Team) | $45 | ≈ $175 |
+| **Total** | **≈ $427 → ₹40,600** | **≈ $1,650 → ₹1.57 lakh** |
+
+CUDs: Cloud Run instance-based 1-year $0.00001494/vCPU-s (−17%) [S9]; Cloud SQL 1-year $0.0372/vCPU-h (−25%) [C15].
+
+### 15.4 Azure (Central India), for completeness
+
+| Line item | Pilot |
+|---|---|
+| Container Apps `api` 2 × 0.5 vCPU / 1 GiB, active | 2 × (0.5×2,628,000×0.000024 + 1×2,628,000×0.000003) = **$78.8** [C17] |
+| Container Apps `worker` 2 × 0.25 vCPU / 0.5 GiB (conservatively all active) − free grant | $39.4 − $5.4 = **$34.0** [C17, C22] |
+| PG Flexible **HA** (General Purpose D2ds_v5 × 2) + 64 GB × 2 | 2 × 0.251 × 730 + 2 × 64 × 0.131 = **$383.2** [C17] (Burstable cannot do zone-redundant HA [C19]) |
+| Front Door/WAF, Key Vault, Log Analytics | **UNVERIFIED** ≈ $55+ |
+| **Total (HA)** | **≈ $551 → ₹52,300**; non-HA lean (B2s) ≈ $244 → ₹23,200 |
+
+## 16. Production recommendation
+
+### 16.1 Scoring (weights reflect §4a non-negotiables)
+
+| Criterion (weight) | AWS | GCP | Azure |
+|---|---|---|---|
+| Always-on containers + SSE fit (20%) | 5 (ECS services) | 5 (instance-based + worker pools) | 4 |
+| Managed PG + PostGIS + HA + PITR (20%) | 5 (t4g Multi-AZ, PostGIS 3.5.6) | 4 (HA from 1 dedicated vCPU) | 4 (HA needs GP tier) |
+| Pilot cost (20%) | 5 (≈ ₹17k–31k) | 3 (≈ ₹41k) | 2 (≈ ₹52k HA) |
+| India DR pair, verified (15%) | 5 (Mumbai↔Hyderabad backups verified [C6]) | 3 (Delhi; DB DR UNVERIFIED) | 3 (UNVERIFIED) |
+| Ops simplicity (10%) | 4 | 5 | 4 |
+| Portability (10%) | 4 (S3 native) | 4 | 3 (Blob ≠ S3) |
+| Credits (5%) | 4 ($1k–5k self-funded) | 5 ($2k / $200k) | 4 (≤ $150k, eligibility UNVERIFIED) |
+| **Weighted** | **4.75** | **4.00** | **3.35** |
+
+### 16.2 Decision
+
+- **Primary: AWS.** Production in `ap-south-1` (Mumbai, 2 AZs used), DR in `ap-south-2` (Hyderabad). ECS Fargate (ARM) `api` + `worker` services, RDS PostgreSQL 17 + PostGIS Multi-AZ, S3 + CloudFront (flat-rate Pro), AWS WAF on ALB, Secrets Manager, KMS, ECR, GitHub OIDC → IAM roles, OpenTofu. Topology in `22`, pipelines in `21`, DR in `23`, telemetry in `24`.
+  - **[OPEN]** Swapping primary/DR (Hyderabad primary is about 100 km from Mahabubnagar) is a valid choice with identical verified prices [C1, C2]. Mumbai is preferred for broader service/feature availability and capacity [ASSUMPTION]. Decide before the first `tofu apply`.
+- **Alternative: GCP** (`asia-south1` + `asia-south2`). Cloud Run instance-based `api` + worker pool `worker` + Cloud SQL HA. Choose it if Google for Startups Seed–Series A credits ($200k [C20]) are secured, since they would outweigh the about ₹10k/month premium.
+- **Pilot DB sizing decision:** Multi-AZ from day one (§4a non-negotiable). Lean = db.t4g.small MAZ; recommended = db.t4g.medium MAZ. Upgrade trigger: CPU credit balance trending to 0, or p95 query latency > 50 ms at peak.
+- **What we are not doing in V1:** EKS/GKE (no team capacity; P14), Aurora (cost floor; RDS is enough), multi-region active-active (single-city pilot), NAT Gateway at pilot (cost; tasks in public subnets with locked SGs, revisited at 10×).
+
+
+## 17. Production-cloud sources (all accessed 2026-10-04)
+
+| # | URL | What it verifies |
+|---|---|---|
+| C1 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECS/current/ap-south-1/index.json (pub. 2026-09-11); `/ap-south-2/` | Fargate Mumbai/Hyderabad: ARM $0.02383/vCPU-h, $0.00261/GB-h; x86 $0.04256, $0.004655 |
+| C2 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/ap-south-1/index.json (pub. 2026-10-01); `/ap-south-2/` | RDS PG t4g/m7g/r7g SAZ/MAZ hourly; gp3 $0.131/$0.262; backup $0.095 |
+| C3 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSELB/current/ap-south-1/index.json (pub. 2026-09-11) | ALB $0.0239/h, $0.008/LCU-h |
+| C4 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonElastiCache/current/ap-south-1/index.json; `/ap-south-2/` | Valkey t4g.micro $0.016/h, t4g.small $0.0328/h |
+| C5 | https://docs.aws.amazon.com/AmazonRDS/latest/PostgreSQLReleaseNotes/postgresql-extensions.html | PostGIS 3.5.6 on RDS PG17 |
+| C6 | https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReplicateBackups.html | Cross-Region automated backups Mumbai ↔ Hyderabad; Multi-AZ DB instances supported |
+| C7 | https://docs.aws.amazon.com/apprunner/latest/dg/apprunner-availability-change.html | App Runner closed to new customers; ECS Express Mode recommended |
+| C8 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSSecretsManager/current/ap-south-1/index.json; `/awskms/` | $0.40/secret; KMS $1/key, $0.03/10k, 20k free |
+| C9 | https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html | ALB idle timeout default 60 s, range 1–4000 s |
+| C10 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/awswaf/current/ap-south-1/index.json (pub. 2026-09-14) | WAF $5/ACL, $1/rule, $0.60/M req |
+| C11 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/ap-south-1/index.json (pub. 2026-09-22) | Logs $0.67/GB; metrics $0.30; alarms $0.10 |
+| C12 | https://aws.amazon.com/cloudfront/pricing/ | Flat-rate Free/Pro $15/Business $200/Premium $1,000 incl. WAF |
+| C13 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/ap-south-1/index.json (pub. 2026-09-28) | S3 $0.025/GB; request prices |
+| C14 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudFront/current/index.json | CloudFront India $0.109/GB first 10 TB; $0.012/10k HTTPS |
+| C15 | https://cloud.google.com/sql/pricing | Cloud SQL Mumbai: $0.0496/vCPU-h, $0.0084/GiB-h, HA ×2; SSD $0.204/$0.408; backups $0.096; f1-micro/g1-small; CUD rates |
+| C16 | https://docs.cloud.google.com/sql/docs/postgres/extensions | PostGIS 3.5.2 on Cloud SQL PG17 |
+| C17 | https://prices.azure.com/api/retail/prices (filters: Container Apps / PostgreSQL, `centralindia`) | ACA $0.000024 active / $0.000003 idle vCPU-s, $0.000003 GiB-s; PG B1ms $0.0245/h, D2ds_v5 $0.251/h, storage $0.131 |
+| C18 | https://learn.microsoft.com/en-us/azure/postgresql/extensions/concepts-extensions-versions | PostGIS 3.6.1 on Azure PG17 |
+| C19 | https://learn.microsoft.com/en-us/azure/postgresql/high-availability/concepts-high-availability | Zone-redundant HA not supported on Burstable; SLA 99.95%/99.99% |
+| C20 | https://cloud.google.com/startup/benefits | $2,000 pre-funded; up to $200k (Y1 100% ≤ $100k; Y2 20% ≤ $100k); $350k AI |
+| C21 | https://aws.amazon.com/startups/credits | Activate Founders up to $5,000 (initial $1,000); Portfolio up to $200,000 |
+| C22 | https://azure.microsoft.com/en-us/pricing/details/container-apps/ | Free grant 180k vCPU-s, 360k GiB-s, 2M req; active/idle thresholds |
+| C23 | https://cloud.google.com/vpc/network-pricing | LB forwarding rules $0.025/h (first 5); $0.008/GiB processed |
+| C24 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonEC2/current/ap-south-1/index.csv | NAT Gateway $0.056/h + $0.056/GB (Mumbai) |
+| C25 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonVPC/current/ap-south-1/index.json (pub. 2026-09-17) | Public IPv4 $0.005/h |
+| C26 | https://cloud.google.com/secret-manager/pricing | Free: 6 active versions, 10k accesses/month |
+| C27 | https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECR/current/ap-south-1/index.json | ECR $0.10/GB-mo |
+| C28 | https://cloud.google.com/stackdriver/pricing | Cloud Logging $0.50/GiB, 50 GiB/project free |
+| C29 | https://www.microsoft.com/en-us/startups | "up to $150,000 in credits" |
+
+---
+
+## 18. Challenges to baseline
 
 | Baseline item | Finding | Proposed change |
 |---|---|---|
-| P17 primary "Oracle Always Free ARM VM" | Holds, but at **2 OCPU / 12 GB** (not 4/24), with silent-change, capacity and suspension risks | Keep; add the mandatory mitigations in §9.1; size the Compose stack for 12 GB |
-| P17 fallback "managed free tiers" | **Breaks**: none give always-on India compute for free (§3.3) | Replace with "cold standby on paid India VM" (§9.2) |
-| P6 Redis not required | **Holds**; free Redis quotas far too small | Self-host Valkey when needed |
-| P14 Docker images | Official PostGIS image is **amd64-only** | Build our own multi-arch `rovo-postgres` image (`21`, `22`) |
-| P16 "Free for public repo" | Holds; also native arm64 runners free for public repos | Use native arm64 runners, not QEMU |
-| P15 Grafana + Sentry | Hold; Sentry 1 user, Grafana 3 users are the tight limits | Telegram alert routing; shared viewer account |
-| P7 static frontends | Holds; Cloudflare Workers Static Assets/Pages are free with commercial use allowed; Vercel Hobby and GitHub Pages forbid it | — |
+| §4a hyperscaler production | Adopted. **AWS Mumbai + Hyderabad DR** primary; GCP alternative | Record as ADR in `09` |
+| P6 Redis not required | **Holds.** Free Redis tiers are unusable; ElastiCache Valkey t4g.micro ≈ $11.7/mo when triggered [C4] | Trigger = 2nd `api` replica needing shared rate limits/SSE fan-out *beyond* Postgres LISTEN/NOTIFY, or measured need |
+| P14 multi-arch images | Holds; ARM Fargate is ≈ 44% cheaper per vCPU than x86 [C1]. Official `postgis/postgis` image is amd64-only [S83] (local/preview only) | Build `api`/`worker` for arm64+amd64; prod runs arm64 |
+| P15 observability | Cloud-native metrics are cost-prohibitive for OTel series [C11] | Grafana Cloud (Mumbai) for app telemetry; CloudWatch for vended metrics + last-resort alarms |
+| P16 registry | Use ECR for prod/staging (in-region, IAM-scoped) and GHCR for public/preview images | — |
+| P17 | Superseded. Oracle/Cloudflare free stack = **dev/preview only** | — |
+| App Runner (if anyone suggests it) | Closed to new customers [C7] | Use ECS (optionally Express Mode) |
+| Single-region assumption | RDS backups replicate cross-region Mumbai → Hyderabad [C6] | DR plan in `23` |

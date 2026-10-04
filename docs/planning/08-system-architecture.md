@@ -16,7 +16,7 @@ Tags: `[ASSUMPTION]` = believed true, must be validated; `[OPEN]` = needs a deci
 
 - **One Go binary** (`rovo`), three run modes: `rovo api` (HTTP + SSE), `rovo worker` (River jobs, schedulers, dispatch timers), `rovo migrate` (goose + River migrations, run as a one-off job before each deploy). The same OCI image (amd64 + arm64) runs on a laptop, in CI, in staging and in production.
 - **Environments (baseline §4a, user directive 2026-10-04):** *local* = Docker Compose on the developer machine with fakes for every paid provider. *Staging and production* = **managed services on a standard hyperscaler in an India region** (managed container runtime, managed PostgreSQL + PostGIS with PITR, object storage + CDN, secrets manager/KMS, WAF), provisioned with **Terraform/OpenTofu** (ADR-026). DevOps picks the specific cloud (docs 22/25). This document stays cloud-neutral: the application depends only on **standard interfaces** (ADR-025): Postgres wire protocol + PostGIS, S3-compatible object storage, Redis protocol (optional), OTLP, OCI images and env-var config with runtime-injected secrets.
-- **One PostgreSQL 18 + PostGIS database** is the only *required* stateful backend. It holds business data, the job queue (River), the event log, idempotency keys, sessions, rate-limit counters and the ledger. **No message broker.** **Redis is not required at launch.** Production can enable a managed Redis-compatible cache by configuration alone when a trigger in ADR-007 fires.
+- **One PostgreSQL (18 preferred, 17 acceptable; ADR-005) + PostGIS database** is the only *required* stateful backend. It holds business data, the job queue (River), the event log, idempotency keys, sessions, rate-limit counters and the ledger. **No message broker.** **Redis is not required at launch.** Production can enable a managed Redis-compatible cache by configuration alone when a trigger in ADR-007 fires.
 - **Four static PWAs** (customer, restaurant, rider, admin), built with Vite and served from object storage + CDN. Each app host proxies `/api/*` to the Go API (**same-origin API**, per docs 12 and 17), so there is no CORS and each app gets host-only cookies. Clients talk REST/JSON (OpenAPI 3.1 spec-first) and receive live updates via **SSE**. The baseline's combined `partner` app is split into `restaurant` + `rider` (doc 17 decision F2, endorsed in ADR-009).
 - **Modules communicate in-process** through Go interfaces (sync) and through **domain events persisted in the same transaction** as the state change, delivered by River jobs (async). No module reads or writes another module's tables.
 - **Real-time:** a state change commits → `pg_notify` (transactional, so it is delivered only on commit) → every API replica's SSE hub fans it out to subscribed clients. SSE messages are **invalidation hints plus small payloads**. REST is the source of truth, so a missed SSE message is harmless.
@@ -89,7 +89,7 @@ flowchart LR
 | `rovo api` | Go 1.27, net/http ServeMux, oapi-codegen strict server | Auth, REST, SSE, webhooks, presigned uploads | Horizontal tasks (stateless apart from live SSE connections) | none |
 | `rovo worker` | Go, River | Event fan-out, notifications, dispatch offers and expiry, payment polling, reconciliation, settlement statements, cleanups | Horizontal tasks (River coordinates via `SKIP LOCKED`; leader election for periodic jobs) | none |
 | `rovo migrate` | same image | goose + River migrations, run as a one-off task/job per deploy | — | none |
-| PostgreSQL + PostGIS | PG 18.x, PostGIS 3.x | System of record. Also the River queue, the LISTEN/NOTIFY bus, sessions, rate limits | Instance size → read replica | yes |
+| PostgreSQL + PostGIS | PG 18.x (or 17.x), PostGIS 3.x | System of record. Also the River queue, the LISTEN/NOTIFY bus, sessions, rate limits | Instance size → read replica | yes |
 | Object storage | S3-compatible API | Public media bucket (images), private docs bucket (KYC, invoices, exports) | n/a | yes |
 | Redis-compatible cache | Valkey/Redis protocol | **Optional; disabled at launch** (ADR-007). Enabled by config. | managed | ephemeral |
 | Edge | CDN + WAF + TLS | Static apps, `/api/*` path routing to the API, rate limiting, bot protection | managed | none |
@@ -113,7 +113,7 @@ flowchart TB
             WK1[rovo worker task 1..n<br/>always-on, no scale-to-zero]
             MIG[rovo migrate<br/>one-off task per release]
         end
-        PG[(Managed PostgreSQL 18 + PostGIS<br/>PITR, automated backups,<br/>Multi-AZ or single-AZ at pilot)]
+        PG[(Managed PostgreSQL + PostGIS<br/>PITR, automated backups,<br/>Multi-AZ or single-AZ at pilot)]
         CACHE[(Managed Redis-compatible cache<br/>NOT provisioned at launch)]
     end
 
@@ -137,6 +137,8 @@ flowchart TB
     REG -.images.-> RUNTIME
 ```
 
+At the time of writing, doc 22 instantiates this shape on **AWS `ap-south-1` (Mumbai), with DR backups to `ap-south-2` (Hyderabad)**: CloudFront + WAF, ALB, ECS Fargate (ARM) services for `api`/`worker`, RDS PostgreSQL, S3, Secrets Manager/KMS, with OTLP to Grafana Cloud. This document stays provider-neutral so the choice remains reversible (ADR-025).
+
 Requirements this shape places on DevOps (docs 22/25):
 - **Always-on compute** for both API (SSE) and worker (timers, River). No scale-to-zero in production. On Cloud Run this means min instances ≥ 1 with instance-based billing (CPU always allocated). On Container Apps it means min replicas ≥ 1.
 - **Long-lived HTTP streams:** LB/edge idle timeouts must exceed the 20 s SSE heartbeat. Any hard maximum request duration (for example a platform request timeout) only causes a client reconnect, which the design tolerates (§6.2).
@@ -152,7 +154,7 @@ flowchart LR
     DEV((Developer browser)) --> VITE[Vite dev servers<br/>customer :5173, restaurant :5174,<br/>rider :5175, admin :5176<br/>proxy /api → :8080]
     VITE --> API[rovo api :8080]
     subgraph Compose[docker compose: deploy/compose/compose.yaml]
-        PG[(postgis/postgis:18-3.x<br/>+ seed: Mahabubnagar city, zones,<br/>localities, demo restaurants/riders)]
+        PG[(Postgres + PostGIS, multi-arch image per doc 22<br/>same major as prod<br/>+ seed: Mahabubnagar city, zones,<br/>localities, demo restaurants/riders)]
         MINIO[(MinIO: S3 API :9000)]
         MAIL[Mailpit SMTP :1025 / UI :8025]
         LGTM[grafana/otel-lgtm<br/>OTLP :4317/:4318, UI :3000]
@@ -435,25 +437,25 @@ sequenceDiagram
     actor R as Restaurant PWA
 
     C->>API: POST /api/v1/quotes {cart, address_id, coupon}
-    API->>PG: read menu, zones, pricing config; insert quote (TTL 10 min)
+    API->>PG: read menu, zones, pricing config, insert quote (TTL 10 min)
     API-->>C: 201 quote {breakdown, total_paise, quote_id}
     C->>API: POST /api/v1/orders {quote_id, payment_method: ONLINE}<br/>Idempotency-Key: k1
-    API->>PG: BEGIN; insert idempotency_keys(k1, in_progress)
-    API->>PG: ValidateQuote, Reserve coupon,<br/>insert order (PENDING_PAYMENT, v=1), lines, snapshots,<br/>insert payment_intent (CREATED), event OrderCreated; COMMIT
+    API->>PG: BEGIN, insert idempotency_keys(k1, in_progress)
+    API->>PG: ValidateQuote, Reserve coupon,<br/>insert order (PENDING_PAYMENT, v=1), lines, snapshots,<br/>insert payment_intent (CREATED), event OrderCreated, COMMIT
     API->>PA: create PA order {amount, receipt=order_id, notes}<br/>(outside tx, retried with same receipt)
     PA-->>API: pa_order_id
-    API->>PG: update payment_intent (pa_order_id); store idempotent response
+    API->>PG: update payment_intent (pa_order_id), store idempotent response
     API-->>C: 201 {order_id, code RV-7K3P9Q, checkout{pa_order_id, key_id}}
     C->>PA: open checkout (UPI intent / card / netbanking)
     PA-->>C: success {payment_id, signature}
     par Fast path (client)
         C->>API: POST /api/v1/payments/confirm {pa_order_id, payment_id, signature}
         API->>API: verify HMAC(order_id|payment_id) with key secret
-        API->>PG: BEGIN; payment_intent CAPTURED (CAS); event PaymentCaptured; COMMIT
+        API->>PG: BEGIN, payment_intent CAPTURED (CAS), event PaymentCaptured, COMMIT
     and Authoritative path (webhook)
         PA->>API: POST /webhooks/pa/razorpay (order.paid / payment.captured)
         API->>API: verify X-Razorpay-Signature over raw body
-        API->>PG: insert webhook_events (unique provider_event_id) + River job; COMMIT
+        API->>PG: insert webhook_events (unique provider_event_id) + River job, COMMIT
         API-->>PA: 200 (fast, < 1 s)
         W->>PG: process webhook → payment_intent CAPTURED (CAS: no-op if already)
     end
@@ -485,7 +487,7 @@ sequenceDiagram
     alt not eligible
         API-->>C: 422 problem+json {code: COD_NOT_AVAILABLE, reason}
     else eligible
-        API->>PG: BEGIN; quote+coupon; insert order (PLACED, v=1),<br/>payment_intent(method=COD, status=PENDING_COLLECTION),<br/>event OrderPlaced; pg_notify; COMMIT
+        API->>PG: BEGIN, quote+coupon, insert order (PLACED, v=1),<br/>payment_intent(method=COD, status=PENDING_COLLECTION),<br/>event OrderPlaced, pg_notify, COMMIT
         API-->>C: 201 {order_id, status PLACED}
         W->>PG: OrderPlaced → notifications (restaurant alert loop)
         API-->>R: SSE order.placed
@@ -507,12 +509,12 @@ sequenceDiagram
 
     Note over W: On OrderPlaced, schedule job ordering.accept_timeout at +N min [ASSUMPTION N=4]
     R->>API: POST /api/v1/restaurant/orders/{id}/accept {prep_minutes: 20}<br/>Idempotency-Key, If-Match: "v2"
-    API->>PG: BEGIN; UPDATE orders SET status='ACCEPTED', version=3, prep_eta=...<br/>WHERE id=$1 AND status='PLACED' AND version=2
+    API->>PG: BEGIN, UPDATE orders SET status='ACCEPTED', version=3, prep_eta=...<br/>WHERE id=$1 AND status='PLACED' AND version=2
     alt 1 row updated
-        API->>PG: insert order_status_history; event OrderAccepted; pg_notify; COMMIT
+        API->>PG: insert order_status_history, event OrderAccepted, pg_notify, COMMIT
         API-->>R: 200 {status ACCEPTED, version 3}
         API-->>C: SSE order.status ACCEPTED (ETA)
-        W->>PG: OrderAccepted → notifications: stop alert loop; dispatch: create delivery
+        W->>PG: OrderAccepted → notifications: stop alert loop, dispatch: create delivery
     else 0 rows (already rejected by timeout / cancelled)
         API->>PG: ROLLBACK
         API-->>R: 409 problem+json {code: ORDER_STATE_CONFLICT, current_status}
@@ -532,19 +534,19 @@ sequenceDiagram
     actor D2 as Rider 2
     actor OPS as Admin ops
 
-    Note over W: OrderAccepted → delivery UNASSIGNED; schedule dispatch.start at<br/>max(now, accepted_at + prep_eta − est_travel − buffer)
-    W->>PG: BEGIN; SELECT delivery FOR UPDATE;<br/>candidates = geo.NearbyRiders(restaurant, radius r0)<br/>filter: online, location age < 3 min, 0 active deliveries,<br/>COD cash headroom, not previously offered;<br/>score = distance + fairness (idle time)
-    W->>PG: insert delivery_offer(D1, PENDING, expires_at=now+45s);<br/>delivery → OFFERED; event DeliveryOffered; pg_notify; job dispatch.expire_offer @ +45s; COMMIT
+    Note over W: OrderAccepted → delivery UNASSIGNED, schedule dispatch.start at<br/>max(now, accepted_at + prep_eta − est_travel − buffer)
+    W->>PG: BEGIN, SELECT delivery FOR UPDATE,<br/>candidates = geo.NearbyRiders(restaurant, radius r0)<br/>filter: online, location age < 3 min, 0 active deliveries,<br/>COD cash headroom, not previously offered,<br/>score = distance + fairness (idle time)
+    W->>PG: insert delivery_offer(D1, PENDING, expires_at=now+45s),<br/>delivery → OFFERED, event DeliveryOffered, pg_notify, job dispatch.expire_offer @ +45s, COMMIT
     API-->>D1: SSE offer + Web Push (high urgency), in-app sound
     alt D1 declines or no response
         D1->>API: POST /api/v1/rider/offers/{id}/decline  (or nothing)
-        W->>PG: expire_offer: CAS offer PENDING→EXPIRED/DECLINED;<br/>next candidate D2 (exclude D1); new offer +45s
+        W->>PG: expire_offer: CAS offer PENDING→EXPIRED/DECLINED,<br/>next candidate D2 (exclude D1), new offer +45s
         API-->>D2: SSE offer
         D2->>API: POST /api/v1/rider/offers/{id}/accept
-        API->>PG: BEGIN; lock delivery FOR UPDATE; check offer PENDING and now < expires_at;<br/>offer ACCEPTED; delivery ASSIGNED(rider=D2); rider_availability.active=1;<br/>event DeliveryAssigned; COMMIT
+        API->>PG: BEGIN, lock delivery FOR UPDATE, check offer PENDING and now < expires_at,<br/>offer ACCEPTED, delivery ASSIGNED(rider=D2), rider_availability.active=1,<br/>event DeliveryAssigned, COMMIT
         API-->>D2: 200 assigned (restaurant address, pickup code)
     else cascade exhausted (k attempts or T minutes)
-        W->>PG: widen radius r1, r2; retry; after max → event DispatchExhausted
+        W->>PG: widen radius r1, r2, retry, after max → event DispatchExhausted
         API-->>OPS: SSE ops board alert + push
         OPS->>API: POST /api/v1/admin/deliveries/{id}/assign {rider_id}
     end
@@ -566,16 +568,16 @@ sequenceDiagram
     actor C as Customer PWA
 
     D->>API: POST /api/v1/rider/deliveries/{id}/arrived-restaurant
-    API->>PG: delivery ASSIGNED→AT_RESTAURANT; event
+    API->>PG: delivery ASSIGNED→AT_RESTAURANT, event
     D->>API: POST .../picked-up {pickup_code?}
-    API->>PG: delivery → PICKED_UP; event DeliveryPickedUp; COMMIT
+    API->>PG: delivery → PICKED_UP, event DeliveryPickedUp, COMMIT
     W->>PG: DeliveryPickedUp → ordering: READY_FOR_PICKUP|PREPARING → PICKED_UP
     API-->>C: SSE order.status PICKED_UP
     D->>API: POST .../arrived-drop
     D->>API: POST .../delivered {delivery_otp?, cod_collected_paise?}
-    API->>PG: BEGIN; delivery → DELIVERED; if COD: record cod_collected; event DeliveryDelivered; COMMIT
-    W->>PG: DeliveryDelivered → ordering PICKED_UP→DELIVERED; event OrderDelivered
-    W->>PG: OrderDelivered → ledger.Post (one journal, idempotent by order_id+rule):<br/>recognise restaurant payable, fees, GST, commission, TDS, rider pay;<br/>COD: Dr rider_cash_in_hand
+    API->>PG: BEGIN, delivery → DELIVERED, if COD: record cod_collected, event DeliveryDelivered, COMMIT
+    W->>PG: DeliveryDelivered → ordering PICKED_UP→DELIVERED, event OrderDelivered
+    W->>PG: OrderDelivered → ledger.Post (one journal, idempotent by order_id+rule):<br/>recognise restaurant payable, fees, GST, commission, TDS, rider pay,<br/>COD: Dr rider_cash_in_hand
     W->>PG: if rider cash_in_hand ≥ limit → event RiderCashLimitReached → dispatch blocks COD offers
     W->>PG: OrderDelivered → ratings window, notifications (receipt, rate prompt), invoice issuance
     API-->>C: SSE order.status DELIVERED + rate prompt
@@ -596,16 +598,16 @@ sequenceDiagram
     actor C as Customer PWA
 
     R->>API: POST /api/v1/restaurant/orders/{id}/reject {reason: ITEM_UNAVAILABLE}
-    API->>PG: CAS PLACED→REJECTED; event OrderRejected; COMMIT
+    API->>PG: CAS PLACED→REJECTED, event OrderRejected, COMMIT
     API-->>C: SSE order.status REJECTED ("refund initiated")
     W->>PG: OrderRejected → payments: insert refund(key=order:{id}:full, amount=captured, status=PENDING)
     W->>PG: OrderRejected → promotions: release coupon
     W->>PA: POST refund {payment_id, amount, speed: optimum|normal}<br/>X-Idempotency / receipt = refund_id
     PA-->>W: refund_id, status pending|processed
-    W->>PG: refund INITIATED; event RefundInitiated
+    W->>PG: refund INITIATED, event RefundInitiated
     PA->>API: webhook refund.processed
-    API->>PG: webhook_events + job → refund PROCESSED; event RefundProcessed
-    W->>PG: ledger.Post refund journal; notifications: "₹X refunded, ref ..."
+    API->>PG: webhook_events + job → refund PROCESSED, event RefundProcessed
+    W->>PG: ledger.Post refund journal, notifications: "₹X refunded, ref ..."
     Note over W,PA: refund.failed → retry with backoff (3x) → ReconExceptionRaised → finance queue
 ```
 
@@ -718,7 +720,7 @@ Docker Compose (§2.3). CI uses ephemeral service containers (Postgres+PostGIS, 
 ### 9.2 Production at launch (pilot)
 
 - Edge CDN + WAF → L7 LB → **2 `rovo api` tasks** (for zero-downtime deploys and to survive one task failing, not for load) + **1 `rovo worker` task** (2 once River leader election and job concurrency are proven in staging) on a managed container runtime.
-- **Managed PostgreSQL 18 + PostGIS**, automated backups + PITR, encryption with KMS, private networking. **Multi-AZ** is recommended. A documented single-AZ pilot decision is acceptable per baseline §4a, with the upgrade trigger "first paid restaurant payout cycle completed or GMV > ₹10 lakh/month, whichever first" `[OPEN: Lead Architect/DevOps]`.
+- **Managed PostgreSQL + PostGIS**, automated backups + PITR, encryption with KMS, private networking. **Multi-AZ** is recommended. A documented single-AZ pilot decision is acceptable per baseline §4a, with the upgrade trigger "first paid restaurant payout cycle completed or GMV > ₹10 lakh/month, whichever first" `[OPEN: Lead Architect/DevOps]`.
 - **No Redis provisioned.** Object storage + CDN for apps and media. Secrets manager. OTLP to the chosen backend.
 - Sizing target: a single small city, ≈ 500–2,000 orders/day, peak ≈ 3–5 orders/min, under 1,000 concurrent SSE streams `[ASSUMPTION; Product to confirm volume in doc 01]`. The smallest task sizes (0.5 vCPU / 1 GB) and a small burstable DB instance are expected to suffice. The load test in doc 20 confirms this.
 - Staging uses the same Terraform with smaller sizes, single-AZ, and the PA in sandbox mode. It can be stopped when idle.
@@ -804,7 +806,7 @@ Designed in from day one (ADR-020):
 | Component | Version to pin at Phase 2 start | Source (accessed 2026-10-04) |
 |---|---|---|
 | Go | 1.27.x (1.27.1 released 2026-09-01; 1.26 still supported) | https://go.dev/doc/devel/release |
-| PostgreSQL | 18.x (18.6 current minor; 17 also supported). PG18 has native `uuidv7()` | https://www.postgresql.org/support/versioning/ , https://www.postgresql.org/docs/18/functions-uuid.html |
+| PostgreSQL | 18.x preferred (18.6 current minor) if the managed service offers it GA with PostGIS; else 17.x (doc 22 plans 17 on RDS). Same major in local, CI and prod. | https://www.postgresql.org/support/versioning/ , https://www.postgresql.org/docs/18/functions-uuid.html |
 | River | v0.48.0 (2026-10-01). Pre-1.0, so pin exactly and read changelogs. Supports Go 1.26/1.27. | https://proxy.golang.org/github.com/riverqueue/river/@latest , https://github.com/riverqueue/river/releases |
 | pgx | v5.11.0 | proxy.golang.org |
 | sqlc | v1.31.1 | proxy.golang.org |
