@@ -415,7 +415,7 @@ Authoring and `tofu validate`/policy checks happen in **M5 with no cloud spend**
 
 ### E28 — Legal, compliance & business setup (NON-CODE; critical-path items flagged **CP**)
 
-Owners are roles (doc 30 §d). Lead times are `[ASSUMPTION]` and must be confirmed in week 1. Each item's evidence is a document in the private ops repository, referenced from doc 29.
+Owners are roles (doc 30 §(d)). Lead times are `[ASSUMPTION]` and must be confirmed in week 1. Each item's evidence is a document in the private ops repository, referenced from doc 29.
 
 | ID | Pri | Task — description · **Done when** | Req IDs | Deps | Lead time | MS |
 |---|---|---|---|---|---|---|

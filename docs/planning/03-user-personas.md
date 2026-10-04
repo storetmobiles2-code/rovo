@@ -4,9 +4,17 @@
 |---|---|
 | **Purpose** | Give every architect and designer a shared, concrete picture of who uses rovo in Mahabubnagar, what they are trying to get done, and what that implies for design. Requirements in doc 01 and scope decisions in doc 02 cite these personas; UX journeys (04–07) are written from their point of view. |
 | **Owner** | Product Architect |
-| **Status** | Draft v1 (2026-10-04) |
-| **Depends on** | `00-planning-baseline.md` (roles, vocabulary); `01-product-requirements.md` (requirement IDs referenced in "Design implications"). |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
+| **Depends on** | `00-planning-baseline.md` (roles, vocabulary, §8–§9 rulings R1–R48); `01-product-requirements.md` (requirement IDs referenced in "Design implications"). |
 | **Feeds** | 04–07 (journeys/workflows), 17–18 (frontend & PWA device targets), 20 (test personas & device matrix), 29 (UAT participants). |
+
+**Changes in v1.1**
+- Primary apps renamed to the four apps/hosts of **R14** (`app.`, `restaurant.`, `rider.`, `admin.`).
+- P3: ops-assisted phone ordering (M8) and staffed support line (M9); combined consent screen.
+- P4: accept ladder per **R1** (repeat 30 s, owner SMS 60 s, ops call 90 s, cancel 180 s, 30-min pause), mandatory device-heartbeat auto-pause, rovo-provisioned counter device (M3), device-bound session (**R44**), voice escalation P1 (**R43**).
+- P5: 7/30-day trends deferred to V1.1 (C13) — noted as a retention risk.
+- P6/P7: dispatch tiers (**R34**), pilot minimum guarantee (M6), manual peak bonus (**R30**), fleet sized to demand (**R47**), gig-worker registration [LEGAL] (M5), insurance decision.
+- P8/P9: maker-checker narrowed to the **R31** families, COD compensation choice (**R29**), bulk menu import (M7), bank-statement matching, finance FTE from Gate B.
 
 **How these personas were built.** They are *proto-personas*: synthesised from knowledge of small-city Telangana markets, national food-delivery patterns and the constraints in the baseline. **They are not yet validated by research** `[ASSUMPTION]`. Before Gate A (doc 02 §5.1), ops should run ≥ 5 interviews per persona group (customers, restaurants, riders) in Mahabubnagar and update this document. Names are illustrative; any resemblance to real people is unintended.
 
@@ -14,15 +22,15 @@
 
 | # | Persona | Role | Primary app | Short label |
 |---|---|---|---|---|
-| P1 | Sravani | `CUSTOMER` | customer PWA | Budget student, UPI-native |
-| P2 | Ravi & Lakshmi | `CUSTOMER` | customer PWA | Family dinner orderers |
-| P3 | Narasimha Reddy | `CUSTOMER` | customer PWA | Elderly, Telugu-first, low tech |
-| P4 | Venkatesh | `RESTAURANT_OWNER` | partner PWA (restaurant) | Small family restaurant, shared phone |
-| P5 | Farhan | `RESTAURANT_OWNER` / manager | partner PWA (restaurant) + desktop | Established biryani house, multi-outlet-ready |
-| P6 | Kiran | `RIDER` | partner PWA (rider) | Part-time student rider |
-| P7 | Mahesh | `RIDER` | partner PWA (rider) | Full-time rider |
-| P8 | Anusha | `ADMIN_OPS` + `ADMIN_SUPPORT` | admin web | Ops & support agent |
-| P9 | Suresh | `ADMIN_FINANCE` | admin web | Finance admin |
+| P1 | Sravani | `CUSTOMER` | customer app (`app.`) | Budget student, UPI-native |
+| P2 | Ravi & Lakshmi | `CUSTOMER` | customer app (`app.`) | Family dinner orderers |
+| P3 | Narasimha Reddy | `CUSTOMER` | customer app (`app.`) + support phone line | Elderly, Telugu-first, low tech |
+| P4 | Venkatesh | `RESTAURANT_OWNER` | restaurant app (`restaurant.`) | Small family restaurant, shared phone |
+| P5 | Farhan | `RESTAURANT_OWNER` / manager | restaurant app (`restaurant.`) + desktop | Established biryani house, multi-outlet-ready |
+| P6 | Kiran | `RIDER` | rider app (`rider.`) | Part-time student rider |
+| P7 | Mahesh | `RIDER` | rider app (`rider.`) | Full-time rider |
+| P8 | Anusha | `ADMIN_OPS` + `ADMIN_SUPPORT` | admin app (`admin.`) | Ops & support agent |
+| P9 | Suresh | `ADMIN_FINANCE` | admin app (`admin.`) | Finance admin |
 
 ---
 
@@ -51,8 +59,8 @@
 - Fees visible on restaurant cards and cart (CUS-DISC-002, BR-FEE-008); small-cart nudge (CUS-CART-005); filter "cost for one" and sort by cost (CUS-SRCH-002/003).
 - Coupon eligibility with exact shortfall message (CUS-COUP-001/002).
 - Clear payment pending/failed/refund screens and auto-refund of late captures (CUS-PAY-003/004, M-24); switch to COD on retry if allowed (CUS-PAY-006).
-- Typo-tolerant, Latin-script search (CUS-SRCH-001); transliteration later (CUS-SRCH-006).
-- Age: may be 17 in junior college — sign-up requires 18+ declaration (LEG-DPDP-006); a real policy risk noted for counsel.
+- Typo-tolerant, Latin-script search via trigram + synonym table (CUS-SRCH-001); romanisation/transliteration later (CUS-SRCH-006, C17).
+- Age: may be 17 in junior college — sign-up requires 18+ declaration (LEG-DPDP-006), shown on the same single consent screen as the privacy notice (CUS-AUTH-003); a real policy risk noted for counsel.
 
 ---
 
@@ -80,8 +88,8 @@
 - Variants (Half/Full, Family pack) and add-on groups with min/max made obvious (CUS-CUST-001/002); veg/egg/non-veg markers per item and add-on (CUS-CUST-003, BR-MENU-001).
 - Accurate ETA range and proactive late message (CUS-CHK-005, CUS-TRK-002, M-08).
 - FSSAI number and ratings visible (CUS-MENU-001, LEG-FSSAI-002).
-- Missing/wrong item flow with photos and item-level refund (CUS-SUPP-001, BR-REF-006); COD refunds by UPI (BR-REF-004).
-- Saved addresses with landmarks and per-address instructions; "ordering for someone else" (CUS-ADDR-004/005, CUS-CHK-007).
+- Missing/wrong item flow with photos and item-level refund (CUS-SUPP-001, BR-REF-006); for COD orders the customer chooses a manual UPI refund or a coupon (BR-REF-004, R29).
+- Saved addresses with required landmark + pin (building/street optional, R13) and per-address instructions; "ordering for someone else" (CUS-ADDR-004/005, CUS-CHK-007).
 - COD up to ₹1,000 covers most family orders (BR-COD-001) — validate in pilot; larger orders nudged to UPI.
 
 ---
@@ -111,8 +119,9 @@
 - OTP with auto-read, 5-min validity and generous resend (CUS-AUTH-001); no aggressive timers on the customer side.
 - COD with clear "keep ₹X ready" message and rupee-rounded total (CUS-PAY-002, BR-FEE-009).
 - Delivery OTP not required for COD (BR-OTP-001) — avoids a confusing step at the door.
-- Support phone tap-to-call with Telugu-speaking agents (CUS-SUPP-003); help centre in Telugu.
-- Voice ordering deferred (doc 02) but research-worthy for this persona.
+- Support phone line, staffed in all service hours with Telugu-speaking agents (CUS-SUPP-003, M9); help centre in Telugu.
+- **Ops-assisted phone ordering** (ADM-ORD-011, P1, M8): he can call the support line and an agent places a COD order for him, confirming the bill aloud; he gets the order code by SMS.
+- Automated voice ordering deferred (doc 02) but research-worthy for this persona.
 
 ---
 
@@ -137,14 +146,15 @@
 - When Monday comes, I want to see a simple statement in Telugu that shows what I earned, what rovo kept and when the money arrives.
 
 **Design implications**
-- **Assisted onboarding:** ops creates restaurant, menu and Telugu names on his behalf (RES-ONB-002, ADM-REST-003); FSSAI registration accepted (RES-ONB-003); GSTIN optional because rovo pays GST under §9(5) (LEG-GST-001).
-- Looping alert sound, vibration, push, full-screen card; one large Accept with default prep time (RES-ORD-001/002, NFR-A11Y-005/006).
-- Ops escalation call at 90 s and **accept on behalf** (BR-TIME-002, ADM-ORD-003); 180 s timeout; auto-pause after 2 timeouts rather than repeated failures (BR-TIME-003).
+- **Assisted onboarding:** ops creates restaurant, menu and Telugu names on his behalf, digitising his printed menu with the ops-side bulk CSV import (RES-ONB-002, ADM-REST-003, RES-MENU-009, M7); FSSAI registration accepted, documents photographed as images (RES-ONB-003, R38); GSTIN optional because rovo pays GST under §9(5) (LEG-GST-001).
+- Looping alert sound, vibration, push repeated every 30 s, full-screen card; one large Accept with default prep time (RES-ORD-001/002, NFR-A11Y-005/006).
+- Escalation per R1: owner SMS at 60 s, ops manual call at 90 s with **accept on behalf** (BR-TIME-002, ADM-ORD-003); at 180 s the order is cancelled as `RESTAURANT_UNRESPONSIVE` (not counted as his rejection, but as a miss); one miss pauses the outlet 30 min, two consecutive misses pause it until he resumes (BR-TIME-003). An automated voice call is a P1 option if pilot data shows it is needed (R43).
+- If his shared phone is unsuitable, rovo provides a pre-configured counter device (RES-ONB-008, M3) with a device-bound session that does not expire mid-service (X-006, R44).
 - Multiple devices on one account so the son's phone also rings (RES-PROF-004).
 - One-tap out-of-stock with "back tomorrow" default (RES-AVAIL-001).
 - Restaurant never handles cash or customer phone numbers (RES-ORD-001/008).
 - Statement per order with plain-language labels in Telugu; masked account; weekly payout by Wednesday (RES-PAYO-001, BR-PAYOUT-001).
-- Optional heartbeat gating so his restaurant isn't shown as open when the app is closed (RES-HOUR-005, OQ-07).
+- Mandatory device-heartbeat auto-pause: if no order device is alive for 3 min while open, the outlet pauses so customers don't order into a dead phone (RES-HOUR-005, R1).
 
 ---
 
@@ -173,7 +183,7 @@
 - Dispatch timing tuned to prep time (BR-TIME-006) — waiting pay and food temperature both matter.
 - Printable KOT (RES-ORD-009, committed P1).
 - Statement with per-order commission/GST/TDS/adjustments; CSV; payout disputes (RES-PAYO-001/002/004); refunds charged to restaurant only when restaurant-fault and visible (BR-REF-005).
-- Trends and top items (RES-ANLY-002, committed P1); CSV of orders (RES-ANLY-003).
+- Today/this-week summary in V1 (RES-ANLY-001); 7/30-day trends and top items are **deferred to V1.1** (RES-ANLY-002, C13) — a retention risk for this persona, mitigated by the CSV of orders (RES-ANLY-003, stretch) and ops sharing a monthly summary [ASSUMPTION].
 - Multi-outlet: one owner, many `restaurant` rows; outlet switcher and menu copy (RES-MENU-010) — data model must allow from day one.
 - GSTIN captured and shown on statements/invoices (RES-ONB-003); monthly commission tax invoice for ITC (BR-COMM-004).
 
@@ -201,8 +211,9 @@
 
 **Design implications**
 - Offer card with pickup distance, drop locality, estimated pay and payment type; 45 s timeout; loud alert (RDR-ASSIGN-001/002/006).
+- Gig-worker registration fields captured once at onboarding (RDR-ONB-007, M5) [LEGAL]; 30-day sliding session so he isn't logged out between shifts (X-006, R44).
 - RC not in rider's name allowed with declaration (RDR-ONB-002).
-- Foreground location every 30–60 s, wake lock, clear "keep app open" banner; no forced offline for short signal drops (RDR-AVAIL-002); auto-offline only after 3 expired offers (RDR-AVAIL-003).
+- Foreground location every 30–60 s, wake lock, clear "keep app open" banner; when backgrounded he still gets offers as a tier-2 rider via push for up to 15 min (R34); auto-offline only after 15 min without any ping (RDR-AVAIL-002) or 3 consecutive expired offers (RDR-AVAIL-003).
 - Waiting pay after 10 min (BR-RPAY-003); per-delivery pay transparency (RDR-EARN-001).
 - Exact-amount COD with rupee rounding; cash-in-hand view and limit (BR-FEE-009, RDR-EARN-002, BR-COD-006).
 - SOS button for night rides (RDR-FLOW-013).
@@ -230,7 +241,8 @@
 - When a customer doesn't answer, I want a clear procedure that protects my pay.
 
 **Design implications**
-- Dispatch fairness tie-break by longest idle time (BR-DISP-002); eligibility radius (BR-DISP-001).
+- Dispatch fairness tie-break by longest idle time (BR-DISP-002); tiered eligibility so a rider waiting at a stand with the screen off is still reachable (BR-DISP-001, R34).
+- **Earnings viability:** at pilot volumes (≈ 30–80 orders/day) his target income is not reachable from per-trip pay alone (31 RV-055/070). Mitigations: fleet sized to demand (≈ 1 online rider per 3 peak-hour orders, R47), a pilot **minimum guarantee** per scheduled peak slot (`MG_TOPUP`, RDR-EARN-007, M6) and a manual peak bonus in bad weather (R30); accident-insurance decision [LEGAL] (LEG-GIG-004).
 - Projected cash-limit check so he isn't stuck over the limit mid-shift (BR-COD-006); 80% warning (NOT-011); deposit declaration with UTR and fast confirmation (RDR-EARN-003, ADM-PAYO-005); weekly netting (BR-COD-008); on-demand payout (RDR-EARN-005, committed P1).
 - Undeliverable flow with waiting/call evidence and ops confirmation; full pay when not rider-fault (RDR-FLOW-009, BR-RPAY-004).
 - No deductions without due process (BR-REF-005, LEG-GIG-003).
@@ -261,7 +273,8 @@
 **Design implications**
 - Live board with SLA colour states and flags; filters; live updates (ADM-ORD-001, ADM-DASH-001).
 - Accept on behalf with reason; manual assign/reassign with distance-sorted riders; call shortcuts with logging (ADM-ORD-003/005/009).
-- Ticket inbox linked to order with photos, canned responses in en/te, refund limits and maker-checker above ₹500 (ADM-TKT-001/002/004, ADM-ORD-007).
+- Ticket inbox linked to order with photos, canned responses in en/te, refund limits and a second approver only above ₹500 refunds / ₹150 goodwill (R31) (ADM-TKT-001/002/004, ADM-ORD-007).
+- Answers the support phone line during her shift (M9); places assisted COD orders for callers (ADM-ORD-011, M8); imports restaurant menus by CSV during onboarding (RES-MENU-009, M7).
 - Order timeline showing every event and actor (ADM-ORD-002); internal notes for shift handover (ADM-ORD-008).
 - Masked PII by default; reveal with reason (ADM-AUTH-003, NFR-PRIV-002).
 - Desktop-first, keyboard-friendly admin (NFR-A11Y-001).
@@ -287,9 +300,11 @@
 - When the month ends, I want a GST working report split by component (§9(5) restaurant service, delivery fee, platform fee, commission).
 
 **Design implications**
-- Settlement run → draft batch → maker-checker approval → bank CSV → UTR recording (ADM-PAYO-001); holds and adjustments with approval (ADM-PAYO-004/006).
+- Settlement run → draft batch → maker-checker approval → bank CSV → UTR recording (ADM-PAYO-001); holds and adjustments, with a second approver for the R31 families only (payout release, refunds/goodwill/adjustments above threshold, commission/fee changes, payout-detail changes, role grants) (ADM-PAYO-004/006).
+- Records manual UPI refunds with UTR when a COD customer chooses money over a coupon (ADM-PAYO-007, R29); posts minimum-guarantee top-ups (`MG_TOPUP`) and peak bonuses as adjustments.
+- Workload: part-time is enough for the pilot; one finance FTE from Gate B (RV-068).
 - PA settlement import and reconciliation (ADM-PAYO-003); ledger views with running balance (ADM-PAYO-002).
-- Deposit confirmation queue and cash ageing report (ADM-PAYO-005, M-22).
+- Deposit confirmation queue with bank-statement CSV import and automatic UTR matching, plus cash ageing report (ADM-PAYO-005, M-22).
 - GST working report and CSV exports with stable columns (ADM-RPT-001/002); TDS report if applicable (ADM-PAYO-008).
 - Effective-dated config and immutable statements once published; corrections via adjustments in the next cycle (NFR-AUD-003, RES-PAYO-001).
 - Monthly cost-per-order report including cloud bill (BR-COST-001, M-60/61).
@@ -312,7 +327,7 @@
 | P8 Anusha | Laptop Chrome | — | — | Broadband | en / te | Medium |
 | P9 Suresh | Windows desktop | — | — | Broadband | en | Medium |
 
-iOS share is small [ASSUMPTION]; iOS Safari ≥ 16.4 is supported for customers (Web Push only when installed to Home Screen) but not a primary target for partner apps.
+iOS share is small [ASSUMPTION]; iOS Safari ≥ 16.4 is supported for customers (Web Push only when installed to Home Screen) but not a primary target for the restaurant and rider apps.
 
 ### Persona → key requirement map
 

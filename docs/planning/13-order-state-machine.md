@@ -292,7 +292,7 @@ stateDiagram-v2
 
 ## 5. Timers
 
-All timers are **River jobs with `ScheduledAt`**, inserted with `InsertTx` in the transaction that creates the condition. Each is unique by `(kind, aggregate_id, aggregate_version_at_schedule)`. **Every handler re-checks state** (CAS / guard) and no-ops if things moved on, so timers never need reliable cancellation. They may still be cancelled (`JobCancel`) for hygiene. Durations are `app_config` keys (city scope).
+All timers are **River jobs with `ScheduledAt`**, inserted with `InsertTx` in the transaction that creates the condition. Each is unique by `(kind, aggregate_id, aggregate_version_at_schedule)`. **Every handler re-checks state** (CAS / guard) and no-ops if things moved on, so timers never need reliable cancellation. They may still be cancelled (`JobCancel`) for hygiene. Durations are `app_config` keys (city scope), listed with their defaults in §5.1. Due times are computed from the injected app clock (R19).
 
 | ID | Starts at | Fires at (default) | Action | Ends when |
 |---|---|---|---|---|
@@ -313,8 +313,68 @@ All timers are **River jobs with `ScheduledAt`**, inserted with `InsertTx` in th
 | T-STUCK | any non-terminal order | `placed_at + 3 h` | **Critical ops alert**. Never auto-completes (SM-D08). Nightly report of non-terminal orders > 3 h. | terminal |
 | T-RATE-PROMPT | O-17 | +30 min | Rating push if not rated; rating window 7 days | rated / 7 d |
 | T-REFUND-RETRY | refund FAILED | backoff 1 m / 10 m / 1 h | Retry the PA refund; after 3 failures → finance queue (`ReconExceptionRaised`) | succeeded |
-| T-RIDER-STALE | each location ping | +3 min no ping → excluded from dispatch; +10 min → `OFFLINE (STALE_LOCATION)` if `AVAILABLE`, ops alert if `ON_DELIVERY` | — | next ping |
-| T-DEVICE-HB | restaurant heartbeat | open outlet with no order-receiver heartbeat for **3 min** | auto-pause `DEVICE_OFFLINE` (ruling 1) | heartbeat + resume |
+| T-RIDER-STALE | each location ping / heartbeat | +3 min no location → tier 2 only (still offered via push + SSE); +15 min no ping or heartbeat → `OFFLINE (STALE_LOCATION)` if `AVAILABLE`, ops alert if `ON_DELIVERY` (R34) | — | next ping |
+| T-DEVICE-HB | restaurant heartbeat (every 60 s) or SSE presence (R27) | open outlet with no order-receiver heartbeat or presence for **3 min** | auto-pause `DEVICE_OFFLINE` (ruling 1) | heartbeat + resume |
+
+
+### 5.1 Parameter registry (single source, R48)
+
+Doc 10 §15.1 seeds these keys into `app_config` (scope `CITY` unless noted). Fee, commission and rider-pay amounts are **not** here; they are `fee_configs` columns owned by 16 §6.5. Changing a key is audited; it is not maker-checker (R31).
+
+| Key | Default | Used by |
+|---|---|---|
+| `ordering.accept_window_s` | 180 | O-06, T-ACC-TIMEOUT (R1) |
+| `ordering.accept_ring_interval_s` | 30 | T-ACC-RING |
+| `ordering.accept_owner_alert_s` | 60 | T-ACC-OWNER (SMS) |
+| `ordering.accept_ops_alert_s` | 90 | T-ACC-OPS |
+| `ordering.missed_order_pause_s` | 1800 | O-08 (1st miss) |
+| `ordering.customer_cancel_grace_s` | 60 | O-11/O-13 (R2) |
+| `ordering.auto_preparing_after_s` | 60 | T-PREP-AUTO (R3) |
+| `ordering.prep_time_min_range` | `[5, 90]` | O-06 (register row 58) |
+| `ordering.prep_nudge_interval_s` / `ordering.prep_overrun_ops_s` | 120 / 900 | T-PREP-DUE |
+| `ordering.stuck_after_s` | 10800 | T-STUCK |
+| `payments.pending_timeout_s` | 900 | T-PAY |
+| `payments.refund_retry_backoff_s` | `[60, 600, 3600]` | T-REFUND-RETRY |
+| `dispatch.rider_approach_min` / `dispatch.lead_buffer_min` | 8 / 5 | D-01 (R7) |
+| `dispatch.offer_ttl_s` / `dispatch.offer_accept_grace_s` | 45 / 2 | D-02, D-03, T-OFFER |
+| `dispatch.radius_steps_m` | `[2000, 4000, 7000]` | D-02 |
+| `dispatch.location_fresh_s` | 180 | tier 1 (R34) |
+| `rider.auto_offline_after_s` | 900 | tier 2 limit + T-RIDER-STALE (R34) |
+| `rider.ping_interval_s` | 60 (batched, 1–10 points per upload; R27) | rider PWA, 11 §2.5 |
+| `dispatch.max_offers` / `dispatch.exhaust_after_s` / `dispatch.retry_interval_s` | 8 / 600 / 60 | T-DISPATCH-ESC |
+| `dispatch.missed_offers_to_offline` | 3 | D-04/D-05 |
+| `dispatch.delivery_code_enabled` | true | SM-D13 (R39) |
+| `dispatch.delivery_code_min_payable_paise` | 30000 | SM-D13 (R39) |
+| `dispatch.delivery_code_max_attempts` | 5 | D-10 |
+| `delivery.ready_wait_alert_s` / `delivery.ready_wait_critical_s` | 600 / 1200 | T-READY-WAIT |
+| `delivery.late_buffer_s` | 600 | T-DELIVERY-LATE |
+| `delivery.drop_wait_s` / `delivery.undeliverable_min_calls` | 600 / 2 | D-11, T-DROP-WAIT |
+| `delivery.undeliverable_sla_s` | 300 | T-UNDELIV-SLA |
+| `restaurant.heartbeat_interval_s` | 60 (SSE presence counts; R27) | partner PWA, 11 §2.4 |
+| `restaurant.device_offline_pause_s` | 180 | T-DEVICE-HB (R1) |
+| `cod.strikes_to_disable` | 2 | O-18 (R5) |
+| `ratings.prompt_after_s` / `ratings.window_days` | 1800 / 7 | T-RATE-PROMPT |
+| `approvals.refund_threshold_paise` | 50000 (> ₹500) | R31 family 1 |
+| `approvals.goodwill_threshold_paise` | 15000 (> ₹150) | R31 family 1 |
+| `approvals.adjustment_threshold_paise` | 50000 [ASSUMPTION — Finance] | R31 family 1 (ledger/cash adjustments incl. `MG_TOPUP`, `PEAK_BONUS`) |
+| `approvals.break_glass_review_s` | 86400 | R31 break-glass post-review |
+| `approvals.request_ttl_s` | 86400 | `approval_requests.expires_at` |
+
+### 5.2 Periodic jobs: catch-up semantics (M11, RV-004)
+
+River OSS periodic jobs are not durable: a leader restart at the tick can skip a run silently. So **every periodic job is a catch-up job**:
+1. A periodic trigger fires often (hourly, or every minute for liveness checks). It is idempotent.
+2. The handler computes the **period(s)** that should be complete by `now` (app clock), for example "settlement week ending last Sunday 23:59:59 IST" or "PA recon for D-1".
+3. For each period without a completed run (unique key `(<job>, <period>)`, recorded in the River job's unique args plus the business row it produces, e.g. `payouts.period_end` or `pa_settlements.report_date`), it runs that period. A missed tick is therefore caught up on the next fire.
+
+| Job | Trigger | Period / completion marker | Alert |
+|---|---|---|---|
+| `settlement.weekly_statements` | hourly | ISO week (Mon–Sun, city tz) / `payouts` DRAFT batch for `period_end` | **"No settlement run for last week by Mon 09:00 IST"** → ops + finance page |
+| `payments.recon_daily` | hourly | D-1 / `pa_settlements` row for that date | no recon for D-1 by 12:00 IST |
+| `retention.sweep` | hourly | day / per-table watermark (10 §14) | sweep lag > 2 days |
+| `ledger.balance_check`, `orders.stuck_report` | hourly | day | missing for > 26 h |
+| `restaurant.device_liveness` (T-DEVICE-HB), `rider.stale_sweep` (T-RIDER-STALE) | every 30 s | none (stateless, idempotent) | job not run for > 2 min |
+| `erasure.execute` | hourly | request id / `erasure_requests.status` (10 §3.2) | request open > 25 days |
 
 ---
 
@@ -349,12 +409,16 @@ Definitions:
 | **CUSTOMER** at `PREPARING`/`READY_FOR_PICKUP` | refund `total − food value − food GST − platform fee`; delivery fee refunded if not picked up | nothing collectable → **COD strike +1** | compensation (paid by the customer's charge for prepaid; by the platform for COD) | cancellation pay | COD: food value + rider pay |
 | **CUSTOMER** at door (`UNDELIVERABLE`, O-18) | 0% refund | not collected → **COD strike +1** (2 → COD disabled) | full settlement as if delivered | full trip pay | COD: everything |
 | **RESTAURANT** (can't fulfil, wrong/missing items found before pickup) | 100% | — | 0 (+ quality flag; penalty policy [OPEN]) | cancellation pay | rider pay (recoverable from restaurant [OPEN]) |
-| **RIDER** (accident, lost/damaged food, misconduct) | 100% | — | compensation if food was prepared | per HR policy (0 for misconduct) [OPEN] | all |
-| **PLATFORM / NONE** (no rider found, app outage, zone paused, law & order) | 100% | — (goodwill coupon optional) | compensation if `PREPARING`+ | cancellation pay | all |
+| **RIDER** (accident, lost/damaged food, misconduct) | 100% | — | compensation if food was prepared | trip pay unless misconduct is established after review; no automatic deductions (riders are contractors, 01 BR-REF-005) [OPEN — policy] | all |
+| **PLATFORM / NONE** (no rider found, app outage, zone paused, law & order) | 100% | — (nothing was paid; goodwill coupon optional) | compensation if `PREPARING`+ | cancellation pay | all |
 
-Post-delivery issues (missing item, quality) are **not** cancellations. They are support tickets resolved with a partial refund (prepaid) or a **goodwill coupon** (COD, or when preferred; ruling 9). Above-threshold amounts go through maker-checker (refund > ₹500, goodwill > ₹150; 10 §11).
+Post-delivery issues (missing item, quality) are **not** cancellations. They are support tickets:
+- **Prepaid:** partial refund to the original instrument via the PA, or a goodwill coupon if the customer prefers.
+- **COD (R29):** the customer **chooses** a manual UPI refund (finance pays from rovo's account and records the UTR: `refunds.channel = MANUAL_UPI`, journal `cod_manual_refund.v1`) **or** a single-user coupon. Never coupon-only `[LEGAL]`.
 
-Ledger rules (lines in 14 §10): `refund.v1`, `cancellation_compensation.v1` (Dr platform expense / Cr restaurant payable), `rider_earning.v1` (cancellation variant), `goodwill_issued.v1`. COD strike handling lives in `customer_profiles.cod_strike_count`.
+Above-threshold amounts go through maker-checker (`approvals.refund_threshold_paise`, `approvals.goodwill_threshold_paise`; §5.1, R31 family 1).
+
+Ledger rules (lines in 14 §10; account codes per 14 §10.2): `refund.v1`, `cod_manual_refund.v1` (Dr `EXPENSE_GOODWILL` or `RESTAURANT_PAYABLE[r]` per fault · Cr `BANK`, UTR in memo), `cancellation_compensation.v1` (Dr `EXPENSE_GOODWILL` / Cr `RESTAURANT_PAYABLE[r]`), `rider_earning.v1` (cancellation variant), goodwill coupon redemption (Dr `EXPENSE_GOODWILL`). COD strike handling lives in `customer_profiles.cod_strike_count`.
 
 ### 6.3 Reason-code catalogue (seed for `reason_codes`, 10 §11)
 
@@ -386,8 +450,8 @@ RETURNING version;
 -- 2. history
 INSERT INTO order_status_history (id, order_id, seq, from_status, to_status, command, actor_type, actor_user_id, actor_role,
                                   reason_code, command_id, metadata, occurred_at) VALUES (...);
--- 3. outbox event + fan-out job (08 §7.3)
-INSERT INTO outbox_events (...) VALUES (...);          -- + River InsertTx(event.fanout{event_id})
+-- 3. domain event → one River job per subscriber (R42; no event table, no fan-out hop)
+-- River InsertManyTx([notifications.order_accepted{event}, dispatch.create_delivery{event}, ...])
 -- 4. timers
 -- River InsertTx(ordering.prep_auto{order_id, version}, ScheduledAt: now+60s) ...
 -- 5. real-time hint
@@ -415,7 +479,7 @@ COMMIT;
 
 ## 8. Event catalogue
 
-Envelope (08 §3.3), stored in `outbox_events`:
+Envelope (08 §3.3). It is **not stored in a table** (R42): the emitting transaction inserts one River job per subscriber (`InsertManyTx`), and each job's args carry this envelope plus the W3C `traceparent`. Handlers dedupe on `(handler, event id)` in `processed_events`.
 
 ```json
 {
@@ -437,7 +501,7 @@ Envelope (08 §3.3), stored in `outbox_events`:
 | Event (name / type key) | SSE `event:` name (topic) | Payload (`payload`) |
 |---|---|---|
 | `OrderCreated` / `ordering.order_created.v1` | — | `{orderId, code, customerId, restaurantId, paymentMethod, totalPaise}` |
-| `OrderPlaced` / `ordering.order_placed.v1` | `order.placed` (`restaurant:{id}:inbox`), `order.status` (`order:{id}`) | `{orderId, code, restaurantId, customerId, paymentMethod, totalPaise, itemCount, placedAt, acceptBy}` |
+| `OrderPlaced` / `ordering.order_placed.v1` | `order.placed` (`inbox:{rid}`), `order.status` (`order:{id}`) | `{orderId, code, restaurantId, customerId, paymentMethod, totalPaise, itemCount, placedAt, acceptBy}` |
 | `OrderAccepted` / `ordering.order_accepted.v1` | `order.status` | `{orderId, restaurantId, prepTimeMin, acceptedAt, etaAt}` |
 | `OrderRejected` / `ordering.order_rejected.v1` | `order.status` | `{orderId, reasonCode, paymentStatus, refundExpected: bool}` |
 | `OrderPreparing` / `ordering.order_preparing.v1` | `order.status` | `{orderId, preparingAt, auto: bool}` |
@@ -448,13 +512,13 @@ Envelope (08 §3.3), stored in `outbox_events`:
 | `OrderCancelled` / `ordering.order_cancelled.v1` | `order.status`, `order.cancelled` (inbox) | `{orderId, fromStatus, cancelledByRole, reasonCode, faultParty, refundPolicy: "FULL"|"PARTIAL"|"NONE"}` |
 | `OrderPaymentFailed` / `ordering.order_payment_failed.v1` | `order.status` | `{orderId, reasonCode}` |
 | `OrderEtaUpdated` / `ordering.order_eta_updated.v1` | `order.eta` | `{orderId, etaAt, reason}` |
-| `OrderDeliveryConflict` / `ordering.order_delivery_conflict.v1` | `ops.alert` (`ops:city:{id}`) | `{orderId, orderStatus, deliveryEvent}` |
+| `OrderDeliveryConflict` / `ordering.order_delivery_conflict.v1` | `ops.alert` (`ops:{cityId}`) | `{orderId, orderStatus, deliveryEvent}` |
 | `PaymentCaptured` / `payments.payment_captured.v1` | `payment.status` | `{paymentId, orderId, amountPaise, method, providerPaymentId}` |
 | `PaymentFailed` / `payments.payment_failed.v1` | `payment.status` | `{paymentId, orderId, errorCode}` (attempt-level; does **not** fail the order) |
 | `RefundInitiated` / `RefundProcessed` / `RefundFailed` (`payments.refund_*.v1`) | `payment.status` | `{refundId, orderId, amountPaise, status}` |
 | `DeliveryCreated` / `dispatch.delivery_created.v1` | — | `{deliveryId, orderId, dispatchAfter, codAmountPaise}` |
 | `DeliveryOffered` / `dispatch.delivery_offered.v1` | `offer.new` (`rider:{id}`) | `{offerId, deliveryId, riderId, expiresAt, pickup:{name, locality, distanceM}, drop:{locality, distanceM}, estEarningsPaise, codAmountPaise}` (no customer PII before accept) |
-| `DeliveryOfferDeclined` / `…offer_declined.v1`, `DeliveryOfferExpired` / `…offer_expired.v1` | `offer.revoked` | `{offerId, deliveryId, riderId, closeReason}` |
+| `DeliveryOfferDeclined` / `…offer_declined.v1`, `DeliveryOfferExpired` / `…offer_expired.v1`, `DeliveryOfferRevoked` / `…offer_revoked.v1` (R16) | `offer.revoked` | `{offerId, deliveryId, riderId, status, closeReason}` |
 | `DeliveryAssigned` / `dispatch.delivery_assigned.v1` | `order.rider_assigned` (inbox), `delivery.milestone` (`order:{id}`) | `{deliveryId, orderId, riderId, riderFirstName, vehicleType}` |
 | `DeliveryUnassigned` / `…delivery_unassigned.v1` | `delivery.milestone` | `{deliveryId, orderId, previousRiderId, reasonCode}` |
 | `DeliveryAtRestaurant` / `…at_restaurant.v1` | `order.rider_arrived` (inbox) | `{deliveryId, orderId, at, geofenceOk}` |
@@ -529,7 +593,7 @@ func (s *Service) Accept(ctx context.Context, in AcceptInput) (OrderView, error)
         if err := s.repo.ApplyCAS(ctx, tx, o.ID, o.Version, d); err != nil {   // update + history rows
             return OrderView{}, err                                    // ErrConflict → 409
         }
-        if err := s.effects.Apply(ctx, tx, o, d.Effects); err != nil { // outbox + River InsertTx + pg_notify
+        if err := s.effects.Apply(ctx, tx, o, d.Effects); err != nil { // River InsertManyTx (subscribers + timers) + pg_notify
             return OrderView{}, err
         }
         return s.repo.View(ctx, tx, o.ID)
@@ -541,7 +605,8 @@ func (s *Service) Accept(ctx context.Context, in AcceptInput) (OrderView, error)
 
 1. **Exhaustive matrix:** every `(state × command × actor)` → expected `To` or `ErrIllegalTransition`, generated from `Transitions` and an explicit **deny list** (§1.1 "Not transitions"). 11 order states × ~16 commands × 9 actors ≈ 1,600 cases.
 2. **Golden side effects:** each transition ID has a golden file listing the effects (event names, timers, journals, refunds). A diff fails the build.
-3. **Guards with a fake clock:** accept window at 179.9 s / 180 s / 180.1 s; grace at 60 s; COD caps ₹1,000 / ₹600 first order; COD headroom.
+3. **Guards with a fake clock:** accept window at 179.9 s / 180 s / 180.1 s; grace at 60 s; COD caps ₹1,000 / ₹600 first order; COD headroom (`cash + cod` = limit allowed, limit + 1 paisa refused); delivery code required at ₹299.99 / ₹300 prepaid and never for COD; tier-1 vs tier-2 at 180 s / 181 s location age and auto-offline at 900 s.
+7. **Catch-up jobs (§5.2):** kill the leader at the settlement tick; the next hourly fire produces exactly one batch for the missed week, and the missed-settlement alert fires if it does not.
 4. **Model-based (`rapid.StateMachine`):** random interleavings of commands and timers across order + delivery, asserting the allowed pairs (§3.3), absorbing terminals, ≤ 1 accepted rider per delivery, and Σ ledger = 0.
 5. **Concurrency integration (real Postgres):** 50 goroutines race `OfferAccept` vs `OfferExpire` vs `ManualAssign` → exactly one winner. `Accept` vs `AcceptTimeout` → exactly one terminal path.
 6. **Doc drift check:** a test renders Mermaid from `Transitions` and compares it with the diagram in this file (or the doc embeds the generated output).
@@ -552,7 +617,8 @@ func (s *Service) Accept(ctx context.Context, in AcceptInput) (OrderView, error)
 
 - `[OPEN — Finance]` Commission waived on restaurant compensation? Rider-fault recovery? Restaurant penalty for `RESTAURANT_CANNOT_FULFIL`?
 - `[OPEN — Product]` Customer-fault refund formula at `PREPARING` (§6.2): is the delivery fee refunded when the rider was already assigned?
-- `[OPEN — Ops]` `rider_approach_min` default (8 min) and lead buffer (5 min). Calibrate from the first 2 weeks of data.
+- `[OPEN — Ops]` `dispatch.rider_approach_min` (8 min) and `dispatch.lead_buffer_min` (5 min). Calibrate from the first 2 weeks of data.
+- `[OPEN — Finance]` `approvals.adjustment_threshold_paise` (₹500 placeholder) for ledger/cash adjustments, `MG_TOPUP` and `PEAK_BONUS`.
 - `[OPEN — UX]` 05 §4.3 drafted T+6 min auto-cancel and 04 a looser ladder. **Superseded by ruling 1 (180 s)**; 05/04 to update.
 - `[ASSUMPTION]` A decline counts as half a miss toward auto-offline. Ops to confirm.
 - `[OPEN]` Waiting pay at the drop for undeliverable cases.
@@ -560,4 +626,4 @@ func (s *Service) Accept(ctx context.Context, in AcceptInput) (OrderView, error)
 ## 11. Challenges / deviations recorded
 
 - 08 §5.3 used `REJECTED` + `RESTAURANT_TIMEOUT` for the accept timeout. Per ruling 1 it is now `CANCELLED` + `RESTAURANT_UNRESPONSIVE`. 08 should be updated.
-- Offer revocation is folded into `EXPIRED` + `close_reason` to keep the baseline's four offer statuses. Adding `REVOKED` would be cleaner, but costs a baseline change. Lead to decide.
+- ~~Offer revocation folded into `EXPIRED`~~ — resolved by R16: `REVOKED` is a fifth offer status (§4.1).

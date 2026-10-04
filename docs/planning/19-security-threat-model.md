@@ -4,11 +4,23 @@
 |---|---|
 | **Purpose** | Identify the threats to rovo across its data flows and trust boundaries, choose mitigations proportionate to a small team running a **production deployment on a standard hyperscaler in an India region with managed services** (00 §4a), record residual risk, and turn the result into **testable security requirements (`SEC-xxx`)** and an **incident-response outline** that also meets Indian regulatory reporting duties (CERT-In, DPDP). |
 | **Owner** | Security Architect |
-| **Status** | Draft v1 (Phase 1 — planning only). Revised for the 00 §4a hosting directive (managed cloud in production; local Docker/free tiers for dev only). |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
 | **Depends on** | `00-planning-baseline.md` (esp. §4a); `08-system-architecture.md`; `10-database-schema.md`; `11-api-specification.md`; `12-auth-rbac.md` (identity, sessions, RBAC — this doc assumes it); `13-order-state-machine.md`; `14-payment-architecture.md` (PA, webhooks, refunds, ledger); `15-notification-architecture.md` (SMS/DLT, push); `16-delivery-zone-architecture.md`; `17/18` (frontend, PWA, CSP delivery); `21-cicd-strategy.md` (OIDC, scans, signing); `22-deployment-architecture.md` (VPC, managed services, IaC); `23-backup-disaster-recovery.md`; `24-observability-strategy.md`; `25-free-hosting-comparison.md` (dev/preview + production cloud costs) |
 | **Consumed by** | QA (`20` turns §9 into tests), DevOps (`21–25`), Release (`27`, `29`, `30`), Legal review |
 
 Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. All external facts are cited in §12 with access date **2026-10-04**. Nothing here is legal advice; every `[LEGAL]` item needs Indian counsel before launch.
+
+**Changes in v1.1** (review 31 + rulings R1–R48):
+- **No-NAT closed pilot (R28):** API/worker tasks run in public subnets with compensating controls: SG ingress only from the ALB, no inbound reachability, SG egress allow-list plus an app-level host allow-list, VPC endpoints for S3/ECR/Secrets Manager/CloudWatch Logs, and GuardDuty Runtime Monitoring. **One NAT Gateway (single AZ) and private subnets before Gate B**, or earlier if a provider requires IP allow-listing. New threat **T-98** and requirement **SEC-187**; DFD and TB table updated (RV-026).
+- **CERT-In / DPDP log archive (R36, M1, RV-085):** 180-day India-region archive of all ICT logs; security events kept ≥ 1 year; VPC flow logs ALL (not rejects only). SEC-134 rewritten (§7.6, §8.10).
+- **Sentry removed (R36):** Grafana Cloud (incl. Faro) only; the cross-border error-tracking item is resolved (RV-032; T-91, §7.6, §8.9).
+- **Admin (R37):** TOTP mandatory, passkeys P1, WAF rate + geo-IN rules; **IAP withdrawn** (C4) (T-08, W5, SEC-025).
+- **KYC (R38):** images only, re-encode, SSE-KMS, audited view; **ClamAV withdrawn** (C5); field-level encryption stays for bank numbers and TOTP secrets (§6.10, T-55, SEC-104 withdrawn, new SEC-190).
+- **Audit (C6):** append-only grants + trigger; **hash chain and WORM anchor withdrawn** (T-52, SEC-127/128 withdrawn).
+- **Audience trust (RV-025):** audience derived from `Host` only with the origin-verify secret; new **SEC-186** (T-15, T-63).
+- **Maker-checker (R31):** five families + break-glass; new **SEC-189**; SEC-050 withdrawn. **Erasure map** (M15): new **SEC-192**.
+- Four hosts (R14); four AWS accounts (C18); local Docker only for dev (R24); risk-based bot challenge (RV-034); delivery OTP per R39; COD compensation per R29; SSE heartbeat 20 s (R10); named incident roles (RV-036).
+- SEC IDs are stable; removed requirements are marked **Withdrawn v1.1**; new IDs start at SEC-186.
 
 **Cloud-agnostic convention:** controls are named generically, with examples as *AWS / GCP* (Azure where useful). DevOps (22) picks the primary cloud; the threat model holds for either.
 
@@ -34,15 +46,15 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. All external facts are cited in §12 
 ## 1. Scope, method and assumptions
 
 **In scope (production and staging):**
-- customer PWA (`app.`), partner PWA (`partner.`), admin SPA (`admin.`), bearer API host (`api.`);
+- customer PWA (`app.`), restaurant PWA (`restaurant.`), rider PWA (`rider.`), admin SPA (`admin.`) — all serving `/api/v1` same-origin (R14, R27); `api.` host for provider webhooks only in V1 (native bearer clients later);
 - CDN/WAF edge; VPC with load balancer, API and worker services, migration job, managed PostgreSQL/PostGIS, optional managed Redis-compatible cache;
 - object storage (static, media, KYC, logs, backups); secrets manager, KMS, container registry;
 - cloud audit/logging/monitoring;
-- external providers: PA, SMS/OTP, Web Push, email, error tracking;
+- external providers: PA, SMS/OTP, Web Push, email, Grafana Cloud (metrics, traces, logs, Faro frontend errors/RUM; R36);
 - GitHub repo and Actions (OIDC to cloud);
 - people: customers, partners, riders, admins, cloud operators, contributors.
 
-**Local/dev/preview** environments (Docker Compose, free tiers) are in scope only for one rule: **they must never hold production data or production secrets** (SEC-185).
+**Local/dev/preview** environments (local Docker Compose only, R24) are in scope only for one rule: **they must never hold production data or production secrets** (SEC-185).
 
 **Out of scope (V1):** native apps (design must not block them), multi-city, live GPS, automated payouts/splits.
 
@@ -65,7 +77,7 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. All external facts are cited in §12 
 | Class | Examples | Handling summary |
 |---|---|---|
 | **C0 Secrets & keys** | JWT signing keys, OTP/phone/recovery-code peppers, KMS CMKs (non-exportable), PA API keys & webhook secret, SMS keys, DB credentials, VAPID keys, CDN origin-verify header, Terraform state | Secrets manager under CMKs; KMS keys non-exportable; no long-lived cloud keys anywhere (OIDC/SSO only); never in the repo; rotated (§7.5) |
-| **C1 Highly sensitive personal / financial** | KYC documents, bank account numbers, payee UPI VPAs, PAN/DL numbers, TOTP secrets, admin password hashes, precise rider location history | KMS envelope encryption at app layer + storage encryption; step-up + audit on view; strict retention |
+| **C1 Highly sensitive personal / financial** | KYC documents, bank account numbers, payee UPI VPAs, PAN/DL numbers, TOTP secrets, admin password hashes, precise rider location history | Field-level KMS envelope encryption for bank numbers, VPAs, PAN/DL numbers and TOTP secrets; KYC images in a private SSE-KMS bucket (no app-layer file encryption, R38); step-up + audit on view; strict retention |
 | **C2 Personal data** | Phone, name, email, addresses + pin lat/lng, order history, device ids, IPs, reviews, tickets | Access control + masking; redaction in logs; DPDP retention; **stored only in India regions** |
 | **C3 Business-confidential** | Commission, payouts, ledger, fraud rules/thresholds, reports | RBAC; fraud thresholds in DB config, not the public repo |
 | **C4 Public** | Restaurant names, menus, prices, photos, zones | Integrity (defacement/XSS) matters most; may be cached at global CDN edges |

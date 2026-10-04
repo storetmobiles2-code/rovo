@@ -4,25 +4,34 @@
 |---|---|
 | **Purpose** | Design for collecting, confirming, refunding, reconciling, accounting for and settling money in rovo: COD and online payments via a licensed payment aggregator (PA), the internal double-entry ledger, commission, fee and tax computation, invoices, weekly settlement and payouts, and COD risk controls. |
 | **Owner** | Solution Architect |
-| **Status** | Draft v1 (Phase 1 — planning only). **Every `[LEGAL]` item must be cleared by a chartered accountant and a payments/regulatory lawyer before launch.** |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 (Phase 1 — planning only). **Every `[LEGAL]` item must be cleared by a chartered accountant and a payments/regulatory lawyer before launch.** |
 | **Depends on** | `00-planning-baseline.md` (§3 money rules, §5 commercial defaults), `08-system-architecture.md` (modules `payments`, `ledger`, sequences §5), `09-architecture-decision-records.md` (ADR-012, ADR-013, ADR-025) |
 | **Feeds** | `10-database-schema.md` (payment and ledger tables), `11-api-specification.md` (payment endpoints, webhooks), `13-order-state-machine.md` (payment-driven transitions), `07-admin-workflow.md` (finance screens), `19-security-threat-model.md`, `20-testing-strategy.md`, `29-production-readiness-checklist.md`, `30-risks-assumptions-decisions.md` |
 
 Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. All prices and rules were checked on **2026-10-04** unless stated otherwise. Indian payments pricing and tax rules change often, so re-verify at onboarding.
+
+**Changes in v1.1 (2026-10-04)**
+- PA selection per **R25/R46**: Cashfree vs Razorpay on written rates; the effective rate is a go/no-go criterion (target ≤ 1% blended). Money flow per **R35**: both models supported, legal opinion before Phase-2 week 4 (§0, §3, §4, §21).
+- Table names per doc 10 (`payments`, `payment_events`, `ledger_account_balances`; register row 66); ledger account codes stay as defined here. Added `transfers`, `pa_settlements`, `pa_settlement_lines`, `recon_exceptions` designs (**M4**) and money-path FKs to `orders` (**R41**) (§5, §10.1).
+- Worked example and quote engine redone with GST-inclusive fees and a `ROUND_OFF` line (**R8**, RV-046) (§10.3, §12.4, §13).
+- COD: first-order cap ₹600, headroom rule (**R6**); compensation by customer choice, manual UPI refund or coupon (**R29**); static-QR COD-UPI deferred (**C19**) (§10.4, §11.3, §14, §15).
+- Accept timeout is `CANCELLED`/`RESTAURANT_UNRESPONSIVE` (**R1**); maker-checker scope and thresholds per **R31** (§15, §17, §19).
+- Periodic jobs use catch-up semantics with a missed-settlement alert (**M11**); app clock, not DB time (**R19**) (§16, §17, §18).
+- CA-signed golden invoices and PA sample settlement files (**M14**) (§12.5, §20). Raw webhook bodies redacted, 180 days; normalised fields 8 years (register row 68). Webhook path `/api/v1/webhooks/payments/{provider}`. No WhatsApp in V1 (**C2**).
 
 ---
 
 ## 0. Summary
 
 1. **Methods:** COD + online (UPI intent/QR first, then cards, netbanking, wallets) through **one RBI-authorised PA's hosted checkout/SDK**. Card data never touches rovo, so PCI-DSS scope is minimal `[ASSUMPTION: SAQ-A-equivalent; confirm with PA]`.
-2. **Provider abstraction:** a `payments.Provider` Go interface (§9). Razorpay is the reference adapter. A fake provider serves dev/tests. The commercial choice (Razorpay vs Cashfree, plus quotes from PhonePe PG/Paytm PG) is made on the **written UPI rate**, launch offers, onboarding outcome and split-settlement support (ADR-012).
+2. **Provider abstraction:** a `payments.Provider` Go interface (§9). Razorpay is the reference adapter. A fake provider serves dev/tests. The commercial choice (**Cashfree vs Razorpay shortlisted**, R25; quotes from PhonePe PG/Paytm PG for leverage) is made on the **written UPI/card rates**, launch offers, onboarding outcome and split-settlement support. **The effective PA rate is a go/no-go criterion: target ≤ 1% blended**, UPI as low as negotiable (R46; ADR-012 as amended).
 3. **Confirmation:** webhook-authoritative, plus a signature-verified client fast path and a polling safety net. All three converge through compare-and-swap (CAS) updates. Auto-cancel after N minutes pending. Late captures are auto-refunded.
-4. **Money flow:** the **preferred** design routes restaurant shares through the PA's **marketplace split settlement** (Razorpay Route / Cashfree Easy Split), held until delivery and released weekly. This avoids rovo pooling third-party funds outside the PA escrow `[LEGAL]`. The ledger drives transfer instructions. Collect-and-payout manually is the fallback only if counsel approves it. Riders are paid from rovo's own account.
+4. **Money flow (R25/R35):** the design supports **both** (A) PA **marketplace split settlement** (Razorpay Route / Cashfree Easy Split; restaurant shares held until delivery and released weekly) and (B) collect-and-payout. A **legal opinion is required before Phase-2 week 4**; if it requires split settlement, PA linked-account KYC per restaurant joins the onboarding critical path `[LEGAL]`. The ledger drives transfer or payout instructions in both. Riders are paid from rovo's own account.
 5. **Ledger:** append-only double-entry ("double-entry-lite": journals + postings, balanced per journal, no updates). Accounts for PA clearing, bank, customer advances, restaurant and rider payables, rider cash-in-hand, revenue lines, GST output (by type and state), GST input credit, TDS 194-O payable, refunds, promotions expense.
 6. **Tax (to verify `[LEGAL]`):** GST on restaurant service via ECO under CGST **§9(5) at 5%** (payable by rovo, no ITC). **18%** on rovo's own services (platform fee, delivery fee, commission to restaurants). Since 2025-09-22, **local delivery via ECO is also notified under §9(5) at 18%**. **No GST TCS (§52)** on §9(5) supplies. **Income-tax TDS §194-O at 0.1%** on restaurant gross sales (thresholds apply).
-7. **Settlement:** weekly (Mon–Sun IST) statements. Restaurants are paid via PA transfers (split) or bank transfer, riders via bank/UPI transfer. Manual execution in V1 with UTR recorded under maker-checker. Payout APIs come later.
-8. **Reconciliation:** a daily job compares the PA settlement report ↔ ledger ↔ bank statement (uploaded). Exceptions go to a finance queue.
-9. **COD risk:** order-value cap, per-customer COD blocking after no-shows, rider cash limit (₹2,000 default) with automatic COD-offer blocking, deposit SLA.
+7. **Settlement:** weekly (Mon–Sun IST) statements, produced by a catch-up job with a missed-settlement alert (M11). Restaurants are paid via PA transfers (split) or bank transfer, riders via bank/UPI transfer. Manual execution in V1 with UTR recorded; **payout batch release is maker-checker** (R31). Payout APIs come later.
+8. **Reconciliation:** a daily catch-up job compares the PA settlement report ↔ ledger ↔ bank statement (uploaded CSV, UTR match, P0). Exceptions go to `recon_exceptions` and a finance queue. Golden tests run against the chosen PA's **sample settlement files** (M14).
+9. **COD risk:** order-value cap ₹1,000 (₹600 first order), COD disabled after 2 customer-fault COD failures (R5/R6), COD offered to a rider only if cash-in-hand + payable ≤ ₹2,000, deposit SLA. COD compensation is the customer's choice of a manual UPI refund or a coupon, never coupon-only (R29).
 
 ---
 
@@ -47,7 +56,7 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. All prices and rules were checked on 
 | Cards (debit/credit, RuPay) | PA hosted fields/redirect, 3-DS/OTP | Card tokenisation (CoF) is handled by the PA. rovo stores only the PA's token reference if "saved cards" are ever enabled (not in V1). |
 | Netbanking | Redirect | Lower success, slower |
 | Wallets | Redirect/SDK | Optional, enabled per PA config |
-| **COD** | No PA. Rider collects cash (or a UPI QR to **rovo's** account, see §11.3) | Eligibility rules in §14 |
+| **COD** | No PA. Rider collects cash. (Static-QR COD-UPI at the door is deferred to V1.1, C19; §11.3.) | Eligibility rules in §14 |
 
 The checkout is opened from the customer PWA with the PA's JS SDK (Razorpay Checkout / Cashfree JS). The PA's return or callback navigation lands on `/checkout/pay/{orderId}` in the customer app. That page fetches order status via the API. It never trusts query parameters (doc 17 §6).
 
@@ -76,7 +85,7 @@ The checkout is opened from the customer PWA with the PA's JS SDK (Razorpay Chec
 
 PA fees are therefore the **largest variable tech cost per order**, above the cloud target of ≤ ₹6/order (doc 01 M-60). The GST on PA fees is input tax credit (ITC)-eligible against our 18% output tax `[LEGAL]`.
 
-**Recommendation (ADR-012).** Apply to **Cashfree and Razorpay** in parallel. Request **written** UPI pricing from both, and from PhonePe PG/Paytm PG. Choose the best combination of onboarding approval, effective rate, split-settlement support and webhook/report quality. Build the Razorpay adapter first (reference implementation for OSS users). Build the Cashfree adapter if it wins, sharing the provider contract test suite. Juspay is not needed below multi-PA scale.
+**Recommendation (ADR-012, amended per R25/R46).** Apply to **Cashfree and Razorpay** in parallel. **Go/no-go:** the written effective rate must meet the target (≤ 1% blended) or the founders re-open the platform-fee question with Product before launch. Request **written** UPI pricing from both, and from PhonePe PG/Paytm PG. Choose the best combination of onboarding approval, effective rate, split-settlement support and webhook/report quality. Build the Razorpay adapter first (reference implementation for OSS users). Build the Cashfree adapter if it wins, sharing the provider contract test suite. Juspay is not needed below multi-PA scale.
 
 ### 3.1 Onboarding requirements for a new business (typical; verify per PA)
 
@@ -85,7 +94,7 @@ PA fees are therefore the **largest variable tech cost per order**, above the cl
 - **Bank:** current account in the entity name (cancelled cheque or bank letter).
 - **Signatories/directors:** PAN plus address proof. Use masked Aadhaar only (baseline §3).
 - **Website/app review:** live site with product/pricing visible, **Terms, Privacy Policy, Refund & Cancellation Policy, Delivery Policy, Contact/Grievance details**. These are prerendered static pages (ADR-009). The business model must be declared as a **food delivery marketplace**. The MCC is assigned by the PA.
-- **Marketplace split:** each restaurant (linked account/vendor) needs its own KYC: PAN, bank account, business proof, and GSTIN if registered. Expect 1–3 days per vendor `[ASSUMPTION]`. This is a **restaurant onboarding dependency** (doc 05/07).
+- **Marketplace split:** each restaurant (linked account/vendor) needs its own KYC: PAN, bank account, business proof, and GSTIN if registered. Expect 1–3 days per vendor `[ASSUMPTION]`. **If the R35 legal opinion selects model A**, this joins the restaurant onboarding critical path (doc 05 §3.5, doc 28).
 - **Timeline:** days to weeks. Start the application **at the beginning of Phase 2**, not at the end `[OPEN: Release Architect to add to the critical path, doc 28]`.
 
 ---
@@ -98,11 +107,13 @@ PA fees are therefore the **largest variable tech cost per order**, above the cl
 
 | Model | Flow | Pros | Cons | Verdict |
 |---|---|---|---|---|
-| **A. PA split settlement (preferred)** | Customer pays → PA escrow → on capture, rovo instructs a **transfer** of the restaurant's net share to the restaurant's linked account (`on_hold=true`). The platform share settles to rovo. On the weekly cycle, rovo releases holds (or sets `on_hold_until`). PA settles to restaurant bank accounts. | Third-party funds never pass through rovo's bank account. PA does vendor KYC. Clear audit trail. | Restaurant KYC with the PA is onboarding friction. ~0.1% extra (Route). Refunds after transfer require reversal. | **Default for online orders** |
-| B. Collect-and-payout | All money settles to rovo's bank. rovo pays restaurants weekly by bank transfer. | Simplest. No vendor KYC. | Possible unauthorised-aggregation exposure `[LEGAL]`. rovo holds third-party funds (trust/accounting obligations). | **Only with a written legal opinion.** Supported by the same ledger (only the payout execution differs). |
+| **A. PA split settlement** | Customer pays → PA escrow → on capture, rovo instructs a **transfer** of the restaurant's net share to the restaurant's linked account (`on_hold=true`). The platform share settles to rovo. On the weekly cycle, rovo releases holds (or sets `on_hold_until`). PA settles to restaurant bank accounts. | Third-party funds never pass through rovo's bank account. PA does vendor KYC. Clear audit trail. | Restaurant KYC with the PA is onboarding friction. ~0.1% extra (Route). Refunds after transfer require reversal. PA lock-in (re-KYC on switching, RV-075). | **Supported**; chosen per the R35 legal opinion |
+| B. Collect-and-payout | All money settles to rovo's bank. rovo pays restaurants weekly by bank transfer. | Simplest. No vendor KYC. | Possible unauthorised-aggregation exposure `[LEGAL]`. rovo holds third-party funds (trust/accounting obligations). | **Supported**; used only if the written R35 opinion permits it. Same ledger; only the payout execution differs. |
 | C. Restaurant is merchant-of-record with its own PA account | Each restaurant integrates a PA | Clean legally | Impractical for small restaurants. Breaks the unified checkout. | Rejected |
 
 **Riders** are paid by rovo for delivery services rovo procures. That is rovo's own expense, not aggregation, so it is paid from rovo's bank account in all models. **COD cash** is outside PA rules (it is not an electronic payment). But the restaurant's share of COD cash collected by rovo's riders is still a third-party obligation, settled from rovo's account in the weekly cycle. This is standard marketplace practice, but it needs to be included in the legal opinion `[LEGAL]`.
+
+**Deadline (R35):** the opinion (PAY-1) is required **before Phase-2 week 4**, because it decides whether transfer/`ReleaseHold` code or bank-payout code is on the critical path.
 
 **Consumer protection / e-commerce rules** (Consumer Protection (E-Commerce) Rules 2020): display total price breakdown, refund policy and grievance officer. These are cross-referenced to doc 01/19 `[LEGAL]`.
 
@@ -112,24 +123,30 @@ PA fees are therefore the **largest variable tech cost per order**, above the cl
 
 ```mermaid
 erDiagram
-    ORDERS ||--o{ PAYMENT_INTENTS : "has (1 active)"
-    PAYMENT_INTENTS ||--o{ PAYMENT_ATTEMPTS : "PA payments"
-    PAYMENT_INTENTS ||--o{ REFUNDS : ""
-    PAYMENT_INTENTS ||--o{ TRANSFERS : "split to restaurant"
-    WEBHOOK_EVENTS }o--|| PAYMENT_INTENTS : "resolved to"
+    ORDERS ||--o{ PAYMENTS : "has (1 successful)"
+    PAYMENTS ||--o{ PAYMENT_ATTEMPTS : "PA payments"
+    PAYMENTS ||--o{ REFUNDS : ""
+    ORDERS ||--o{ TRANSFERS : "split to restaurant"
+    PAYMENTS ||--o{ TRANSFERS : "funded by"
+    PAYMENT_EVENTS }o--|| PAYMENTS : "resolved to"
     PA_SETTLEMENTS ||--o{ PA_SETTLEMENT_LINES : ""
     PA_SETTLEMENT_LINES }o--o| PAYMENT_ATTEMPTS : "matches"
+    PA_SETTLEMENT_LINES }o--o| REFUNDS : "matches"
+    PA_SETTLEMENT_LINES }o--o| TRANSFERS : "matches"
     RECON_EXCEPTIONS }o--o| PA_SETTLEMENT_LINES : ""
 ```
 
-Indicative columns (doc 10 is authoritative):
-- `payment_intents`: `id`, `order_id` (unique among non-terminal), `city_id`, `method` (`ONLINE|COD`), `provider` (`razorpay|cashfree|fake|null`), `provider_order_id` (unique), `amount_paise`, `currency`, `status`, `version`, `expires_at`, `captured_at`, `captured_amount_paise`, `refunded_amount_paise`, `created_at`.
+Indicative columns. Doc 10 is authoritative for table names and DDL (`payments`, `payment_attempts`, `payment_events`, `refunds`; register row 66). The four split/recon tables below are **missing from doc 10 and must be added there** (M4). Per **R41**, `payments.order_id`, `refunds.order_id` (via payment), `transfers.order_id` and ledger `order_id` references carry FKs to `orders`.
+- `payments` (one row per PA order, i.e. the "intent"; COD orders get one row with `provider='COD'`): `id`, `order_id` (FK), `city_id`, `provider` (`RAZORPAY|CASHFREE|COD|MANUAL|FAKE`), `provider_order_id` (unique), `amount_paise`, `currency`, `status`, `version`, `expires_at`, `captured_at`, `amount_refunded_paise`, `created_at`.
 - `payment_attempts`: `provider_payment_id` (unique), `instrument` (`UPI|CARD|NETBANKING|WALLET`), `vpa_masked`/`card_network`/`bank`, `status`, `error_code`, `error_reason`, `fee_paise`, `tax_on_fee_paise` (from settlement), `raw` JSONB (PII-minimised).
-- `refunds`: `id`, `refund_key` (unique, e.g. `order:{id}:full`), `payment_attempt_id`, `amount_paise`, `reason`, `initiated_by`, `speed` (`normal|instant`), `provider_refund_id`, `status`, `arn`/`rrn` when available.
-- `transfers` (split model): `id`, `order_id`, `restaurant_id`, `provider_transfer_id`, `amount_paise`, `on_hold`, `release_at`, `status`, `reversed_paise`.
-- `webhook_events`: `provider`, `provider_event_id` (unique), `event_type`, `signature_valid`, `raw_body` (bytea, encrypted at rest, 180-day retention), `received_at`, `processed_at`, `result`.
+- `refunds`: `id`, `refund_key` (unique, e.g. `order:{id}:full`), `payment_id`, `amount_paise`, `reason`, `initiated_by`, `speed` (`NORMAL|OPTIMUM|INSTANT`), `provider` (`MANUAL` for UPI/bank refunds made by finance, with `utr`, R29), `provider_refund_id`, `status`, `approval_id` (maker-checker above ₹500, R31), `arn`/`rrn` when available.
+- `payment_events`: `provider`, `provider_event_id` (unique), `event_type`, `signature_verified`, `payload` (raw JSON with customer contact/email **redacted at ingest**; full raw body kept **180 days** for disputes, normalised fields kept 8 years; register row 68, RV-030), `received_at`.
+- **`transfers`** (split model, M4): `id`, `order_id` (FK), `payment_id` (FK), `restaurant_id`, `provider`, `provider_transfer_id` (unique per provider), `amount_paise`, `on_hold`, `release_at`, `status` (`CREATED|ON_HOLD|RELEASED|SETTLED|REVERSED|FAILED`), `reversed_paise`, `settlement_utr`, `payout_batch_id`, `created_at`.
+- **`pa_settlements`** (M4): `id`, `provider`, `provider_settlement_id` (unique per provider), `settlement_date`, `gross_paise`, `fee_paise`, `tax_paise`, `net_paise`, `utr`, `bank_matched_at`, `source_file_key` (object storage), `ingested_at`.
+- **`pa_settlement_lines`** (M4): `id`, `pa_settlement_id`, `line_type` (`PAYMENT|REFUND|TRANSFER|ADJUSTMENT|CHARGEBACK|FEE`), `provider_entity_id`, `amount_paise`, `fee_paise`, `tax_paise`, matched `payment_attempt_id`/`refund_id`/`transfer_id` (nullable), `match_status` (`MATCHED|UNMATCHED|EXCEPTION`), `ledger_journal_id`.
+- **`recon_exceptions`** (M4): `id`, `city_id`, `kind` (`MISSING_IN_LEDGER|MISSING_AT_PA|AMOUNT_MISMATCH|FEE_MISMATCH|BANK_MISMATCH|CHARGEBACK|REFUND_FAILED`), `pa_settlement_line_id` (nullable), `entity_type`, `entity_id`, `expected_paise`, `actual_paise`, `status` (`OPEN|INVESTIGATING|RESOLVED|WRITTEN_OFF`), `resolution`, `resolved_by`, `resolved_at`, `created_at`.
 
-### 5.1 Payment intent state machine
+### 5.1 Payment state machine (logical; stored values per doc 10 `payments.status`)
 
 ```mermaid
 stateDiagram-v2
@@ -156,7 +173,7 @@ Mapping to order status (doc 13): `CAPTURED` → order `PENDING_PAYMENT → PLAC
 
 The happy path sequence is in doc 08 §5.1. Key rules:
 
-1. **Create PA order** with `amount = order.total_paise`, `currency=INR`, `receipt = payment_intent.id` (≤ 40 chars), `notes = {order_code, city}`, auto-capture on. Retries with the same receipt must not create duplicates: before creating, query by receipt if the PA supports it, else rely on our `provider_order_id IS NULL` guard plus single-flight per intent (row lock).
+1. **Create PA order** with `amount = order.total_paise`, `currency=INR`, `receipt = payments.id` (≤ 40 chars), `notes = {order_code, city}`, auto-capture on. Retries with the same receipt must not create duplicates: before creating, query by receipt if the PA supports it, else rely on our `provider_order_id IS NULL` guard plus single-flight per intent (row lock).
 2. **Client fast path:** the checkout success handler posts `{provider_order_id, provider_payment_id, signature}`. For Razorpay the signature is `HMAC_SHA256(order_id + "|" + payment_id, key_secret)`, compared in constant time. If valid, CAS `PENDING → CAPTURED` and emit `PaymentCaptured`. If invalid, return 400 and log a security event. The **amount is taken from our intent**, never from the client.
 3. **Webhook (authoritative):** see §7.
 4. **Poll safety net:** River job `payments.poll_intent` at +1, +3, +7 and +15 min after checkout open (and at expiry). It fetches the PA order/payments and converges.
@@ -172,7 +189,7 @@ The happy path sequence is in doc 08 §5.1. Key rules:
 sequenceDiagram
     autonumber
     participant PA as Payment Aggregator
-    participant API as rovo api (api.<domain>/webhooks/pa/{provider})
+    participant API as rovo api (/api/v1/webhooks/payments/{provider})
     participant PG as Postgres
     participant W as rovo worker
     PA->>API: POST raw JSON + signature headers
@@ -180,10 +197,10 @@ sequenceDiagram
     alt invalid signature
         API-->>PA: 401 (log security event, metric, no body echo)
     else valid
-        API->>PG: INSERT webhook_events (provider, provider_event_id UNIQUE) ON CONFLICT DO NOTHING<br/>+ River job payments.process_webhook (same tx)
+        API->>PG: INSERT payment_events (provider, provider_event_id UNIQUE) ON CONFLICT DO NOTHING<br/>+ River job payments.process_event (same tx)
         API-->>PA: 200 within < 1 s (duplicate → 200 as well)
-        W->>PG: parse → resolve intent by provider_order_id/payment_id →<br/>CAS state change → ledger/notification events
-        W->>PG: mark processed_at, result
+        W->>PG: parse → resolve payment by provider_order_id/payment_id →<br/>CAS state change → ledger/notification subscriber jobs
+        W->>PG: job completes (processing status lives in the River job)
     end
 ```
 
@@ -194,12 +211,12 @@ sequenceDiagram
 | fake | HMAC with a dev secret | payload id | all of the above, simulated |
 
 Rules:
-- The webhook endpoint lives on the bearer-only `api.<domain>` host (doc 12), with no cookies and no CSRF. Allow-list the PA's published source IPs at the edge **if** the PA publishes them `[OPEN]`. The signature is the primary control.
+- The webhook endpoint is `POST /api/v1/webhooks/payments/{provider}` (doc 11), served on the reserved `api.<domain>` host (server-to-server, no cookies, no CORS, no CSRF; doc 12/22). Allow-list the PA's published source IPs at the edge **if** the PA publishes them `[OPEN]`. The signature is the primary control.
 - Reject timestamps older than 5 min where the scheme includes one (replay protection). Dedupe covers the rest.
 - **Process asynchronously.** The HTTP handler only verifies, stores and enqueues. PAs retry on non-2xx or timeouts, so the handler must be fast and idempotent.
 - **Ordering is not guaranteed.** `payment.failed` may arrive after `payment.captured` for a different attempt. State transitions are CAS-guarded and monotonic (`CAPTURED` never goes back to `FAILED`).
 - **Secrets** (key id/secret, webhook secret) come from the secrets manager. Rotation uses dual-secret verification during a rotation window.
-- Raw bodies are retained 180 days for disputes and then purged. Customer PII in payloads (VPA, email, phone) is minimised or masked in `payment_attempts.raw`.
+- Customer contact/email fields are redacted at ingest. Raw bodies are retained 180 days for disputes and then purged; normalised financial fields are retained 8 years (register row 68). VPA is stored masked.
 
 ---
 
@@ -208,10 +225,10 @@ Rules:
 | Hop | Mechanism |
 |---|---|
 | Client → API `POST /api/v1/orders`, `/payments/confirm`, refunds | `Idempotency-Key` header (doc 08 §7.1) |
-| API → PA create order | `receipt = payment_intent.id`; one PA order per intent (guarded by row lock) |
+| API → PA create order | `receipt = payments.id`; one PA order per `payments` row (guarded by row lock) |
 | API → PA refund | `refund_key` unique in DB; PA refund `receipt`/`notes.refund_id`. Before retrying a timed-out refund call, **list refunds for the payment** and match by our id. Never blindly re-POST. |
 | API → PA transfer/release | `transfers.id` in `notes`. Query before retry. |
-| PA → webhook | `webhook_events (provider, provider_event_id)` unique |
+| PA → webhook | `payment_events (provider, provider_event_id)` unique |
 | Event → ledger | `ledger_journals (source_type, source_id, rule)` unique |
 | Payout recording | `payouts (settlement_statement_id)` unique + UTR unique per bank account |
 
@@ -255,7 +272,7 @@ type SplitProvider interface {
 }
 
 type CreateOrderInput struct {
-    Receipt  string        // payment_intent.id
+    Receipt  string        // payments.id
     Amount   money.Paise
     Currency string        // "INR"
     Notes    map[string]string
@@ -306,10 +323,10 @@ CREATE TABLE ledger_journals (
   source_type  text NOT NULL,      -- order|refund|payout|deposit|settlement|adjustment
   source_id    uuid NOT NULL,
   rule         text NOT NULL,      -- posting rule name + version, e.g. order_delivered.v1
-  effective_at timestamptz NOT NULL,
+  effective_at timestamptz NOT NULL,   -- set from the injected app clock (R19); payout cut-offs use this, never created_at
   memo         text,
   reverses_journal_id uuid REFERENCES ledger_journals(id),
-  created_at   timestamptz NOT NULL DEFAULT now(),
+  created_at   timestamptz NOT NULL DEFAULT now(),   -- audit only; never used for business cut-offs (R19)
   UNIQUE (source_type, source_id, rule)
 );
 CREATE TABLE ledger_postings (
@@ -318,13 +335,14 @@ CREATE TABLE ledger_postings (
   account_id  uuid NOT NULL REFERENCES ledger_accounts(id),
   amount_paise bigint NOT NULL CHECK (amount_paise <> 0),  -- +debit / -credit
   currency    char(3) NOT NULL DEFAULT 'INR',
-  order_id    uuid, restaurant_id uuid, rider_id uuid       -- reporting dimensions
+  order_id    uuid REFERENCES orders(id),                   -- money-path FK allowed (R41)
+  restaurant_id uuid, rider_id uuid                         -- reporting dimensions
 );
 -- Deferred constraint trigger: SUM(amount_paise) per journal_id = 0 at COMMIT.
 -- REVOKE UPDATE, DELETE on journals/postings from the app role; corrections via reversing journals.
 ```
 
-`account_balances(account_id, balance_paise, version)` is maintained in the same transaction for accounts that gate behaviour (rider cash-in-hand, payables). It can always be rebuilt from postings (a nightly check compares them and alerts on drift).
+`ledger_account_balances(account_id, balance_paise, version)` (doc 10 name) is maintained in the same transaction for accounts that gate behaviour (rider cash-in-hand, payables). It can always be rebuilt from postings (a nightly check compares them and alerts on drift).
 
 ### 10.2 Chart of accounts (V1)
 
@@ -345,59 +363,62 @@ CREATE TABLE ledger_postings (
 | `REVENUE_COMMISSION` | Income | C | city | Restaurant commission |
 | `REVENUE_DELIVERY_FEE` | Income | C | city | Customer delivery fee |
 | `REVENUE_PLATFORM_FEE` | Income | C | city | Platform fee + small-cart fee |
-| `EXPENSE_RIDER_PAY` | Expense | D | city | Rider earnings |
+| `EXPENSE_RIDER_PAY` | Expense | D | city | Rider earnings, incl. adjustments `PEAK_BONUS` (R30) and pilot `MG_TOPUP` (R47) |
 | `EXPENSE_PA_FEES` | Expense | D | provider | PA fees (excl. GST) |
 | `EXPENSE_PROMOTIONS` | Expense | D | city | Platform-funded discounts |
-| `EXPENSE_GOODWILL` | Expense | D | city | Platform-borne refunds/compensation |
+| `EXPENSE_GOODWILL` | Expense | D | city | Platform-borne refunds/compensation (incl. COD manual UPI refunds, R29) |
+| `ROUND_OFF` | Income | C | city | Net whole-rupee rounding of the payable (R8); may carry a debit balance |
 | `SUSPENSE` | — | — | — | Unmatched items pending recon. Must trend to zero. |
 
-### 10.3 Worked example (prepaid order)
+### 10.3 Worked example (prepaid order) — redone 2026-10-04 per R8 (RV-046)
 
-Quote (tax-exclusive bases; see §13 for computation and `[OPEN]` on GST-inclusive display):
+Fees are **displayed GST-inclusive** (default; presentation configurable pending CA, R8). Ledger bases stay tax-exclusive: `fee_taxable = round(fee_incl × 100/118)`, `fee_gst = fee_incl − fee_taxable`. The payable is rounded to the whole rupee with an explicit `ROUND_OFF` bill line (R8). Menu prices are exclusive of the 5% GST, shown as a separate line.
 
-| Line | Paise |
+| Bill line | Paise |
 |---|---|
 | Food subtotal | 30,000 |
 | Packaging (restaurant) | 1,000 |
-| GST 5% on restaurant supply (31,000) — §9(5), paid by rovo | 1,550 |
-| Delivery fee | 3,000 |
-| GST 18% on delivery fee | 540 |
-| Platform fee | 500 |
-| GST 18% on platform fee | 90 |
-| **Customer total** | **36,680** (₹366.80) |
+| GST 5% on restaurant supply (31,000), §9(5), paid by rovo | 1,550 |
+| Delivery fee ₹30 incl. GST (taxable 2,542 + GST 458) | 3,000 |
+| Platform fee ₹5 incl. GST (taxable 424 + GST 76) | 500 |
+| Sum | 36,050 |
+| `ROUND_OFF` (nearest rupee) | +50 |
+| **Customer payable** | **36,100** (₹361) |
 
-Commission 15% × food subtotal 30,000 = 4,500; GST 18% on it = 810. TDS 194-O 0.1% × 31,000 = 31. Rider pay ₹25 + ₹6 × 1.2 km = 3,220. PA fee at 2% = 734, GST on the fee = 132.
+Commission 15% × food subtotal 30,000 = 4,500; GST 18% on it = 810. TDS 194-O 0.1% × 31,000 = 31. Rider pay ₹25 + ₹6 × 1.2 km = 3,220. PA fee at an illustrative 2% of 36,100 = 722, GST on the fee = 130.
 
 | # | Trigger (event) | Journal (Dr + / Cr −) |
 |---|---|---|
-| J1 | `PaymentCaptured` | Dr `PA_CLEARING` 36,680 · Cr `CUSTOMER_ADVANCES` 36,680 |
-| J2 | `OrderDelivered` (rule `order_delivered.v1`) | Dr `CUSTOMER_ADVANCES` 36,680 · Cr `RESTAURANT_PAYABLE[r]` 31,000 · Cr `GST_OUTPUT_9_5_RESTAURANT` 1,550 · Cr `REVENUE_DELIVERY_FEE` 3,000 · Cr `GST_OUTPUT_OWN` 540 · Cr `REVENUE_PLATFORM_FEE` 500 · Cr `GST_OUTPUT_OWN` 90 |
+| J1 | `PaymentCaptured` | Dr `PA_CLEARING` 36,100 · Cr `CUSTOMER_ADVANCES` 36,100 |
+| J2 | `OrderDelivered` (rule `order_delivered.v2`) | Dr `CUSTOMER_ADVANCES` 36,100 · Cr `RESTAURANT_PAYABLE[r]` 31,000 · Cr `GST_OUTPUT_9_5_RESTAURANT` 1,550 · Cr `REVENUE_DELIVERY_FEE` 2,542 · Cr `GST_OUTPUT_OWN` 458 · Cr `REVENUE_PLATFORM_FEE` 424 · Cr `GST_OUTPUT_OWN` 76 · Cr `ROUND_OFF` 50 |
 | J3 | `OrderDelivered` (rule `commission.v1`) | Dr `RESTAURANT_PAYABLE[r]` 5,310 · Cr `REVENUE_COMMISSION` 4,500 · Cr `GST_OUTPUT_OWN` 810 |
 | J4 | `OrderDelivered` (rule `tds_194o.v1`) | Dr `RESTAURANT_PAYABLE[r]` 31 · Cr `TDS_194O_PAYABLE` 31 |
 | J5 | `OrderDelivered` (rule `rider_earning.v1`) | Dr `EXPENSE_RIDER_PAY` 3,220 · Cr `RIDER_PAYABLE[d]` 3,220 |
-| J6 | `SettlementReportIngested` (per payment line) | Dr `BANK` 35,814 · Dr `EXPENSE_PA_FEES` 734 · Dr `GST_INPUT_CREDIT` 132 · Cr `PA_CLEARING` 36,680 |
+| J6 | `SettlementReportIngested` (per payment line) | Dr `BANK` 35,248 · Dr `EXPENSE_PA_FEES` 722 · Dr `GST_INPUT_CREDIT` 130 · Cr `PA_CLEARING` 36,100 |
 | J7a | Model B payout | Dr `RESTAURANT_PAYABLE[r]` 25,659 · Cr `BANK` 25,659 (UTR in memo) |
 | J7b | Model A transfer settled (split) | Dr `RESTAURANT_PAYABLE[r]` 25,659 · Cr `PA_CLEARING` 25,659. In this model, J6 settles the remaining net to `BANK`, and Route fees post to `EXPENSE_PA_FEES`. |
 | J8 | Rider payout | Dr `RIDER_PAYABLE[d]` · Cr `BANK` |
 
-Restaurant net for this order = 31,000 − 5,310 − 31 = **25,659** (₹256.59). Platform contribution before fixed costs ≈ 4,500 + 3,000 + 500 − 3,220 − 734 = **₹40.46** (GST nets out as a pass-through, with ITC on the PA fee).
+Restaurant net for this order = 31,000 − 5,310 − 31 = **25,659** (₹256.59). Platform contribution before fixed costs ≈ 4,500 + 2,542 + 424 + 50 − 3,220 − 722 = **₹35.74** (GST nets out as a pass-through, with ITC on the PA fee). The v1 example (₹40.46) overstated revenue because it added fee GST on top. The rule version moves to `order_delivered.v2` for the inclusive-fee and round-off lines.
 
 ### 10.4 Other events
 
 | Event | Journal |
 |---|---|
-| **COD delivered** (`order_delivered.v1` with method COD) | As J2–J5, but J2 debits `RIDER_CASH_IN_HAND[d]` 36,680 instead of `CUSTOMER_ADVANCES`. Gate: if the resulting balance ≥ the cash limit → emit `RiderCashLimitReached`. |
+| **COD delivered** (`order_delivered.v2` with method COD) | As J2–J5, but J2 debits `RIDER_CASH_IN_HAND[d]` 36,100 instead of `CUSTOMER_ADVANCES`. Gate (R6): dispatch offers further COD orders only while `cash_in_hand + order_payable ≤ limit`; `RiderCashLimitReached` is emitted when no COD order can fit. |
 | **Rider cash deposit** (admin records UPI/bank credit with UTR, or matched from bank statement) | Dr `BANK` x · Cr `RIDER_CASH_IN_HAND[d]` x → may emit `RiderCashCleared` |
 | **Rider earnings netted against cash** (rider keeps earnings from cash, with consent, at settlement) | Dr `RIDER_PAYABLE[d]` y · Cr `RIDER_CASH_IN_HAND[d]` y |
-| **Coupon funded by platform** (₹50 off) | Customer pays 31,680. J1 is 31,680. J2 adds Dr `EXPENSE_PROMOTIONS` 5,000 so that credits are unchanged (restaurant still gets 31,000 gross; GST on full supply value) `[LEGAL: GST valuation of platform-funded discounts]` |
+| **Coupon funded by platform** (₹50 off) | Customer pays 31,100 (36,050 − 5,000 = 31,050, rounded). J1 is 31,100. J2 adds Dr `EXPENSE_PROMOTIONS` 5,000 so that credits are unchanged (restaurant still gets 31,000 gross; GST on full supply value) `[LEGAL: GST valuation of platform-funded discounts]` |
 | **Coupon funded by restaurant** (₹50 off food) | Food value becomes 25,000. GST 5% is on the reduced value. `RESTAURANT_PAYABLE` is credited the reduced amount. Commission base is per contract (default: post-discount) `[OPEN: Product]` |
 | **Coupon co-funded** | Split per coupon `funding_split` into the two cases above |
-| **Full refund before delivery** (rejection/cancel) | Dr `CUSTOMER_ADVANCES` 36,680 · Cr `REFUNDS_PAYABLE` 36,680. On `RefundProcessed`: Dr `REFUNDS_PAYABLE` · Cr `PA_CLEARING` (the PA deducts it from settlement). No revenue was recognised, so no GST reversal is needed. The original PA fee is generally not returned `[unverified per PA]` → `EXPENSE_PA_FEES` when the settlement shows it. |
+| **Full refund before delivery** (rejection/cancel) | Dr `CUSTOMER_ADVANCES` 36,100 · Cr `REFUNDS_PAYABLE` 36,100. On `RefundProcessed`: Dr `REFUNDS_PAYABLE` · Cr `PA_CLEARING` (the PA deducts it from settlement). No revenue was recognised, so no GST reversal is needed. The original PA fee is generally not returned `[unverified per PA]` → `EXPENSE_PA_FEES` when the settlement shows it. |
 | **Partial refund after delivery, restaurant at fault** (missing item ₹100 + GST ₹5) | Dr `RESTAURANT_PAYABLE[r]` 10,000 · Dr `GST_OUTPUT_9_5_RESTAURANT` 500 · Cr `REFUNDS_PAYABLE` 10,500. Commission adjustment per contract. A credit note is issued (§12.5) `[LEGAL]`. |
 | **Partial refund, platform goodwill** | Dr `EXPENSE_GOODWILL` · Cr `REFUNDS_PAYABLE` (no GST credit note if it is compensation rather than a price reduction `[LEGAL]`) |
 | **Instant refund fee** | Dr `EXPENSE_PA_FEES` + `GST_INPUT_CREDIT` · Cr `PA_CLEARING` (from settlement) |
 | **Undeliverable, customer at fault (prepaid)** | Policy `[OPEN: Product]`: e.g. no refund of food, so recognise as delivered for the restaurant. The rider is paid. |
-| **Undeliverable COD** | No cash. Restaurant compensation policy `[OPEN]`. Customer COD strike (§14). |
+| **Undeliverable COD** | No cash. Restaurant compensation policy `[OPEN]`. Customer COD strike if customer fault (R5, §14). |
+| **COD compensation** (missing/wrong item on a COD order, R29) | Customer chooses. (a) **Manual UPI refund:** finance pays from rovo's account and records the UTR (`refunds.provider='MANUAL'`): Dr `RESTAURANT_PAYABLE[r]` (restaurant fault) or `EXPENSE_GOODWILL` · Cr `BANK`. (b) **Single-user coupon:** no journal at issue; on redemption it posts as a platform-funded discount to `EXPENSE_GOODWILL`. Never coupon-only `[LEGAL]`. Above ₹500 (refund) / ₹150 (goodwill) needs a second approver (R31). |
+| **Rider peak bonus / pilot minimum guarantee** (R30, R47) | Ledger adjustment `PEAK_BONUS` or `MG_TOPUP`: Dr `EXPENSE_RIDER_PAY` · Cr `RIDER_PAYABLE[d]`. Above threshold, maker-checker (R31 family 1). |
 | **Monthly GST/TDS remittance** | Dr `GST_OUTPUT_*` / `TDS_194O_PAYABLE` · Cr `BANK`. Dr `GST_OUTPUT_OWN` · Cr `GST_INPUT_CREDIT` for ITC utilisation (finance records this from the filed return) |
 
 Posting rules are **pure functions** `func(OrderFinancials) Journal`, unit-tested with table tests and property tests (balanced, non-negative payables after payouts). Rules are versioned (`.v1`) so historical journals remain explainable after a rule change.
@@ -416,10 +437,10 @@ sequenceDiagram
     participant PG as Postgres
     participant W as rovo worker
     actor F as Admin finance
-    D->>API: POST /api/v1/rider/deliveries/{id}/delivered {cod_collected_paise: 36680}
-    API->>PG: delivery DELIVERED, payment_intent COD → COLLECTED (amount must equal the due amount, else flag)
+    D->>API: POST /api/v1/rider/deliveries/{id}/delivered {cod_collected_paise: 36100}
+    API->>PG: delivery DELIVERED, payments row COD → COD_COLLECTED (amount must equal the due amount, else flag)
     W->>PG: ledger: Dr RIDER_CASH_IN_HAND[d] ... (COD order_delivered.v1)
-    W->>PG: balance ≥ limit? → RiderCashLimitReached → dispatch stops COD offers to D
+    W->>PG: no COD headroom left (cash_in_hand + payable > limit)? → RiderCashLimitReached → dispatch stops COD offers to D
     D->>D: deposits cash via UPI to rovo's account (VPA on rovo current account) with note = rider code
     F->>API: POST /api/v1/admin/riders/{id}/deposits {amount, utr, channel}  (or bank-statement match)
     API->>PG: ledger: Dr BANK · Cr RIDER_CASH_IN_HAND[d], if below limit → RiderCashCleared
@@ -430,8 +451,8 @@ sequenceDiagram
 - Deposit channels: UPI to rovo's bank VPA (preferred, ₹0 fee via direct bank collection, **not** via the PA, which would charge fees), cash deposit at a bank or hub `[OPEN: ops]`. A daily rider cash statement is available in the app.
 - A deposit SLA (e.g. within 24 h or before the next shift) is enforced via the cash limit and escalation.
 
-### 11.3 Customer pays COD by UPI at the door
-The customer scans a **static rovo QR** (rovo's bank VPA) and the rider marks "paid by UPI" with the customer's UTR. Treat it as COD-UPI: Dr `BANK` (pending bank match) instead of `RIDER_CASH_IN_HAND`. Matching via the bank statement upload. Fraud risk is a fake UTR, mitigated by bank-statement match within 24 h plus rider accountability `[OPEN: enable in V1 or V1.1]`.
+### 11.3 Customer pays COD by UPI at the door — **deferred to V1.1 (scope cut C19)**
+*Kept for reference; not built in V1 (fake-UTR risk; doc 02 plans a dynamic QR in V1.1).* The customer scans a **static rovo QR** (rovo's bank VPA) and the rider marks "paid by UPI" with the customer's UTR. Treat it as COD-UPI: Dr `BANK` (pending bank match) instead of `RIDER_CASH_IN_HAND`. Matching via the bank statement upload. Fraud risk is a fake UTR, mitigated by bank-statement match within 24 h plus rider accountability.
 
 ---
 
@@ -465,7 +486,7 @@ All items in this section need a CA's confirmation before launch. Rates are as r
 `tax_rates(tax_code, city_id|state, rate_bps, effective_from, effective_to)` with codes such as `GST_RESTAURANT_9_5`, `GST_OWN_SERVICE`, `GST_DELIVERY_9_5`, `TDS_194O`. The quote engine and posting rules look up rates **effective at order time**. A rate change is a data change with an effective date, never a deploy.
 
 ### 12.4 Rounding
-GST is computed **per invoice line** in paise, half-up (baseline §3). Tax totals = Σ line taxes. If a CA requires invoice-level computation, the switch is `rounding_mode` in `pricing_configs` `[OPEN: CA]`. The customer-facing total is not rounded to the rupee unless Product decides (baseline §3 `[OPEN]`). If it is rounded, the difference is a `round_off` line posted to `REVENUE_PLATFORM_FEE` or `EXPENSE_GOODWILL`.
+GST is computed **per invoice line** in paise, half-up (baseline §3). Tax totals = Σ line taxes. If a CA requires invoice-level computation, the switch is `rounding_mode` in `fee_configs` `[OPEN: CA]`. **The payable is rounded to the whole rupee with an explicit `ROUND_OFF` bill line (R8)**, posted to the `ROUND_OFF` account (§10.2). Fee GST presentation is configurable, GST-inclusive by default, pending CA confirmation `[LEGAL]`.
 
 ### 12.5 Invoices per order (customer)
 
@@ -476,6 +497,8 @@ Following the common Indian food-marketplace pattern `[LEGAL: confirm format]`:
 3. One PDF combines both with a summary, generated by the worker on `OrderDelivered`, stored in the private bucket, emailed if an email exists and downloadable in-app.
 
 Invoice numbering: unique, consecutive per GSTIN per financial year, ≤ 16 characters (CGST Rule 46), e.g. `TS25R0000123` (state code + FY + series + sequence). `invoice_sequences` uses a row lock per series, and numbers are never reused. **Credit notes** are issued for post-delivery price reductions (partial refunds). **Monthly B2B commission invoice** to each restaurant (18%) accompanies the settlement statement. E-invoicing (IRN) applies to B2B invoices only above the turnover threshold (currently ₹5 crore AATO `[verify]`), so it is not expected in V1.
+
+**CA-signed golden set (M14, P0).** Before invoice code freeze, the CA signs off about 10 golden invoices and statements (prepaid, COD, platform coupon, restaurant coupon, partial refund with credit note, cancellation, round-off up and down). They become test fixtures (§20). The GST valuation of platform-funded discounts (PAY-3) is on the critical path before quote-engine code freeze (RV-048).
 
 ---
 
@@ -490,12 +513,15 @@ restaurant_discount = coupon share funded by restaurant (applied to items_subtot
 platform_discount   = coupon share funded by platform (applied to the order total, see §10.4)
 restaurant_taxable  = items_subtotal − restaurant_discount + packaging
 gst_restaurant      = round(restaurant_taxable × 5%)                    # §9(5)
-distance_m          = haversine(restaurant, drop) × road_factor(city)   # ADR-014
-delivery_fee        = slab(distance_m) (0 if free-delivery campaign; funded by → promotions)
-small_cart_fee      = items_subtotal < 14900 ? 1500 : 0
-platform_fee        = 500
-gst_own             = round(delivery_fee × 18%) + round(platform_fee × 18%) + round(small_cart_fee × 18%)
-total               = restaurant_taxable + gst_restaurant + delivery_fee + platform_fee + small_cart_fee + gst_own − platform_discount
+distance_m          = haversine(restaurant, drop) × road_factor(city)   # radius check on straight-line (7 km), slabs on road distance (R18)
+delivery_fee_incl   = slab(distance_m), slabs [lo,hi) to 10 km (0 if free-delivery campaign; funded by → promotions)
+small_cart_fee_incl = items_subtotal < 14900 ? 1500 : 0
+platform_fee_incl   = 500
+fee_taxable(f)      = round(f × 100/118)        # fees GST-inclusive by default (R8; configurable)
+gst_own             = Σ (f − fee_taxable(f)) over delivery, platform, small-cart fees
+sum                 = restaurant_taxable + gst_restaurant + delivery_fee_incl + platform_fee_incl + small_cart_fee_incl − platform_discount
+round_off           = round_to_rupee(sum) − sum  # explicit ROUND_OFF line (R8)
+payable             = sum + round_off
 commission          = round(commission_base × commission_pct), base = items_subtotal − restaurant_discount  [OPEN: include packaging?]
 gst_on_commission   = round(commission × 18%)
 tds_194o            = round(restaurant_taxable × 0.1%) (if applicable to this restaurant)
@@ -503,7 +529,7 @@ restaurant_net      = restaurant_taxable − commission − gst_on_commission �
 rider_pay           = 2500 + max(0, distance_km − 2) × 600 + waiting_pay   (computed at delivery from actuals)
 ```
 
-- **Display:** `[OPEN: Product]` whether fees are shown GST-inclusive (Swiggy shows its platform fee inclusive of GST). The engine supports both via `fee_display_mode`. Ledger bases are always tax-exclusive.
+- **Display (R8):** fees are shown GST-inclusive by default; `fee_display_mode` keeps the exclusive option pending CA. Ledger bases are always tax-exclusive. **No surge or rain fees** (R30). Fee and commission defaults are owned by doc 16 (R48); the numbers above are illustrative.
 - **PG fee pass-through to restaurants:** many marketplaces charge restaurants a payment-processing fee on online orders. Supported as a contract field, default 0 `[OPEN: Product/BD]`.
 - **Quote snapshot:** the full breakdown, config version IDs and tax rates are stored on `quotes` and copied to the order. Posting rules use the **order snapshot**, never live config.
 
@@ -513,15 +539,17 @@ rider_pay           = 2500 + max(0, distance_km − 2) × 600 + waiting_pay   (c
 
 | Control | Default (per city, configurable) | Enforcement point |
 |---|---|---|
-| COD enabled per city/zone/time window | on; off 23:00–06:00 `[ASSUMPTION]` | quote/checkout |
-| Max COD order value | ₹1,000 | checkout |
-| New-customer COD cap | first order ≤ ₹500 COD `[ASSUMPTION]` | checkout |
-| COD strikes | Order `UNDELIVERABLE` with reason `CUSTOMER_UNREACHABLE` / `CUSTOMER_REFUSED` = 1 strike. **2 strikes in 90 days → COD disabled** for the customer (prepaid only), with notification and support appeal. | checkout + support |
+| COD enabled per city/zone/time window | on during service hours *(proposal, register row 72)* | quote/checkout |
+| Max COD order value | ₹1,000 (R6) | checkout |
+| New-customer COD cap | first order ≤ ₹600 COD (R6) | checkout |
+| COD strikes | Order `UNDELIVERABLE` (support-approved, R5) with customer fault (`CUSTOMER_UNREACHABLE` / `CUSTOMER_REFUSED`) = 1 strike. **2 customer-fault COD failures → COD disabled** for the customer (prepaid only), with notification and support appeal (R5). | checkout + support |
 | Phone/device velocity | > 3 COD orders/hour per phone/device → block | checkout |
-| Rider cash limit | ₹2,000 (baseline §5) | dispatch filter: `cash_in_hand + order_total ≤ limit`; hard block at the limit |
-| Deposit SLA | 24 h; after 48 h the rider is suspended from going online | periodic job + ops alert |
+| Rider cash limit | ₹2,000 (baseline §5) | dispatch filter: COD offered only if `cash_in_hand + order_payable ≤ limit` (R6) |
+| Deposit SLA | reminder at 48 h, block from going online at 72 h *(proposal, register row 72; doc 01 values)* | periodic job + ops alert |
 | Cash mismatch | delivered with `cod_collected ≠ due` → ops review; persistent shortfall → rider payable deduction (with consent and policy) | admin |
 | Payment-provider outage | COD-only mode (doc 08 §11) with tighter caps (₹600) to limit risk exposure | circuit breaker |
+
+Values are seeded in `app_config` and owned by docs 10/13 (R48); this table explains the controls.
 
 ---
 
@@ -529,15 +557,19 @@ rider_pay           = 2500 + max(0, distance_km − 2) × 600 + waiting_pay   (c
 
 | Case | Trigger | Amount | Who bears | Speed |
 |---|---|---|---|---|
-| Restaurant rejects / accept timeout | `OrderRejected` | Full | none (no revenue recognised); PA fee → platform | normal; instant optional |
-| Customer cancels before accept | `OrderCancelled` by customer while `PLACED` | Full | platform (PA fee) | normal |
-| Customer cancels after accept | policy | Partial or none `[OPEN: Product]` | per policy | normal |
+| Restaurant rejects | `OrderRejected` | Full | none (no revenue recognised); PA fee → platform | normal; instant optional |
+| Accept timeout (R1) | `OrderCancelled`, `cancelled_by=SYSTEM`, reason `RESTAURANT_UNRESPONSIVE` | Full | restaurant fault for metrics; PA fee → platform | normal; instant optional |
+| Customer cancels while `PLACED` or within 60 s of placement (R2) | `OrderCancelled` by customer | Full | platform (PA fee) | normal |
+| Customer cancels later | via support/admin with fault attribution (R2) | per fault attribution | per policy | normal |
+| Restaurant cannot fulfil after accept | ops-mediated cancel with fault attribution (R40) | Full | restaurant (debit payable) or platform | normal |
 | Dispatch exhausted, ops cancels | `OrderCancelled` by system/admin | Full | platform | **instant** (customer experience) |
 | Late capture / amount mismatch | §6 | Full | platform | normal |
 | Missing/wrong item (post-delivery) | support resolution | Partial | restaurant (debit payable) or platform (goodwill) | normal |
 | Undeliverable, platform at fault | ops | Full | platform | instant |
+| **COD order** compensation (missing/wrong item, platform/restaurant fault) | support resolution | Partial or full | restaurant or platform | **Customer chooses** manual UPI refund (UTR recorded) or single-user coupon; never coupon-only (R29) `[LEGAL]` |
 
-- Refunds always go **to source** via the PA. No wallet credits in V1 (PPI regulation `[LEGAL]`).
+- Online refunds always go **to source** via the PA. COD refunds are manual UPI/bank transfers by finance (R29). No wallet credits in V1 (PPI regulation `[LEGAL]`).
+- **Maker-checker (R31):** refunds > ₹500 and goodwill > ₹150 need a second approver; break-glass self-approval requires a 24 h post-review.
 - **Instant refunds** (Razorpay ₹7.99–14.99 each) are used selectively: platform-fault cases and amounts above a threshold. Configurable.
 - Normal refunds take **5–7 business days** to reach the customer (Razorpay: https://razorpay.com/newsroom/no-more-5-7-business-days-for-refunds-razorpay-launches-instant-refunds/). The customer sees the expected timeline and the ARN/RRN when available.
 - **Split model:** if a transfer to the restaurant was already created, reverse the restaurant-borne part of the transfer first (`ReverseTransfer`), then refund. If the transfer is still `on_hold`, reversal is free of settlement timing issues. This is why holds stay in place until delivery plus a dispute window.
@@ -567,11 +599,13 @@ sequenceDiagram
 
 ## 16. Reconciliation
 
-### 16.1 Daily PA reconciliation job (`payments.recon_daily`, 10:30 IST, for D-1)
+### 16.1 Daily PA reconciliation job (`payments.recon_daily`, for D-1; catch-up semantics, M11)
+
+The job runs hourly from 10:30 IST and exits if recon for D-1 is already complete (doc 08 §7.4). Alert if D-1 is not reconciled by 18:00 IST.
 
 ```mermaid
 flowchart TD
-    A[Fetch PA settlement/recon report for D-1<br/>Provider.SettlementReport] --> B[Store pa_settlements + lines idempotently]
+    A[Fetch PA settlement/recon report for D-1<br/>Provider.SettlementReport] --> B[Store pa_settlements + pa_settlement_lines idempotently<br/>raw file kept in object storage]
     B --> C{For each line, match by provider ids}
     C -->|payment| D[match payment_attempts: amount, fee, tax vs contracted rate]
     C -->|refund| E[match refunds]
@@ -587,17 +621,19 @@ flowchart TD
 ```
 
 Exception types and default handling:
-- **Captured at PA, no captured intent** (webhook lost and polling missed it): auto-converge. If the order is expired, apply the late-capture refund.
+- **Captured at PA, no captured payment row** (webhook lost and polling missed it): auto-converge. If the order is expired, apply the late-capture refund.
 - **Captured in ledger, absent from PA report after T+3 days:** alert finance and check with the PA.
 - **Fee mismatch** (fee ≠ contracted rate × amount ± ₹0.01): flag. Weekly summary used for PA dispute.
 - **Chargeback/dispute lines:** create a support case. Ledger: Dr `SUSPENSE` until resolved, then to restaurant or goodwill.
+
+**Testing (M14, RV-063):** obtain the chosen PA's **sample settlement and recon files** during onboarding (including fees, refunds, holds and transfers) and keep golden-file tests against them; sandboxes rarely produce realistic reports. Bank-statement CSV import with UTR matching is **P0** (RV-068).
 
 Controls: `SUSPENSE` balance and the open exception count are dashboard KPIs. Month-end close requires zero unexplained items `[OPEN: finance process]`.
 
 ### 16.2 Internal integrity checks (nightly)
 - Σ postings per journal = 0 (DB-enforced, re-verified).
-- `account_balances` = Σ postings per account.
-- Every `DELIVERED` order has the full set of posting rules applied. Every `CAPTURED` intent has J1.
+- `ledger_account_balances` = Σ postings per account.
+- Every `DELIVERED` order has the full set of posting rules applied. Every `CAPTURED` payment has J1.
 - `CUSTOMER_ADVANCES` balance = Σ captured amounts of undelivered, unrefunded orders.
 
 ---
@@ -607,25 +643,25 @@ Controls: `SUSPENSE` balance and the open exception count are dashboard KPIs. Mo
 | Item | Restaurants | Riders |
 |---|---|---|
 | Period | Mon 00:00 → Sun 23:59:59 IST | Weekly (same). On-demand later `[OPEN]` |
-| Statement | Mon 06:00 IST job: orders delivered, gross, commission + GST, TDS, refunds borne, adjustments, opening/closing payable | Earnings by delivery, incentives (deferred), cash-in-hand, net payable |
+| Statement | Catch-up job from Mon 06:00 IST (M11; missed-settlement alert if not done by Mon 09:00): orders delivered, gross, commission + GST, TDS, refunds borne, adjustments, opening/closing payable | Earnings by delivery, incentives (deferred), cash-in-hand, net payable |
 | Hold / dispute window | Orders delivered in the period, plus 48 h complaint window `[ASSUMPTION]`; later-period carry-over | — |
 | Minimum payout | ₹100 (else carried forward) | ₹100 |
 | Execution (V1) | **Split model:** release holds for the statement's transfers via `ReleaseHold`, then the PA settles to the restaurant's bank. **COD net amounts and model B:** bank transfer from rovo's account. | Bank transfer/UPI from rovo's account, **net of cash-in-hand** (with rider consent in the contract) |
-| Target date | Wednesday | Wednesday |
+| Target date | Wednesday | Tuesday *(proposal, register row 72; doc 01 value)* |
 | Proof | PA transfer settlement UTR / bank UTR recorded in `payouts` | UTR |
 
-**Manual payout procedure V1 (maker-checker):**
-1. `ADMIN_FINANCE` (maker) reviews statements and generates a **payout batch**: CSV in the bank's bulk-upload format plus a summary. The batch is locked (no new postings affect it).
-2. A second `ADMIN_FINANCE`/`ADMIN_SUPER` (checker) approves it in admin. This is an audit-logged step.
-3. Finance executes in the bank portal and uploads the bank response file or enters UTRs. The system posts J7/J8 per payout, marks statements `PAID`, notifies partners (push + SMS/WhatsApp) and shows the UTR in the partner apps.
-4. Failed payouts (wrong account) → reverse to payable, notify the partner to fix bank details. Bank details changes require re-verification (penny-drop via PA or bank `[OPEN]`) and a 48 h cool-off before the next payout (account-takeover fraud control).
+**Manual payout procedure V1 (maker-checker, R31 family 2):**
+1. `ADMIN_FINANCE` (maker) reviews statements and generates a **payout batch**: CSV in the bank's bulk-upload format plus a summary. The batch is locked (no new postings affect it). The period cut-off uses journal `effective_at` from the app clock, never `created_at` (R19).
+2. A second person able to approve money actions (checker) approves it in admin. This is an audit-logged step. Go-live gate: **≥ 2 named people** can approve money actions; break-glass self-approval needs a 24 h post-review (R31).
+3. Finance executes in the bank portal and uploads the bank response file or enters UTRs. The system posts J7/J8 per payout, marks statements `PAID`, notifies partners (push + SMS; WhatsApp is V1.1, C2) and shows the UTR in the partner apps.
+4. Failed payouts (wrong account) → reverse to payable, notify the partner to fix bank details. Bank/UPI detail changes are maker-checker (R31 family 4), require re-verification (penny-drop via PA or bank `[OPEN]`) and a 48 h cool-off before the next payout (account-takeover fraud control).
 
 **Later (V1.1+):** RazorpayX/Cashfree Payouts API via a `Payouts` interface with an idempotency key = payout id, webhooks for status, and the same ledger postings.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant J as worker: settlement_run (Mon 06:00)
+    participant J as worker: settlement_run (catch-up from Mon 06:00)
     participant L as ledger
     actor M as Finance maker
     actor C as Finance checker
@@ -653,13 +689,13 @@ sequenceDiagram
 |---|---|
 | PA create-order timeout | Intent stays `CREATED`. Client retry with the same Idempotency-Key re-attempts (single-flight lock). After 3 failures, the circuit breaker counts it. |
 | Circuit open (PA degraded) | Hide online methods, offer COD (if eligible), banner. Half-open probes. |
-| Checkout abandoned | Poll at expiry → `EXPIRED`. The customer can re-order (the cart is preserved). |
+| Checkout abandoned | Poll at expiry → `EXPIRED`. The customer can re-order (the device cart is preserved, R12). |
 | Webhook delayed/lost | Client confirm + polling converge. Daily recon is the backstop. |
 | Duplicate webhooks | Unique `provider_event_id` → 200, no reprocessing |
 | Refund API error | Retry with list-before-retry. After 3 tries, raise an exception. |
-| Settlement report unavailable | Retry hourly until 18:00. Alert finance after that. |
+| Settlement report unavailable | Catch-up job retries hourly until 18:00. Alert finance after that. |
 | Webhook secret rotated | Dual-secret window. Alert on any invalid-signature spike. |
-| Clock skew | PA timestamps are stored as data. Our timers use DB time. |
+| Clock skew | PA timestamps are stored as data. Our timers and cut-offs use the injected app clock; no SQL `now()` in business logic (R19). |
 
 ---
 
@@ -667,8 +703,8 @@ sequenceDiagram
 
 - **PCI-DSS:** hosted checkout/SDK only. No PAN, CVV or UPI PIN ever reaches rovo `[ASSUMPTION: SAQ-A-equivalent attestation to the PA]`. CSP allows the PA's checkout domains on the customer app only (doc 17 §15.6).
 - **Secrets:** PA keys and webhook secrets live in the secrets manager, with least-privilege PA dashboard users and 2FA on PA and bank portals.
-- **Admin finance actions** (refund > ₹X, payout batch, bank detail change, manual ledger adjustment) are maker-checker and audit-logged (doc 12).
-- **PII:** store masked VPA, card last4 and network only. Restaurant/rider bank details are stored encrypted (application-level envelope encryption with a KMS-backed key `[OPEN: Security]`), shown masked, and fully visible only to the finance role, with audit.
+- **Admin finance actions** are maker-checker only for the R31 families: refunds > ₹500, goodwill > ₹150, ledger or cash adjustments above threshold, payout batch release, commission/fee-config changes, payout bank/UPI detail changes (and admin role grants, doc 12). Everything else is audit-logged.
+- **PII:** store masked VPA, card last4 and network only. Restaurant/rider bank account numbers keep **field-level encryption** with a KMS-backed key (R38), shown masked, and fully visible only to the finance role, with audit.
 - **Fraud signals** (V1 minimal): many failed attempts per customer, many COD strikes, high-value first orders, VPA/card reuse across many accounts. Rules flag for review. They do not auto-block, except where specified in §14.
 
 ---
@@ -677,8 +713,10 @@ sequenceDiagram
 
 - **Fake provider** supports scripted scenarios: `success`, `fail`, `delayed_webhook(60s)`, `duplicate_webhook`, `late_capture`, `amount_mismatch`, `refund_failed`, and settlement report generation.
 - **Property tests** on posting rules: every journal balances, and the restaurant net equals the formula.
-- **Golden-file tests** for invoices (PDF text extraction) and settlement statements.
+- **Golden-file tests** for invoices (PDF text extraction) and settlement statements, against the **CA-signed golden set** (M14, §12.5).
+- **PA sample settlement files** from the chosen PA as recon fixtures (M14, §16.1).
 - **Sandbox E2E** in staging against the Razorpay/Cashfree test mode, with webhook delivery to staging.
+- **₹1 live transaction** in production before Gate A, extended to a refund and (model A) a transfer release (RV-063).
 
 ---
 
@@ -686,15 +724,16 @@ sequenceDiagram
 
 | # | Question | Owner |
 |---|---|---|
-| PAY-1 | Is model B (collect-and-payout) permissible for rovo's structure, or is PA split settlement mandatory? Same question for restaurant share of COD cash. | `[LEGAL]` counsel |
+| PAY-1 | Is model B (collect-and-payout) permissible for rovo's structure, or is PA split settlement mandatory? Same question for restaurant share of COD cash. **Due before Phase-2 week 4 (R35).** | `[LEGAL]` counsel |
 | PAY-2 | Delivery service model: rovo supplies delivery (own 18%) vs riders supply via ECO (§9(5) 18%). Affects invoices and rider contracts. | `[LEGAL]` CA |
 | PAY-3 | GST valuation of platform-funded discounts. Credit notes vs goodwill. SAC codes. Invoice format. | `[LEGAL]` CA |
 | PAY-4 | TDS 194-O applicability and section mapping under the Income-tax Act 2025. Rider TDS. | `[LEGAL]` CA |
 | PAY-5 | Payment-pending expiry (15 min?), customer cancellation policy after accept, undeliverable policies | Product |
-| PAY-6 | Fees displayed GST-inclusive? Round total to rupee? Commission base includes packaging? PG fee pass-through? | Product/BD |
-| PAY-7 | Final PA selection after written quotes. Start applications at the start of Phase 2. | Lead + founders |
-| PAY-8 | Enable COD-via-UPI-QR at the door in V1? | Product/Ops |
+| PAY-6 | ~~Fees GST-inclusive? Round to rupee?~~ Decided by R8 (inclusive default, `ROUND_OFF`). Still open: commission base includes packaging? PG fee pass-through? | Product/BD |
+| PAY-7 | Final PA selection (Cashfree vs Razorpay) after written quotes; effective rate is go/no-go, target ≤ 1% blended (R25/R46). Start applications at the start of Phase 2. | Lead + founders |
+| PAY-8 | ~~Enable COD-via-UPI-QR at the door in V1?~~ No: deferred to V1.1 (C19). | — |
 | PAY-9 | Bank account verification (penny drop) provider and cost | Finance/DevOps |
+| PAY-10 | Consumer-law wording for COD compensation choice (manual UPI refund vs coupon, R29) | `[LEGAL]` |
 
 ---
 

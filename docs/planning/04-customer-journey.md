@@ -4,9 +4,18 @@
 |---|---|
 | **Purpose** | Defines the full customer experience of the `customer` app (React SPA/PWA). It covers everything from first open to rating, reorder and support. It also fixes the UX principles shared by all rovo apps. |
 | **Owner** | UX Architect |
-| **Status** | Draft v1 |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
 | **Depends on** | `00-planning-baseline.md` (vocabulary, statuses, commercial defaults) · `01-product-requirements.md` / `02-v1-scope.md` (scope) · `03-user-personas.md` · `13-order-state-machine.md` (transition rules) · `14-payment-architecture.md` (payment/refund behaviour) · `15-notification-architecture.md` (channels) · `16-delivery-zone-architecture.md` (serviceability) · `17-frontend-architecture.md` / `18-mobile-pwa-strategy.md` (implementation constraints) |
 | **Consumed by** | Frontend Architect (screens and states), Backend Architect (API and real-time needs, see §14), QA Architect (journey tests), Release Architect (backlog) |
+
+**Changes in v1.1**
+- Restaurant non-response per **R1** (E6, §9.2, §10): "taking longer" at 90 s, `CANCELLED` by `SYSTEM` with `RESTAURANT_UNRESPONSIVE` at 180 s; grace cancel per **R2**; auto-preparing and implicit-ready per **R3/R4** (§9.3).
+- No server cart / guest-cart merge (**R12**, §6.2); quote and order endpoints under `/api/v1` with `quoteId` (§8.3, §17).
+- Address: landmark + pin required, building/street optional, **no "Skip map" pinless path** (**R13**, §8.1, C-12).
+- SSE: single stream, 20 s heartbeat, no `Last-Event-ID` replay — refetch snapshot on reconnect (**R10**, §1.5, E11, §17).
+- Bill example reworked to **R8** (GST on food as its own line, GST-inclusive fees, whole-rupee To pay with round-off line); COD caps per **R6**; COD compensation is the customer's choice of manual UPI refund or coupon (**R29**, §13.2, §17); 2 customer-fault COD failures → COD disabled (**R5**).
+- Delivery OTP for prepaid ≥ ₹300 (**R39**); customer↔rider call window from `PICKED_UP` (01 BR-CONT-001, RV-035); "New" rating threshold per 01; Telugu names via `*_i18n` (**R17**); romanisation search deferred (C17); review moderation queue cut (C14); static-QR at door cut (C19); WhatsApp deferred (C2).
+- Added: staffed support phone line (M9) and ops-assisted phone ordering (M8, §13.5); combined consent + 18+ screen and at-risk-only bot challenge (RV-057/034); reopen pending payment on app start (RV-060). Four apps per **R14**.
 
 Tags used: `[ASSUMPTION]` = believed true, needs validation · `[OPEN]` = decision pending · `[LEGAL]` = needs legal/tax review before launch.
 
@@ -14,7 +23,7 @@ This document uses the canonical order statuses (`PENDING_PAYMENT`, `PLACED`, `A
 
 ---
 
-## 1. UX principles (apply to all rovo apps: customer, partner, admin)
+## 1. UX principles (apply to all rovo apps: customer, restaurant, rider, admin — R14)
 
 These principles are written once here. Docs 05, 06 and 07 refer back to them.
 
@@ -39,7 +48,7 @@ These principles are written once here. Docs 05, 06 and 07 refer back to them.
 - No all-caps styling, since it has no meaning in Telugu, and no letter-spacing on Telugu text.
 - **Colloquial Telugu with common English loanwords** (e.g. "ఆర్డర్", "డెలివరీ", "రెడీ") is preferred over formal Sanskritised vocabulary, because it is what users actually read. All Telugu copy is reviewed by a native speaker from the region before launch `[ASSUMPTION]`.
 - Numbers and currency use `Intl.NumberFormat('en-IN' | 'te-IN', { style: 'currency', currency: 'INR' })`. Digits stay Western Arabic (0–9) in both locales, as is common in Telangana `[ASSUMPTION]`.
-- User-generated names (restaurant and dish) show `name_te` when locale is `te` and it exists, otherwise `name` (English). When both exist on a dish card, show the secondary name small underneath ("Chicken Biryani / చికెన్ బిర్యానీ"), because users search in both scripts.
+- User-generated names (restaurant and dish) show the Telugu name (`nameI18n.te`; the API also returns a resolved `displayName` per `Accept-Language`, R17) when locale is `te` and it exists, otherwise `name` (English). When both exist on a dish card, show the secondary name small underneath ("Chicken Biryani / చికెన్ బిర్యానీ"), because users search in both scripts.
 
 ### 1.4 Accessibility — WCAG 2.2 AA
 - Colour contrast ≥ 4.5:1 for text and ≥ 3:1 for UI components and focus rings, in both light and dark themes.
@@ -47,7 +56,7 @@ These principles are written once here. Docs 05, 06 and 07 refer back to them.
 - SC 2.5.7 Dragging Movements: every swipe interaction (e.g. "slide to confirm") also has a **tap + confirm** alternative.
 - SC 2.4.11 Focus Not Obscured: sticky cart bars and bottom sheets must not cover the focused element. Scroll-padding is set to match the sticky bar height.
 - SC 3.3.7 Redundant Entry: saved addresses, the phone number and the last payment method are pre-filled.
-- SC 3.3.8 Accessible Authentication: OTP fields allow paste and support WebOTP / `autocomplete="one-time-code"` autofill. No CAPTCHA puzzles in V1.
+- SC 3.3.8 Accessible Authentication: OTP fields allow paste and support WebOTP / `autocomplete="one-time-code"` autofill. No CAPTCHA puzzles in V1; the bot challenge runs invisibly and only when risk rules trigger (RV-034, doc 12).
 - SC 3.2.6 Consistent Help: the "Help" entry point is in the same place on every order-related screen.
 - Live status changes on the tracking screen are announced through an `aria-live="polite"` region. Timers do not announce every tick.
 - Respect `prefers-reduced-motion`: no confetti or rider animations in that mode.
@@ -57,7 +66,7 @@ These principles are written once here. Docs 05, 06 and 07 refer back to them.
 - A global **connection banner**: "You're offline. We'll retry when you're back." It appears after more than 3 s offline, and on reconnect shows "Back online" for 2 s.
 - Every write action (add address, apply coupon, place order, cancel, rate) shows an **inline pending state** and is **idempotent** (the client sends an `Idempotency-Key`). If the network fails, the button becomes "Retry" and **never** creates a duplicate order or payment.
 - The PWA shell, the last viewed home list, active-order details and order history are cached for **read-only offline viewing**, with a "Last updated 2 min ago" timestamp.
-- Real-time status uses SSE. When SSE drops, the client falls back to **polling every 15 s** (30 s in lite mode) and resumes SSE with `Last-Event-ID`. The user sees only "Updating…", never a technical error.
+- Real-time status uses the single SSE stream `GET /api/v1/stream` (heartbeat every 20 s, R10). When SSE drops, the client falls back to **polling every 15 s** (30 s in lite mode), reconnects with jitter, and on reconnect **refetches the order snapshot** (there is no server replay / `Last-Event-ID`; REST is the source of truth). The user sees only "Updating…", never a technical error.
 - Error copy explains what happened, what it means for their money, and what to do next. Example: "Payment not confirmed yet. No double charge will happen. We'll update you in 2 min."
 
 ### 1.6 Fee transparency (non-negotiable) `[LEGAL]`
@@ -157,7 +166,7 @@ flowchart TD
 5. **Offers carousel:** platform and restaurant offers as text cards ("50% off up to ₹100 · code WELCOME50"). Each tap goes to the relevant restaurant list or restaurant.
 6. **Category / cuisine row:** circular chips with small icons — Biryani, Meals/Thali, Tiffins (idli/dosa), Chinese, Pizza, Burgers, Sweets, Cakes, Juices… The list is driven by ops-curated cuisines with Telugu names.
 7. **Sort + filter row** (sticky on scroll): `Sort ▾` · `Rating 4.0+` · `Fast delivery (≤ 30 min)` · `Offers` · `Pure veg` · `Cost for two ▾` · `Cuisines ▾`.
-8. **Restaurant list** (infinite scroll, 10 per page). Each card shows: cover image (16:9, lazy), name (+ secondary-script name), cuisines, rating with count ("4.2 ★ (120+)" or **"New"** if fewer than 20 ratings `[OPEN — threshold]`), ETA range ("25–35 min"), distance ("2.1 km"), cost for two, the best offer line, a "Pure veg" badge, and a status overlay when closed or paused.
+8. **Restaurant list** (infinite scroll, 10 per page). Each card shows: cover image (16:9, lazy), name (+ secondary-script name), cuisines, rating with count ("4.2 ★ (120+)" or **"New"** if fewer than 5 ratings, per 01 BR-RATE-002), ETA range ("25–35 min"), distance ("2.1 km"), cost for two, the best offer line, a "Pure veg" badge, and a status overlay when closed or paused.
 
 ### 4.2 Sort options
 | Sort | Rule (server-side) |
@@ -190,9 +199,9 @@ Rating 4.0+, delivery time ≤ 30 min, has offers, pure veg, cost-for-two bands 
 
 ### 5.2 Telugu and transliteration
 Users will type in at least three ways: English ("chicken biryani"), romanised Telugu or spelling variants ("biriyani", "biryani", "pulihora", "pulihoura"), and Telugu script ("బిర్యానీ"). V1 approach (no ML):
-1. Index `name`, `name_te`, cuisine names (en + te) and a **curated synonym / transliteration table** managed by ops. Examples: `biryani ↔ biriyani ↔ briyani ↔ బిర్యానీ`, `dosa ↔ dosai ↔ దోస`, `pesarattu ↔ పెసరట్టు`, `chicken 65`.
+1. Index the English and Telugu names (`name_i18n`), cuisine names (en + te) and a **curated synonym / transliteration table** managed by ops. Examples: `biryani ↔ biriyani ↔ briyani ↔ బిర్యానీ`, `dosa ↔ dosai ↔ దోస`, `pesarattu ↔ పెసరట్టు`, `chicken 65`.
 2. Use fuzzy matching (Postgres `pg_trgm` similarity) on normalised Latin text: lowercased, diacritics removed, repeated letters collapsed.
-3. For Telugu-script queries, match `name_te` directly, plus a rule-based **romanisation of `name_te`** computed when a menu item is saved, so a Telugu-script query can also hit English-only menus via the synonym table. `[OPEN — Backend to decide implementation; the UX requirement is "biriyani", "biryani" and "బిర్యానీ" return the same results]`
+3. For Telugu-script queries, match the Telugu name directly and use the curated synonym table to reach English-only menus. **Automatic romanisation of Telugu names is deferred to V1.1** (C17, 01 CUS-SRCH-006). The UX requirement stands: "biriyani", "biryani" and "బిర్యానీ" return the same results for seeded dishes.
 4. **No-results state:** "No results for 'xyz'". Show suggestions ("Did you mean biryani?") when a trigram match exists, then popular cuisines. Log zero-result queries for ops to add synonyms (feedback loop).
 - Voice search is deferred (Web Speech API support for Telugu is inconsistent) `[ASSUMPTION]`.
 
@@ -203,12 +212,12 @@ Users will type in at least three ways: English ("chicken biryani"), romanised T
 ### 6.1 Phone + OTP (C-08, C-09)
 - Triggered by: Proceed to checkout, Orders, Profile, Help, or Waitlist (which only needs the phone number — no OTP).
 - **C-08 Phone entry:** "+91" fixed prefix with a 10-digit numeric input. Validation: an Indian mobile number starting with 6–9, with an inline error message. Below it: "By continuing, you agree to the Terms and Privacy Policy" (links) `[LEGAL — DPDP notice must be linked and available in Telugu]`.
-- **C-09 OTP:** 6-digit input (`autocomplete="one-time-code"`). On Android Chrome, the **WebOTP API** auto-reads the code if the SMS has the domain-bound format (`@rovo.example #123456`) — a requirement for Notification/Backend. Paste is allowed. "Resend OTP" unlocks after 30 s; maximum 3 resends, then "Try again in 10 minutes." "Edit number" link. Wrong OTP → shake + "Incorrect code, 2 attempts left."
-- **First-time users:** one extra field, **"Your name"** (needed for the rider and the restaurant). Email is optional and is collected later in Profile. No password.
+- **C-09 OTP:** 6-digit input (`autocomplete="one-time-code"`). On Android Chrome, the **WebOTP API** auto-reads the code if the SMS has the domain-bound format for the customer host (`@app.rovo.example #123456`, R14; DLT template design in doc 15) — a requirement for Notification/Backend. Paste is allowed. "Resend OTP" unlocks after 30 s; resend/attempt limits are owned by doc 12 §2.2 and shown as plain messages ("Try again in 10 minutes."). "Edit number" link. Wrong OTP → shake + "Incorrect code, 2 attempts left."
+- **First-time users:** one extra field, **"Your name"** (needed for the rider and the restaurant), on **one combined screen** with the privacy notice summary, the 18+ declaration and the separate unticked marketing opt-in (01 CUS-AUTH-003, RV-057). Email is optional and is collected later in Profile. No password.
 - After login, the user returns to exactly where they were (checkout), with the cart intact.
 
 ### 6.2 Guest cart merge
-- The guest cart lives on the device (single restaurant). After login, if the server already has a cart for this account (from another device), show a dialog: "You have items from {Restaurant B} saved. Keep your current cart from {Restaurant A}?" → **[Keep current]** / **[Use saved]**. The default is to keep the current cart (what the user just built).
+- The cart lives **only on the device** (single restaurant); there is no server-side cart (R12), so there is nothing to merge. After login the device cart is kept as is and re-quoted (`POST /api/v1/cart/quote`) before checkout.
 
 ### 6.3 Profile (C-20)
 Name, phone (change requires OTP on the new number), email (optional), language, Veg only default, saved addresses, lite mode, notification preferences, "Help & support", "Privacy: download my data / delete my account" `[LEGAL — DPDP data principal rights; deletion must keep financial records for statutory retention]`, Terms, Privacy, Grievance officer contact `[LEGAL — Consumer Protection (E-Commerce) Rules 2020 require grievance officer details]`, app version, and logout.
@@ -259,15 +268,15 @@ A bottom sheet that opens when an item has variants or add-on groups.
 
 | Line | Example | Notes |
 |---|---|---|
-| Item total | ₹358.00 | Sum of line prices (incl. variant/add-on deltas). |
+| Item total | ₹378.00 | Sum of line prices (incl. variant/add-on deltas). Menu prices exclude GST (R8). |
 | Packaging charges | ₹20.00 | Restaurant-set, per item or per order. Shown only if > 0. ⓘ "Set by the restaurant". |
 | Delivery fee | ₹30.00 | ⓘ "2–4 km from restaurant". Shows ~~₹30~~ **FREE** only when a free-delivery campaign or coupon applies. |
 | Platform fee | ₹5.00 | ⓘ "Helps us run rovo". |
-| Small cart fee | ₹15.00 | Only if item total is below ₹149. ⓘ "Add ₹12 more to avoid this fee" with a link back to the menu. |
-| Taxes | ₹24.70 | ⓘ expands to show: GST on food (restaurant service via e-commerce operator, CGST §9(5)), GST on delivery fee, GST on platform fee. Rates come from config — never hard-coded `[LEGAL — verify current rates; local delivery via ECO notified under §9(5) at 18 % from 22-Sep-2025 per GST Council 56th meeting reporting, see Sources]`. |
+| Small cart fee | — | Not applied in this example. Shown only if item total is below ₹149: ⓘ "Add ₹12 more to avoid this fee" with a link back to the menu. |
+| GST on food & packaging (5%) | ₹19.90 | Own line (R8, 01 BR-FEE-007/008); ⓘ "Restaurant service via e-commerce operator, CGST §9(5)". Delivery, platform and small-cart fees are **GST-inclusive** by default; the ⓘ on each fee shows the GST it contains. Fee-GST presentation is configurable pending CA advice; rates come from config — never hard-coded `[LEGAL — verify current rates; local delivery via ECO notified under §9(5) at 18 % from 22-Sep-2025 per GST Council 56th meeting reporting, see Sources]`. |
 | Discount (coupon) | −₹100.00 | Green, with the coupon code. |
-| Round off | −₹0.70 | Only if product adopts rupee rounding `[OPEN — see §15]`. |
-| **To pay** | **₹353.00** | Bold. The same number appears on the checkout CTA and the payment sheet. |
+| Round off | +₹0.10 | Always shown when non-zero: To pay is rounded to the whole rupee (R8, 01 BR-FEE-009). |
+| **To pay** | **₹353.00** | Bold. ₹378 + ₹20 + ₹19.90 + ₹30 + ₹5 − ₹100 + ₹0.10. The same number appears on the checkout CTA and the payment sheet. |
 
 - **"You save ₹100 on this order"** banner when discounts apply.
 - **Cancellation policy** short text with a link (§10).
@@ -288,11 +297,11 @@ A bottom sheet that opens when an item has variants or add-on groups.
 1. **Map step:** MapLibre map with a **fixed centre pin**; the user drags the map, not the pin. It starts at the GPS fix, or at the locality centroid if GPS is unavailable. A "Use current location" button recentres it. Hint: "Move the map to place the pin on your doorstep." The locality is derived from the pin server-side (PostGIS, no paid reverse geocoding) and shown as "Area: Shasabgutta ✓" with a change option.
    - Out-of-zone pin → inline "We don't deliver to this pin yet", and the confirm button is disabled.
    - Pin more than 1 km from the current GPS fix while the user chooses label "Home" → soft warning: "This pin is far from where you are. Is it correct?" (not blocking).
-   - Low-bandwidth fallback: if map tiles fail to load within 8 s, show a "Skip map" path. The user picks a locality and the address is stored with the locality centroid **plus** a mandatory landmark, and is flagged `pin_approximate=true` so the rider knows to call `[ASSUMPTION — ops accepts this]`.
+   - Low-bandwidth fallback (R13 — **no pinless addresses**): if map tiles fail to load within 8 s, offer **"Use my current location as the pin"** (GPS fix, accuracy shown) or a lightweight fallback that places the pin on a static locality image. A locality centroid alone is never saved as a delivery pin.
 2. **Details step:**
    - House / flat no. *(required)*
-   - Building / street *(optional)*
-   - **Landmark** *(required in V1, with helper "e.g. Opp. Clock Tower, near SBI ATM")* — Indian addressing relies on landmarks. Required here even though the baseline says "strongly encouraged" (challenge noted in §15).
+   - Building / street *(optional, R13)*
+   - **Landmark** *(required, R13, with helper "e.g. Opp. Clock Tower, near SBI ATM")* — Indian addressing relies on landmarks.
    - Locality *(prefilled from pin, editable from list)*
    - PIN code *(prefilled from locality, 6 digits, editable)*
    - Label: Home / Work / Other (+ name)
@@ -308,8 +317,8 @@ Sections:
    - **UPI** (recommended; top) — handed off to the payment aggregator's (PA) checkout. On Android the PA typically shows UPI intent apps (PhonePe / GPay / Paytm) and UPI collect / QR `[ASSUMPTION — depends on PA, doc 14]`.
    - **Cards / Netbanking** — PA checkout.
    - **Cash on Delivery** — hidden or disabled with a reason when not eligible:
-     - order total above the COD limit (`cod_max_order_paise`, suggested ₹1,500 `[OPEN]`): "Cash not available above ₹1,500"
-     - the user has COD disabled after prior refusals or no-shows: "Cash on delivery unavailable for your account. Pay online."
+     - order total above the COD limit (R6: ₹1,000 per order, ₹600 on a first order; `cod_max_order_paise`, doc 10): "Cash not available above ₹1,000"
+     - the user has COD disabled after 2 customer-fault COD failures (R5): "Cash on delivery unavailable for your account. Pay online."
      - the restaurant or zone has COD disabled
    - The last used method is pre-selected (SC 3.3.7). **COD is never pre-selected for a first order** `[OPEN — product]`.
 4. **Cancellation policy** line (§10), always visible above the CTA.
@@ -325,7 +334,7 @@ sequenceDiagram
     participant API as rovo API
     participant PA as Payment aggregator
     C->>App: Tap Pay 353
-    App->>API: POST /orders (quote_id, Idempotency-Key)
+    App->>API: POST /api/v1/orders (quoteId, Idempotency-Key)
     API->>API: Re-validate cart, prices, fees, coupon, restaurant open, serviceable
     alt Quote changed
         API-->>App: 409 QUOTE_CHANGED with diff
@@ -338,7 +347,7 @@ sequenceDiagram
         API-->>App: 201 order PENDING_PAYMENT + PA checkout params
         App->>PA: Open PA checkout (UPI intent / card)
         PA-->>App: Client callback success or failure
-        App->>API: POST /orders/id/payment-confirmation (PA payment id, signature)
+        App->>API: POST /api/v1/orders/id/payment-confirmation (PA payment id, signature)
         API->>PA: Verify signature and fetch payment status
         PA-->>API: Webhook payment captured (may arrive later)
         API-->>App: SSE order.status PLACED
@@ -365,7 +374,8 @@ Triggered by `409 QUOTE_CHANGED` at place-order, or by revalidation when the car
 - **`PAYMENT_FAILED`** (or the user dismissed the PA sheet): "Payment didn't go through. No money was taken. If money was debited, it will be refunded automatically within 5–7 working days `[ASSUMPTION — confirm PA timelines, doc 14]`."
   - Actions: **[Retry payment]** (same method), **[Choose another method]**, **[Pay with cash instead]** (if COD eligible; converts the same cart into a COD order through a new order request).
 - The cart is **preserved** after a failure. The user can return to it.
-- `PENDING_PAYMENT` expires after **15 minutes** `[OPEN — align with PA order expiry]` → `PAYMENT_FAILED` (system). If a payment for that PA order later succeeds, it is **auto-refunded**, and the user gets "We received ₹353 after your order expired. Refund started" (push + in-app + SMS).
+- **App restart during payment** (low-RAM phones often kill the tab after the UPI app returns): on start, any own order in `PENDING_PAYMENT` younger than the payment timeout opens C-14 automatically (RV-060).
+- `PENDING_PAYMENT` expires after the payment timeout (15 min default; `payments.pending_timeout_s`, doc 13 T-PAY) → `PAYMENT_FAILED` (system). If a payment for that PA order later succeeds, it is **auto-refunded**, and the user gets "We received ₹353 after your order expired. Refund started" (push + in-app + SMS).
 
 ### 8.6 Order placed confirmation (C-15)
 - A short success moment (static ✓ icon; no animation in reduced-motion mode): "Order placed! RV-7K3P9Q". It auto-advances to tracking after 2 s, or on tap.
@@ -379,9 +389,9 @@ Triggered by `409 QUOTE_CHANGED` at place-order, or by revalidation when the car
 ### 9.1 Layout
 - **Top:** status headline (large), sub-text, **ETA range** ("Arriving in 18–25 min" or "Arriving by 8:40–8:50 pm"), and a **progress stepper** with 4 visible milestones: *Order placed → Preparing → On the way → Delivered*.
 - **No live map in V1** (baseline P12). Instead, a simple static illustration for the current milestone (an SVG under 5 KB, no external tiles).
-- **Delivery partner card** (from `ASSIGNED` onward): first name, photo, vehicle type and the last 4 characters of the plate ("Bike · …4521"), rating hidden, and a **[Call]** button (`tel:` — §12 privacy notes in doc 06).
+- **Delivery partner card** (from `ASSIGNED` onward): first name, photo, vehicle type and the last 4 characters of the plate ("Bike · …4521"), rating hidden. The **[Call]** button (`tel:`) appears only from `PICKED_UP` until `DELIVERED` + 15 min (01 BR-CONT-001; privacy notes in doc 06 §9).
 - **Order details:** restaurant name, items (collapsible), bill (collapsible), payment method ("Paid via UPI" / "Pay ₹353 cash on delivery"), and delivery address with instructions.
-- **Drop OTP card** (only when the drop OTP is required for this order, from `PICKED_UP`): "Share this code with your delivery partner: **4 8 2 1**".
+- **Drop OTP card** (only when the drop OTP is required — prepaid orders with To pay ≥ ₹300, R39 — from `PICKED_UP`): "Share this code with your delivery partner: **4 8 2 1**".
 - **Help** button (top right, consistent placement) and **Cancel order** (only while allowed, §10).
 - Real-time: SSE subscription to the order channel, with polling fallback (§1.5). The ETA updates only at milestones and never jumps backwards by more than 5 min without a message.
 
@@ -393,20 +403,20 @@ Customer copy is driven by **order status first**, refined by **delivery status*
 |---|---|---|---|---|---|
 | `PENDING_PAYMENT` | (none) | — | Confirming your payment… | "This usually takes a few seconds. Don't close the app." After 60 s: "Still confirming with your bank. No double charge will happen." | Retry payment (if the PA reports failure), Help |
 | `PAYMENT_FAILED` | (none) | — | Payment failed | Refund reassurance (§8.5) | Retry, Change method, Pay cash (if eligible) |
-| `PLACED` | (none, or `UNASSIGNED` if created early) | 1 active | Waiting for {Restaurant} to accept | "Restaurants usually accept within 2 minutes." | **Cancel (free)**, Help |
+| `PLACED` | (none) | 1 active | Waiting for {Restaurant} to accept | "Restaurants usually accept within 2 minutes." From 90 s: "Taking a little longer — we're contacting the restaurant." (R1) | **Cancel (free)**, Help |
 | `ACCEPTED` | `UNASSIGNED` / `OFFERED` | 2 | Order accepted! | "{Restaurant} will start preparing now." ETA appears. | Cancel (only within grace window §10), Help |
 | `PREPARING` | `UNASSIGNED` / `OFFERED` | 2 | Preparing your food | "We'll assign a delivery partner soon." (If still unassigned within 5 min of the food ready time: "Finding a delivery partner nearby…") | Help |
-| `PREPARING` | `ASSIGNED` | 2 | Preparing your food | "{Ravi} will pick up your order." + partner card | Call partner, Help |
-| `PREPARING` | `AT_RESTAURANT` | 2 | Preparing your food | "{Ravi} has reached the restaurant and is waiting for your food." | Call partner, Help |
+| `PREPARING` | `ASSIGNED` | 2 | Preparing your food | "{Ravi} will pick up your order." + partner card | Help |
+| `PREPARING` | `AT_RESTAURANT` | 2 | Preparing your food | "{Ravi} has reached the restaurant and is waiting for your food." | Help |
 | `READY_FOR_PICKUP` | `UNASSIGNED` / `OFFERED` | 2 | Food is ready | "Assigning a delivery partner…" (ops alert raised internally) | Help |
-| `READY_FOR_PICKUP` | `ASSIGNED` | 2 | Food is ready | "{Ravi} is on the way to the restaurant." | Call partner, Help |
-| `READY_FOR_PICKUP` | `AT_RESTAURANT` | 2 | Food is ready | "{Ravi} is picking up your order." | Call partner, Help |
+| `READY_FOR_PICKUP` | `ASSIGNED` | 2 | Food is ready | "{Ravi} is on the way to the restaurant." | Help |
+| `READY_FOR_PICKUP` | `AT_RESTAURANT` | 2 | Food is ready | "{Ravi} is picking up your order." | Help |
 | `PICKED_UP` | `PICKED_UP` | 3 | On the way | ETA range. COD: "Keep ₹353 ready. Exact change helps!" Drop OTP card if required. | Call partner, Help |
 | `PICKED_UP` | `AT_DROP` | 3 | {Ravi} has arrived | "Your delivery partner is at your location." COD amount repeated. Drop OTP prominent. | Call partner, Help |
 | `DELIVERED` | `DELIVERED` | 4 ✓ | Delivered! Enjoy your meal | Delivered at 8:42 pm. → Rating card (§11). | Rate, Reorder, Help, View bill |
 | `REJECTED` | (none / `CANCELLED`) | — | {Restaurant} couldn't accept your order | Reason in friendly form ("Some items are out of stock" / "Restaurant is too busy" / "Restaurant is closing"). Refund block (§13.3). Suggest 3 similar open restaurants. If the reason is out-of-stock: **[Reorder without unavailable items]**. | Browse similar, Reorder, Help |
 | `CANCELLED` (by customer) | `CANCELLED` / none | — | Order cancelled | "You cancelled this order." Refund block if prepaid. | Reorder, Help |
-| `CANCELLED` (by system — restaurant no response) | none | — | Order cancelled | "{Restaurant} didn't respond in time. Sorry about that." Full refund. | Browse similar, Help |
+| `CANCELLED` (by `SYSTEM`, reason `RESTAURANT_UNRESPONSIVE`, 180 s — R1) | none | — | Order cancelled | "{Restaurant} didn't respond in time. Sorry about that." Full refund. | Browse similar, Help |
 | `CANCELLED` (by admin) | `CANCELLED` | — | Order cancelled | Admin-chosen customer-facing reason (from a reason catalog). Refund block with the amount decided. | Help |
 | `UNDELIVERABLE` | `FAILED` | — | We couldn't deliver your order | Reason ("We couldn't reach you at the address"). Policy text on refund (§10). | Help |
 
@@ -423,18 +433,18 @@ stateDiagram-v2
     PLACED --> ACCEPTED: restaurant accepts
     PLACED --> REJECTED: restaurant rejects
     PLACED --> CANCELLED: customer cancels or system timeout
-    ACCEPTED --> PREPARING: auto-advance
+    ACCEPTED --> PREPARING: auto after 60 s or restaurant tap
     ACCEPTED --> CANCELLED: grace-window cancel or admin
     PREPARING --> READY_FOR_PICKUP: restaurant marks ready
-    PREPARING --> PICKED_UP: rider confirms pickup, ready implied
+    PREPARING --> PICKED_UP: rider pickup, flag restaurant_skipped_ready
     READY_FOR_PICKUP --> PICKED_UP: rider confirms pickup
-    PREPARING --> CANCELLED: admin only
+    PREPARING --> CANCELLED: grace-window cancel or admin
     READY_FOR_PICKUP --> CANCELLED: admin only
     PICKED_UP --> DELIVERED: rider marks delivered
     PICKED_UP --> UNDELIVERABLE: rider plus support mark failed
     DELIVERED --> [*]
 ```
-This diagram is illustrative only; the authoritative transitions live in doc 13. Two UX asks are shown here: **ACCEPTED → PREPARING auto-advance** and **PREPARING → PICKED_UP implicit ready** (see §15).
+This diagram is illustrative only; the authoritative transitions live in doc 13. The former UX asks are now rulings: **ACCEPTED → PREPARING after 60 s or on tap** (R3) and **pickup from `PREPARING` with `restaurant_skipped_ready`** (R4); customer cancel inside the 60 s grace even after acceptance (R2).
 
 ---
 
@@ -444,10 +454,10 @@ This diagram is illustrative only; the authoritative transitions live in doc 13.
 |---|---|---|---|
 | `PENDING_PAYMENT` | Customer | "Cancel" on the payment-pending screen. | Nothing captured. If a late capture happens → auto refund. |
 | `PLACED` (before restaurant accepts) | Customer | **[Cancel order]** button → confirm dialog: "Cancel this order? You'll get a full refund." Reason picker (optional): changed my mind / ordered by mistake / taking too long / wrong address / other. | **Full refund** (prepaid). |
-| Within **60 s grace** of placement, even if `ACCEPTED`/`PREPARING` | Customer | Same button, with a visible countdown "Free cancellation for 0:42". | Full refund. The restaurant gets a loud "CANCELLED — do not prepare" alert (doc 05). `[OPEN — grace length]` |
-| After grace, `ACCEPTED` → `READY_FOR_PICKUP` | Customer cannot self-cancel | The Cancel button is replaced by "Need to cancel? Contact support". Support may cancel. | At support's discretion per policy. Default: no refund of food value if preparation has started, unless the delay or fault is on the restaurant/rovo side `[LEGAL — policy must be shown before order placement and be fair under consumer law]`. |
-| `PICKED_UP`, `AT_DROP` | — | No cancellation. Refusal at the door → `UNDELIVERABLE`. | Prepaid: no refund unless fault on the rovo side. COD: the customer's COD eligibility is reviewed (2 refusals → COD disabled) `[OPEN]`. |
-| Restaurant rejects / system timeout / admin cancels | Restaurant / system / admin | Outcome screen (§9.2). | **Full automatic refund**. COD: nothing to refund. |
+| Within **60 s grace** of placement, even if `ACCEPTED`/`PREPARING` (R2) | Customer | Same button, with a visible countdown "Free cancellation for 0:42". | Full refund. The restaurant gets a loud "CANCELLED — do not prepare" alert (doc 05). |
+| After grace, `ACCEPTED` → `READY_FOR_PICKUP` | Customer cannot self-cancel | The Cancel button is replaced by "Need to cancel? Contact support". Support may cancel with fault attribution. | Per 01 BR-CAN: no refund of food value if preparation has started and the fault is the customer's; full refund when the fault is on the restaurant/rovo side `[LEGAL — policy must be shown before order placement and be fair under consumer law]`. |
+| `PICKED_UP`, `AT_DROP` | — | No cancellation. Refusal at the door → `UNDELIVERABLE` (support-approved, R5). | Prepaid: no refund unless fault on the rovo side. COD: counts as a customer-fault COD failure; **2 failures → COD disabled** (R5, 01 BR-COD-004). |
+| Restaurant rejects / system cancels after 180 s without response (`RESTAURANT_UNRESPONSIVE`, R1) / admin cancels | Restaurant / system / admin | Outcome screen (§9.2). | **Full automatic refund**. COD: nothing to refund. |
 
 - The cancellation policy is shown as a one-liner at the cart and checkout ("Free cancellation until the restaurant accepts or within 60 seconds"), with a link to the full policy.
 
@@ -460,7 +470,7 @@ This diagram is illustrative only; the authoritative transitions live in doc 13.
 - **Trigger points:** (1) the tracking screen turns into a rating card at `DELIVERED`; (2) a push 30 min after delivery if not rated; (3) once on the next app open, as a dismissible card at the top of Home. It is never shown again after it is dismissed twice. Ratings are accepted up to 7 days after delivery.
 - **Restaurant rating:** 1–5 stars (large tap targets with text labels: Terrible, Bad, Okay, Good, Loved it). Then context tags depending on the score (≤ 3: "Cold food", "Small portion", "Poor packaging", "Not as described", "Too spicy"; ≥ 4: "Tasty", "Good portion", "Good packaging", "Value for money"). Optional text. Optional per-dish 👍/👎 for up to 5 dishes `[OPEN — nice-to-have]`.
 - **Delivery partner rating:** 👍 / 👎 (simpler than stars, less noisy). 👎 tags: "Late", "Rude behaviour", "Food spilled", "Asked for extra money", "Didn't follow instructions", "Unsafe driving". 👍 tags: "Polite", "On time", "Handled food well". "Asked for extra money" and "Rude behaviour" **auto-create a support ticket** for ops review.
-- **Public display:** the restaurant's average rating and count. Review texts appear after basic moderation: a profanity filter, plus hiding phone numbers and names. Rider ratings are **never public** and are used internally only.
+- **Public display:** the restaurant's average rating and count. Review texts appear after an automatic filter (profanity, phone numbers, URLs, names); ops can hide a review with a reason. There is **no moderation queue and no restaurant reply in V1** (C14). Rider ratings are **never public** and are used internally only.
 - **Low rating (≤ 2):** after submit, offer "Sorry! Want to report an issue with this order?" → Help.
 
 ---
@@ -506,7 +516,7 @@ flowchart TD
     D3 --> M3[Select items + photo required]
     M1 --> R{Auto-resolve rules met?}
     M2 --> R
-    R -- Yes --> R1[Instant refund for item value to source]
+    R -- Yes --> R1[Instant refund of item value: prepaid to source; COD: customer picks UPI refund or coupon]
     R -- No --> T
     M3 --> T
     D4 --> T
@@ -516,7 +526,7 @@ flowchart TD
 ```
 
 **Auto-resolve rules (V1, configurable)** `[OPEN — product/finance to set]`:
-- Missing or wrong item, claim value ≤ ₹200, raised within 2 h of delivery, customer has ≤ 1 auto-refund in the last 30 days, and the account is older than 7 days or has ≥ 3 delivered orders → **instant refund of the affected items' value** (incl. their tax share) to the original payment method. COD orders get a **goodwill coupon** of equal value (no cash payout path in V1 — challenge in §15).
+- Missing or wrong item, claim value ≤ ₹200, raised within 2 h of delivery, customer has ≤ 1 auto-refund in the last 30 days, and the account is older than 7 days or has ≥ 3 delivered orders → **instant refund of the affected items' value** (incl. their tax share) to the original payment method. For COD orders the customer **chooses** (R29): a manual UPI refund (customer enters a VPA; finance pays and records the UTR, 01 ADM-PAYO-007) **or** a single-user coupon of equal value. Never coupon-only `[LEGAL]`.
 - Everything else → ticket for `ADMIN_SUPPORT` (doc 07).
 
 ### 13.3 Refund messaging (standard block)
@@ -525,20 +535,28 @@ flowchart TD
 ### 13.4 Ticket UI (C-22)
 - Ticket header: ID, order, category, status (Open / Waiting for you / Resolved).
 - An **async message thread** (text + up to 3 photos per message, each compressed on the device to ≤ 300 KB).
-- **"Request a call back"** button for active orders. A support phone number (`tel:`) is shown for active orders only.
+- **"Request a call back"** button for active orders. The **support phone line** (`tel:`, staffed in all service hours, Telugu and English — M9) is shown on every Help screen.
+- Status labels (Open / Waiting for you / Resolved) map onto the doc 10 ticket statuses (`OPEN`, `IN_PROGRESS`, `AWAITING_REQUESTER`, `AWAITING_APPROVAL`, `RESOLVED`, `CLOSED`, `REOPENED`).
 - Live chat (agent typing in real time) is deferred. The thread updates via SSE/polling.
 - Expected response shown: "We usually reply within 15 min for active orders, 4 h otherwise" (SLAs in doc 07).
 - After resolution: a 2-question CSAT (👍/👎 + optional text).
+
+### 13.5 Ops-assisted phone ordering (P1, M8; 01 ADM-ORD-011)
+For customers who cannot or will not use the app (persona P3):
+1. The customer calls the support line. The agent finds the account by phone or creates one (customer confirms with the OTP sent to their phone, or verbal consent is recorded `[LEGAL]`).
+2. The agent picks the restaurant and items in the admin console, confirms the saved address pin and landmark (or captures them with the customer), and **reads out the full bill** before placing (fee transparency, §1.6).
+3. Payment is **COD only** (normal COD caps apply, R6). The order follows the normal quote/placement rules and is tagged `assisted`.
+4. The customer gets an SMS with the order code and help number; if they have the app, the order also appears there for tracking.
 
 ---
 
 ## 14. Notification touchpoints
 
-Channels: **In-app** (SSE / tracking UI, always), **Web Push** (if permission granted), **SMS** (DLT-registered templates; paid, kept minimal), **Email** (receipts only, if an email is on file; optional). WhatsApp is deferred because of WhatsApp Business API cost and approvals `[OPEN]`.
+Channels: **In-app** (SSE / tracking UI, always), **Web Push** (if permission granted), **SMS** (DLT-registered templates; paid, kept minimal), **Email** (receipts only, if an email is on file; optional). WhatsApp OTP and notifications are deferred to V1.1 (C2).
 
 | Event | In-app | Web Push | SMS | Copy (en, short) |
 |---|---|---|---|---|
-| OTP | — | — | ✅ (WebOTP format) | "{code} is your rovo code. Don't share it. @rovo.example #{code}" |
+| OTP | — | — | ✅ (WebOTP format) | "{code} is your rovo code. Don't share it. @app.rovo.example #{code}" |
 | Order placed (COD) / payment confirmed | ✅ | ✅ | ❌ | "Order placed with {Restaurant}." |
 | Restaurant accepted | ✅ | ✅ | ❌ | "{Restaurant} accepted your order. Arriving 8:40–8:50 pm." |
 | Delivery partner assigned | ✅ | ❌ (avoid noise) | ❌ | — |
@@ -561,20 +579,20 @@ Push payloads carry **no PII beyond first names**, plus a deep link (`/orders/{i
 
 | # | Situation | UX behaviour | Backend/Frontend requirement |
 |---|---|---|---|
-| E1 | **Network lost while tapping "Place order"** | The button shows "Placing order…". On timeout it shows "We're checking whether your order went through…". On reconnect, the client re-sends **the same request with the same Idempotency-Key** → it gets the original result (order created or not). If the user kills the app, on next open the client checks for an order created in the last 30 min with that key (or "active order" lookup) and goes straight to tracking or payment. | `POST /orders` idempotent per key for ≥ 24 h. Client persists the key in IndexedDB until resolved. |
+| E1 | **Network lost while tapping "Place order"** | The button shows "Placing order…". On timeout it shows "We're checking whether your order went through…". On reconnect, the client re-sends **the same request with the same Idempotency-Key** → it gets the original result (order created or not). If the user kills the app, on next open the client checks for an order created in the last 30 min with that key (or "active order" lookup) and goes straight to tracking or payment. | `POST /api/v1/orders` idempotent per key for ≥ 24 h. Client persists the key in IndexedDB until resolved. |
 | E2 | **Network lost inside PA checkout** | The PA sheet handles retry. When the user returns, the app shows "Confirming payment…" and polls `GET /orders/{id}`. Never offers "Pay again" while status is `PENDING_PAYMENT` and the PA reports the payment as "processing". | Server-side PA status fetch on demand. |
 | E3 | **Payment succeeded but webhook delayed** | "Payment received by your bank, confirming with rovo… (usually under 1 min)". The client callback triggers server verification (§8.3). If still unconfirmed after 3 min: "Still confirming. Your money is safe — if we can't confirm in 15 min, it'll be refunded automatically." A notification follows when it resolves either way. Restaurant does **not** see the order until `PLACED`. | Server verification on client callback; reconciliation job polls PA for `PENDING_PAYMENT` orders older than 2 min; late capture after expiry → auto refund. |
 | E4 | **Double tap / two tabs** | The second tap is a no-op (button disabled + idempotency). A second tab shows the same active order. | Idempotency + one active checkout per cart. |
 | E5 | **Restaurant rejects after payment** | `REJECTED` screen: reason, "**Full refund of ₹353 started** to your UPI. Reaches you in 5–7 working days, often sooner.", refund ID once available, 3 similar open restaurants, **[Reorder without unavailable items]** (for out-of-stock). Push + SMS. | Refund auto-triggered on `REJECTED` / system `CANCELLED` (doc 14). Expose `refund.status` + `refund.reference` on the order. |
-| E6 | **Restaurant doesn't respond** (no accept within timeout) | Customer sees "Waiting for restaurant…" up to the auto-cancel time (default 6 min, doc 05). From minute 3: "Taking longer than usual. We're contacting the restaurant." Then system `CANCELLED` + full refund + similar restaurants. | Timeout timers with ops escalation (doc 05 §5). |
+| E6 | **Restaurant doesn't respond** (no accept within the 180 s window, R1) | Customer sees "Waiting for restaurant…". From **90 s**: "Taking longer than usual. We're contacting the restaurant." At **180 s**: `CANCELLED` by `SYSTEM`, reason `RESTAURANT_UNRESPONSIVE` + full refund + similar restaurants. | Timers T-ACC-* in doc 13 §5 (ops flagged at 90 s; doc 05 §4.3). |
 | E7 | **Rider cannot find address** | The rider taps "Can't find address" (doc 06) → customer gets push + SMS + in-app sheet: "Your delivery partner can't find your location. **[Call partner]** **[Adjust pin]**". "Adjust pin" allows moving the pin ≤ 300 m (no fee change) and editing the landmark; the rider gets the update via SSE. Beyond 300 m → "Contact support". | Endpoint to patch drop pin/instructions during `PICKED_UP`/`AT_DROP` with a distance cap; SSE event to rider. |
 | E8 | **Customer unreachable at door** | Customer sees "{Ravi} is waiting at your location · 7:32 left" countdown, a **[Call partner]** button, and repeated push + SMS. At timeout the rider and support mark `UNDELIVERABLE` (doc 06 §8); the customer sees the outcome + policy. | Wait-timer timestamps on delivery; notification fan-out. |
-| E9 | **Restaurant closes or pauses while the user is in the cart** | Cart banner: "{Restaurant} just stopped taking orders." CTA disabled. "Browse similar restaurants". The cart is kept for 24 h. | SSE/poll restaurant availability on the cart screen or revalidate on checkout. |
+| E9 | **Restaurant closes or pauses while the user is in the cart** | Cart banner: "{Restaurant} just stopped taking orders." CTA disabled. "Browse similar restaurants". The device cart is kept for 24 h. | SSE/poll restaurant availability on the cart screen or revalidate on checkout. |
 | E10 | **Coupon becomes invalid at checkout** | Shown in the "What changed" sheet (§8.4). The user confirms the new total. | Quote diff includes coupon reason. |
-| E11 | **App closed or phone restarted during tracking** | Home shows the active order banner. Tracking resumes from the server state. SSE resumes with `Last-Event-ID`. | Event IDs per order stream. |
+| E11 | **App closed or phone restarted during tracking** | Home shows the active order banner. Tracking resumes from the server state: the client reconnects SSE and refetches the order snapshot. | No server replay (R10); REST snapshot is the source of truth. |
 | E12 | **Address outside a restaurant's radius after an address switch** | The cart shows "{Restaurant} doesn't deliver to {Home}. Choose another address or restaurant." | Quote returns `UNSERVICEABLE_FOR_RESTAURANT`. |
-| E13 | **COD order, rider has no change** | The tracking screen says "Exact change helps" from `PICKED_UP`. A UPI-at-door option is `[OPEN — doc 14, via PA dynamic QR, never to a rider's personal UPI]`. | — |
-| E14 | **Duplicate SMS OTP abuse** | Rate limits are shown as plain messages ("Too many attempts. Try again in 10 min"). | Rate limiting per phone, IP and device. |
+| E13 | **COD order, rider has no change** | The tracking screen says "Exact change helps" from `PICKED_UP`. Cash only at the door in V1; no static QR (C19). Dynamic PA UPI QR is V1.1 (02 §2.2); never pay to a rider's personal UPI. | — |
+| E14 | **Duplicate SMS OTP abuse** | Rate limits are shown as plain messages ("Too many attempts. Try again in 10 min"). | Rate limiting per phone, IP and device (Postgres-backed, R21; limits in doc 12). |
 | E15 | **Item price changed between menu view and add** | The cart re-quote highlights the line ("Price updated ₹220 → ₹240"). | Quote diff. |
 | E16 | **Rider cancelled or reassigned mid-way** | The partner card changes: "Your order has a new delivery partner: {Suresh}." ETA updated. No alarm wording. | `delivery.rider_changed` event. |
 | E17 | **Delivered but customer says not received** | Help → "I didn't receive my order" (shown for 2 h after `DELIVERED`) → ticket with high priority; never auto-refunded. | Ticket priority rules (doc 07). |
@@ -600,7 +618,7 @@ Push payloads carry **no PII beyond first names**, plus a deep link (`/orders/{i
 | C-10 | Cart | Review + bill | Items, note, coupon row, address summary, full bill, policy, CTA | Re-quote skeleton on bill only | Empty cart → browse | Unavailable items inline; quote failure → Retry |
 | C-10a | Coupon sheet | Apply offers | Applicable list, ineligible with reasons, manual code | Skeleton | "No offers right now" | Invalid code reason |
 | C-11 | Address select | Choose drop address | Saved list (disabled if unserviceable), add new | Skeleton | "Add your first address" | Retry |
-| C-12 | Address add/edit | Pin + details | Map with fixed centre pin, locality chip, form fields (landmark required) | Map tiles placeholder; "Skip map" after 8 s | — | Out-of-zone pin; tile load failure fallback; validation |
+| C-12 | Address add/edit | Pin + details | Map with fixed centre pin, locality chip, form fields (landmark + pin required, building/street optional) | Map tiles placeholder; after 8 s offer "Use my current location as the pin" | — | Out-of-zone pin; tile load failure fallback (GPS pin or static locality image — never pinless); validation |
 | C-13 | Checkout | Confirm + pay | Address, ETA, bill summary, payment methods (COD eligibility reasons), policy, CTA | Re-quote state | — | Quote changed (C-13b), restaurant closed, unserviceable |
 | C-13b | What-changed sheet | Price/availability diff | Diff list, new total, confirm | — | — | — |
 | C-14 | Payment status | Pending / failed | Status, reassurance copy, retry/switch/COD | "Confirming payment…" | — | Failed copy; expiry copy |
@@ -618,27 +636,27 @@ Push payloads carry **no PII beyond first names**, plus a deep link (`/orders/{i
 
 ## 17. Requirements for Backend / Frontend / other docs
 
-1. **Quote model:** `POST /cart/quote` returns line-level prices, every fee line, tax breakdown, discount, total, `quote_id`, `expires_at`, plus `eta_min/max` and `cod_eligible` with reason. `POST /orders` with an outdated quote returns **409 with a machine-readable diff** (§8.4).
+1. **Quote model (R12):** `POST /api/v1/cart/quote` returns line-level prices, every fee line, tax breakdown, discount, round-off, total, a signed `quoteId` (stored quote, 10-min validity), `expires_at`, plus `eta_min/max` and `cod_eligible` with reason. No server cart. `POST /api/v1/orders` needs `quoteId` + `Idempotency-Key`; an outdated quote returns **409 with a machine-readable diff** (§8.4).
 2. **Idempotency-Key** on all customer writes, especially `POST /orders` and payment confirmation (§15 E1).
 3. **Server-side PA verification on client callback** + reconciliation job + auto-refund for late captures (§8.3, E3).
-4. **SSE order channel** carrying `order.status`, `delivery.status`, `delivery.rider` (first name, photo URL, vehicle, plate last 4), `eta_min/max`, `refund.status`. Supports `Last-Event-ID`; a heartbeat comment every ≤ 25 s (to survive proxy idle timeouts); polling endpoint with the same payload.
+4. **SSE (R10):** single `GET /api/v1/stream` carrying the customer's order events — `order.status`, `delivery.status`, `delivery.rider` (first name, photo URL, vehicle, plate last 4), `eta_min/max`, `refund.status` (event names per doc 11 §4.2). Heartbeat every 20 s, `reauth` event, **no replay buffer** — clients refetch snapshots on reconnect; polling endpoint with the same payload.
 5. **Customer-facing reason catalogs** for `REJECTED`, `CANCELLED` and `UNDELIVERABLE` (code → en/te text), separate from internal reason codes.
 6. **Search** with trigram + synonym table + Telugu-script matching (§5.2), and zero-result logging.
 7. **Serviceability API** returning zone state (active / paused / none) and locality from a point (§3.3).
 8. **Drop-pin nudge endpoint** with a 300 m cap during active delivery (§15 E7).
-9. **Order cancel endpoint** that encodes the grace-window rule server-side; the client only shows what the server allows (`allowed_actions` on the order resource is recommended).
+9. **Order cancel endpoint** that encodes the grace-window rule server-side (R2: `PLACED`, or ≤ 60 s from placement); the client only shows what the server allows (`allowed_actions` on the order resource is recommended).
 10. **Images in multiple sizes** (WebP + fallback) with dominant colour (§1.2).
 11. **WebOTP-compatible SMS template** (DLT-registered) (§6.1).
-12. **Frontend:** local cart persistence, IndexedDB queue for idempotent writes, `aria-live` status region, font subsetting per locale, lite mode.
+12. **Frontend:** device-only cart persistence, IndexedDB queue for idempotent writes, `aria-live` status region, font subsetting per locale, lite mode.
 
-### Challenges / proposals to the baseline (summary)
-- **ACCEPTED → PREPARING** should auto-advance (no extra restaurant tap); see doc 05 §4.3.
-- **PREPARING → PICKED_UP** must be allowed (implicit ready) when the restaurant forgets to tap Ready.
-- A **60 s customer grace cancel** after `ACCEPTED` needs a state-machine path `ACCEPTED|PREPARING → CANCELLED (by customer, within grace)`.
-- **Landmark required** (baseline says "strongly encouraged") for V1 in Mahabubnagar.
-- **Display rounding:** recommend rounding the final payable to the whole rupee with an explicit "Round off" line. It reduces COD change friction and matches common Indian billing practice. Line amounts stay exact in paise `[OPEN — product/finance/tax]`.
-- **No wallet / rovo credits in V1:** goodwill and COD refunds are issued as **single-user coupons** (no stored-value balance → avoids prepaid-instrument questions `[LEGAL]`). A cash refund for COD (if ever required) is a manual UPI payout by finance.
-- **COD limits per order and per user** (eligibility flag) need config fields not listed in the baseline.
+### Challenges / proposals to the baseline (summary) — now resolved by rulings
+- **ACCEPTED → PREPARING** auto-advance → **R3** (after 60 s or on tap).
+- **PREPARING → PICKED_UP** allowed → **R4** (flag `restaurant_skipped_ready`).
+- **60 s customer grace cancel** after `ACCEPTED` → **R2**.
+- **Landmark + pin required**, building/street optional → **R13**.
+- **Display rounding** to the whole rupee with a "Round off" line → **R8**.
+- **No wallet / rovo credits in V1** (R9). Goodwill is issued as single-user coupons; **COD compensation is the customer's choice** of a manual UPI refund (finance records the UTR) or a coupon — never coupon-only (**R29**) `[LEGAL]`.
+- **COD limits per order and per user** → **R6** (₹1,000 cap, ₹600 first order) and **R5** (2 customer-fault failures → COD disabled).
 
 ---
 

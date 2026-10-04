@@ -4,17 +4,26 @@
 |---|---|
 | **Purpose** | Define how rovo's four web apps behave as installable PWAs on the devices our users actually have. Covers manifests, install, service-worker caching, offline rules, updates, Web Push, restaurant order-alert reliability, rider constraints, payments, calls and navigation hand-offs, and the path to Google Play (TWA) and later to native apps. Includes the device/browser support matrix and the low-end device test plan. |
 | **Owner** | Frontend Architect |
-| **Status** | Draft v1 (2026-10-04) |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
 | **Depends on** | `00-planning-baseline.md` (P3, P7, P9, P12, §4a), `17-frontend-architecture.md` (apps, origins, SSE client, auth), `05-restaurant-workflow.md` / `06-delivery-workflow.md` (alert and rider flows), `08-system-architecture.md` (SSE + Web Push fan-out, escalation), `12-auth-rbac.md` (cookies, bearer for native), `13-order-state-machine.md` (which transitions may be queued), `14-payment-architecture.md` (PA checkout, return URLs), `15-notification-architecture.md` (VAPID, push payloads, SMS/voice escalation), `20-testing-strategy.md` (device lab) |
 
 Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. All web sources were accessed **2026-10-04**.
+
+**Changes in v1.1** (review 31 + rulings R1–R48):
+- Restaurant alert ladder follows **R1/R43**: in-app loop and push repeat every 30 s; owner SMS at 60 s; ops flagged and manual call at 90 s; `CANCELLED`/`SYSTEM`/`RESTAURANT_UNRESPONSIVE` at 180 s; outlet auto-paused 30 min. **Automated voice call is P1**, triggered if more than 5% of pilot orders reach 90 s. Doc 13 owns the timer values (R48) (§7).
+- Restaurant presence: no heartbeat for 3 min while open → auto-pause (R1). SSE presence counts as the heartbeat; REST heartbeat every 60 s only when SSE is down (R27) (§4.2).
+- Counter devices get **device-bound order-receiver sessions** (R44, M10). TWA with a high-importance notification channel becomes a Gate A target for restaurant devices (RV-054). Pre-configured counter devices and the device lab are budgeted (M3, RV-062) (§7, §10.1, §12).
+- Rider dispatch tiers (R34): tier 1 fresh ≤ 3 min; tier 2 online but stale ≤ 15 min, reached by **push + SSE**; auto-offline at 15 min with no ping/heartbeat. Pings are batched (R27) (§8).
+- Rider offline queue narrowed to **pickup and deliver only** (C12). Delivery OTP is decided by R39 (on for prepaid ≥ ₹300, off for COD) (§4.3).
+- Prerendered pages removed (R33): the SW leaves the Go share page `/r/{slug}` to the network (§3).
+- SSE is same-origin with no replay (R10, R27). Frontend errors and RUM go to Grafana Faro (R36). An unpaid `PENDING_PAYMENT` order reopens automatically after a tab kill (RV-060) (§9.1).
 
 ---
 
 ## 0. Key constraints that shape product scope
 
 1. **A PWA cannot track location in the background.** Rider location is sent only while the rider app is open and visible. That is enough for dispatch (P12). It is **not** enough for a live map for customers, so customers see **status milestones only** in V1.
-2. **Restaurant order alerts are only fully reliable while the restaurant app is open and in the foreground** on a plugged-in device. Web Push is a backup channel, and server-side SMS/voice escalation is mandatory. **Restaurant onboarding must include device setup** (§6).
+2. **Restaurant order alerts are only fully reliable while the restaurant app is open and in the foreground** on a plugged-in device. Web Push is a backup channel. Server-side escalation is mandatory: owner SMS at 60 s and an ops manual call at 90 s (R1/R43); automated voice call is P1. **Restaurant onboarding must include device setup** (§7.2), on a pre-configured counter device where the restaurant has none (M3).
 3. **Web notifications cannot play a custom looping sound.** A loud repeating alert is possible only in the open app.
 4. **No offline ordering or payment.** Customers can browse cached menus read-only. Riders may queue a small set of forward-only status updates (§4.3).
 5. **iOS:** Web Push works only after the user adds the app to the Home Screen (iOS 16.4+). Wake Lock in installed iOS web apps works only from iOS 18.4. iOS is a minority platform in Mahabubnagar [ASSUMPTION; Safari ≈ 4.3% of Indian mobile browser share ([Statcounter, Jul 2026](https://gs.statcounter.com/browser-market-share/mobile/india))]. **Partner apps are Android-first; iOS is best effort.**
@@ -33,7 +42,7 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. All web sources were accessed **2026-
 | Web Push | Order milestones (opt-in after first order) | **New orders (critical)** | **New offers (critical)**, cancellations | — (admins use desktop and the live board; email/SMS for ops alerts) |
 | Wake Lock | No | **Yes**, while on shift | **Yes**, while online / on a delivery | — |
 | Geolocation | Pin-drop only (on tap) | No | **Yes**, foreground only | — |
-| TWA / Play | No (V1) | Yes (phase 1b) | Yes (phase 1b) | No |
+| TWA / Play | No (V1) | **Gate A target** (RV-054; fallback: installed WebAPK on pre-configured device) | Yes (phase 1b) | No |
 
 ### 1.1 Manifest (example: rider)
 
@@ -89,8 +98,7 @@ Built with **vite-plugin-pwa in `injectManifest` mode**: we write our own `sw.ts
 | App shell: `index.html`, hashed JS/CSS of the shell and main routes, icons, Latin UI SVGs | **Precache** (Workbox manifest, revisioned) | Customer precache budget ≤ 400 KB gzip in total. Admin-like heavy chunks are not precached. |
 | Telugu font WOFF2 | **Runtime CacheFirst** (`fonts`, max 4 entries, 1 year) | Downloaded only when needed (doc 17 §9). Telugu-first users get it cached after the first view. |
 | Lazy route chunks (e.g. MapLibre, address editor) | **Runtime CacheFirst** (`chunks`, max 30, 30 days) | **Not** precached, so we do not spend ~200+ KB of user data on a map they may never open. Hashed names make CacheFirst safe. |
-| SPA navigations (`mode: navigate`) | **NavigationRoute → precached `index.html`** | Instant repeat loads, and offline-capable. Denylist: `/api/`, `/media/`, `/.well-known/`. |
-| Prerendered public pages (customer `/{city}`, `/{city}/r/{slug}`) | **NetworkFirst, 3 s timeout** → cache → shell | Crawlers get fresh HTML. Users offline get the last copy. |
+| SPA navigations (`mode: navigate`) | **NavigationRoute → precached `index.html`** | Instant repeat loads, and offline-capable. Denylist: `/api/`, `/media/`, `/.well-known/`, `/r/` (Go share page, R33, goes to the network and redirects into the SPA). |
 | Public catalog API: `GET /api/v1/public/**` (restaurant list, menus, localities) | **StaleWhileRevalidate** (`catalog`, max 60 entries, maxAge 24 h) | Enables read-only offline browsing. The UI marks data older than 5 min as "may be outdated" while offline. **Prices are always re-quoted** at checkout (doc 17 §4.3). |
 | Menu/restaurant images `/media/**` | **CacheFirst** (`images`, max 200 entries, 7 days, `purgeOnQuotaError`) | Immutable, content-hashed URLs. |
 | Map tiles `/tiles/**` (PMTiles range requests) | **No SW caching** [ASSUMPTION: Workbox handles HTTP Range responses poorly; rely on the HTTP cache] | Map is used rarely. |
@@ -119,18 +127,19 @@ Built with **vite-plugin-pwa in `injectManifest` mode**: we write our own `sw.ts
 
 - Offline means the restaurant **may be missing orders**. The app shows a full-width red banner, plays a short distinct "connection lost" tone every 60 s (if audio is unlocked), and keeps retrying. The health indicator turns red.
 - **Actions are not queued** (accept, reject, mark ready, stock toggles). They are time-sensitive and depend on state that may have changed (the customer cancelled, or the system auto-rejected). Buttons are disabled while offline, and a failed request shows "Not sent – Retry".
-- **Server side** (requirement on docs 08/15): the presence of the restaurant's SSE stream is tracked. If an outlet has **no live stream for > 3 min during opening hours** [ASSUMPTION], ops are alerted. After > 10 min, the outlet is **auto-paused** (stops receiving new orders) with an SMS to the owner. A restaurant cannot silently "accept orders" while unreachable.
+- **Server side** (requirement on docs 08/13/15): the restaurant's SSE stream presence counts as its device heartbeat (R27); while SSE is down the app sends a REST heartbeat every **60 s**. If an open outlet has **no heartbeat for 3 min**, it is **auto-paused** (stops receiving new orders), ops are alerted and the owner gets an SMS (R1; doc 13 owns the timer). A restaurant cannot silently "accept orders" while unreachable.
 
 ### 4.3 Rider: queued status updates (decision)
 
-Riders lose signal in lifts, basements and dead zones near drop points. Blocking every step on connectivity would stall deliveries. We therefore allow a **narrow, idempotent outbox**:
+Riders lose signal in lifts, basements and dead zones near drop points. Blocking every step on connectivity would stall deliveries. We therefore allow a **narrow, idempotent outbox limited to pickup and deliver** (C12; anything broader is V1.1+):
 
 | Action | Queue offline? | Reason |
 |---|---|---|
-| `AT_RESTAURANT`, `PICKED_UP`, `AT_DROP` | **Yes** | These are forward-only transitions in the delivery state machine. Each carries `Idempotency-Key`, `occurred_at` (device time), `last_known_location` and `expected_from_status`. |
-| `DELIVERED` (prepaid, no proof requirement) | **Yes** | Same as above. |
-| `DELIVERED` with **COD cash collected** | **Yes, with care** | The cash amount is recorded with it. The rider's cash-in-hand counter is shown as "pending sync". The server ledgers it on arrival. |
-| `DELIVERED` requiring a **delivery OTP / server check** [OPEN – doc 06/13 decide whether a delivery OTP exists] | **No** | Needs the server. Show "Waiting for network to verify code". |
+| `PICKED_UP` | **Yes** | Forward-only. Carries `Idempotency-Key`, `occurred_at` (device time), `last_known_location` and `expected_from_status`. The server accepts it from `ASSIGNED` or `AT_RESTAURANT` (implied arrival; requirement on 13). |
+| `AT_RESTAURANT`, `AT_DROP` | **No** (C12) | Informational milestones. Sent live; if offline the button shows "Not sent – Retry" and the rider may continue to the next step. |
+| `DELIVERED` (prepaid **< ₹300**, no delivery code) | **Yes** | Same contract as `PICKED_UP`; accepted from `PICKED_UP` or `AT_DROP`. |
+| `DELIVERED` with **COD cash collected** (COD never needs a delivery code, R39) | **Yes, with care** | The cash amount is recorded with it. The rider's cash-in-hand counter is shown as "pending sync". The server ledgers it on arrival. |
+| `DELIVERED` for prepaid **≥ ₹300** (delivery code required, R39) | **No** | The code is verified by the server. Show "Waiting for network to verify code". |
 | Accept / decline offer | **No** | 45 s expiry. An offline accept is meaningless. |
 | Go online / offline | **No** (go-offline is applied locally and retried) | Going online requires a fresh location and server-side eligibility (cash limit). |
 | Location pings | **Not queued**; only the latest is sent on reconnect | Stale positions are useless for dispatch. |
@@ -211,19 +220,20 @@ flowchart TD
   P[Order PLACED] --> S{Restaurant SSE live?}
   S -- yes --> A[In-app alert loop:<br/>loud audio + flashing banner + vibrate<br/>repeat until Accept/Reject]
   S -- no --> W[Web Push high urgency<br/>requireInteraction, renotify]
-  A --> K{Acknowledged ≤ 60 s?}
-  W --> K
+  A --> R30[Alert and push repeat every 30 s]
+  W --> R30
+  R30 --> K{Acknowledged by 60 s?}
   K -- yes --> Done[Accepted / Rejected]
-  K -- no --> R1[Repeat push at 60 s, 120 s]
-  R1 --> K2{Ack ≤ 2 min?}
-  K2 -- no --> SMS[SMS to outlet phone<br/>DLT template]
-  SMS --> K3{Ack ≤ 3–4 min?}
-  K3 -- no --> CALL[Automated voice call (IVR)<br/>+ admin live-board alert for manual call]
-  CALL --> K4{Ack ≤ SLA (e.g. 5–7 min)?}
-  K4 -- no --> AUTO[Auto-reject/cancel per doc 13;<br/>customer refunded/notified; outlet auto-paused]
+  K -- no --> SMS[T+60 s: SMS to owner<br/>DLT template]
+  SMS --> K2{Acknowledged by 90 s?}
+  K2 -- yes --> Done
+  K2 -- no --> OPS[T+90 s: ops flagged on live board<br/>ops calls manually; may accept on behalf, audited]
+  OPS --> K3{Acknowledged by 180 s?}
+  K3 -- yes --> Done
+  K3 -- no --> AUTO[T+180 s: CANCELLED by SYSTEM<br/>reason RESTAURANT_UNRESPONSIVE<br/>prepaid refunded; outlet paused 30 min]
 ```
 
-Timings are illustrative. Docs 05/13/15 own the policy [OPEN].
+Values follow R1/R43; doc 13 owns the timers (R48). **Automated voice-call escalation (IVR) is P1** (R43): it is switched on if more than 5% of pilot orders reach the 90 s mark. Two consecutive misses pause the outlet until the owner resumes (R1).
 
 ### 7.1 In-app alert (primary path)
 
@@ -242,6 +252,7 @@ Timings are illustrative. Docs 05/13/15 own the policy [OPEN].
   - Support: Chrome Android, Samsung Internet 14+, Safari iOS 16.4+ ([caniuse](https://caniuse.com/wake-lock)). In **iOS Home Screen web apps** it only works from **iOS 18.4** ([WebKit bug 254545](https://bugs.webkit.org/show_bug.cgi?id=254545)).
   - Fallback where unsupported: instruct the user to set "Screen timeout: never while charging" or use the Android developer option "Stay awake".
 - **Keep the tab foregrounded.** Background tabs and apps are throttled or frozen by the browser and OS [ASSUMPTION: Chrome intensive timer throttling and Android process freezing]. The device should be **dedicated, plugged in, with the rovo Partner app on screen**. The restaurant workflow (doc 05) makes this an onboarding agreement.
+- **Never logged out mid-service.** The counter device holds a **device-bound order-receiver session** (R44, doc 12 §3.4): 30-day sliding idle, 90-day absolute, re-authentication prompted only outside service hours, revocable by the owner or ops.
 
 ### 7.2 Device setup checklist (onboarding + `/settings/alerts` self-test)
 
@@ -256,6 +267,7 @@ Timings are illustrative. Docs 05/13/15 own the policy [OPEN].
 | Battery optimisation off for Chrome / rovo Partner | Manual, with brand-specific illustrated steps (Xiaomi, Samsung, Vivo, Oppo, Realme), referencing dontkillmyapp.com-style guidance [ASSUMPTION] |
 | Do Not Disturb off, media volume ≥ 70% | Manual confirmation |
 | Outlet phone number verified for SMS/call escalation | Server |
+| Device registered as order receiver (device-bound session) | Server (R44) |
 
 The server stores a **device-readiness score** per outlet, which admins see during activation. [OPEN – doc 05: an outlet cannot go live unless all mandatory checks pass.]
 
@@ -270,10 +282,12 @@ Several staff devices may be logged into the same outlet. All of them alert. The
 | Constraint | Consequence / design |
 |---|---|
 | **Geolocation only while the page is visible.** `watchPosition` stops delivering, or is throttled, when the app is hidden or the screen is off [ASSUMPTION – consistent with Chrome/Android behaviour; verify in §12]. | Location pings (every 30–60 s, P12) are sent only in the foreground. While online, the rider app keeps the **wake lock** and asks the rider to keep the app on screen (phone mount + charger recommended). |
-| Stale location | The server treats a location older than N min (e.g. 3 [ASSUMPTION]) as stale. A stale rider is deprioritised or excluded from offers (doc 08 dispatch). On becoming visible again, the app sends an immediate fix. |
-| Navigation | Navigating opens Google Maps (an external app), so rovo goes to the background. **Our pings stop while Maps is in front.** We accept this in V1: status milestones (picked up, at drop) are manual taps, and dispatch only needs location between deliveries. |
+| Stale location → dispatch tiers (R34) | **Tier 1:** location fresh ≤ 3 min, ranked by distance. **Tier 2:** online but location stale ≤ 15 min; offered via **Web Push (`Urgency: high`) + SSE**, with location treated as approximate. **Auto-offline** after 15 min without any ping or heartbeat. Values live in `app_config` (doc 13 owns them, R48). On becoming visible again, the app sends an immediate fix. |
+| Navigation | Navigating opens Google Maps (an external app), so rovo goes to the background. **Our pings stop while Maps is in front.** We accept this in V1: status milestones (picked up, at drop) are manual taps that capture location, and dispatch only needs location between deliveries. |
+| Ping cadence | While foregrounded, fixes are taken every 30–60 s but **sent in batches** (1–10 points per request, R27) to cut CDN request volume. |
 | Battery | High-accuracy GPS + screen on drains the battery. We use `enableHighAccuracy: true` only on the "go online" fix and the at-restaurant/at-drop taps, and `false` with `maximumAge: 30000` for periodic pings. The app warns below 20% battery. |
-| Offers while backgrounded | Web Push with `Urgency: high`, `TTL: 45 s`. Tapping opens `/offers/{id}`. If the offer has expired, the app says so. |
+| Offers while backgrounded | Tier-2 riders (R34) get Web Push with `Urgency: high`, `TTL: 45 s`. Tapping opens `/offers/{id}`. If the offer has expired or was `REVOKED` (R16), the app says so. |
+| Session | Rider session slides for 30 days on the rider's own phone (R44, doc 12 §3.4). |
 | Permission denied | The rider cannot go online. An instructions screen explains how to enable location. |
 | **Why live GPS tracking is deferred** | A web app has no background location, no foreground service, and no guaranteed delivery while another app (Maps) is in front. A customer-facing live map would freeze whenever the rider navigates, which is exactly when customers look. Live tracking requires a native app (§10). |
 
@@ -290,6 +304,7 @@ Several staff devices may be logged into the same outlet. All of them alert. The
   3. **The truth comes from the PA webhook plus a server-side fetch** (docs 12/14). The client-side success callback only navigates; it never marks an order paid.
   4. The PA's redirect/`callback_url` mode (a cross-site POST) lands on an unauthenticated, idempotent return endpoint that redirects to the order page (doc 12 §4.4).
   5. The `PENDING_PAYMENT` expiry (e.g. 15 min, doc 13) shows "Payment not completed – Retry or choose Cash on Delivery".
+  6. **Tab killed during the UPI hand-off (RV-060):** on app start, if the customer has an order in `PENDING_PAYMENT` created < 15 min ago, the app opens `/checkout/pay/{orderId}` automatically.
 - The SW never caches payment routes or PA domains (§3). CSP allows the PA domains on the customer app only (doc 17 §15.6).
 - **TWA note (future):** UPI intents launched from a TWA open the UPI app the same way as in Chrome [ASSUMPTION – verify in the Phase 2 spike]. The customer app is not a TWA in V1 anyway.
 
@@ -320,13 +335,13 @@ Several staff devices may be logged into the same outlet. All of them alert. The
 | Does **not** gain | Background location, foreground services, custom alarm sounds or full-screen intents. The engine is still Chrome with the same lifecycle. |
 | Cost | Google Play developer registration: **one-time US$25** [ASSUMPTION – secondary sources]. Use an **organisation account** (needs a D-U-N-S number, free, can take days to weeks). New **personal** accounts created after 2023-11-13 must run a closed test with **12 testers for 14 days** before production access; organisation accounts are exempt ([Play Console help](https://support.google.com/googleplay/android-developer/answer/14151465)). |
 | Effort | ~2–3 days per app (signing, assetlinks, store listing, privacy policy, Data safety form [LEGAL]). The listing must disclose location use for the rider app. |
-| When | After the PWA pilot is stable (milestone owned by doc 28). The customer app stays web-only in V1. |
+| When | **Restaurant app: target Gate A** (RV-054), so counter devices get an app-attributed, high-importance notification channel; start the Play organisation account (D-U-N-S) in Phase-2 week 1. If it slips, the installed WebAPK on a pre-configured device is the fallback. Rider app: after the PWA pilot is stable (milestone owned by doc 28). The customer app stays web-only in V1. |
 
 ### 10.2 Criteria for going native (V2 triggers)
 
 Go native for **rider** (and possibly restaurant) when **any** of these hold:
 1. Product commits to **customer live tracking**. This requires background location with an Android foreground service and the Play "background location" declaration with prominent disclosure [LEGAL/Play policy].
-2. Restaurant missed-order rate due to device/browser issues stays above the target (e.g. > 2% of orders reaching the SMS escalation stage [ASSUMPTION]) after the setup programme.
+2. Restaurant missed-order rate due to device/browser issues stays above target after the setup programme and the P1 voice escalation (R43 trigger: > 5% of orders reaching the 90 s mark).
 3. Rider offer acceptance is hurt by delayed push (median offer-to-seen latency > 10 s [ASSUMPTION]).
 4. A need for hardware or OS integrations: Bluetooth KOT printers, NFC, background uploads, call masking via SDK.
 5. More than 1 city or more than ~100 active riders, where per-rider productivity gains pay for the native team [ASSUMPTION].
@@ -352,7 +367,7 @@ Native capabilities that matter:
 ### 10.4 How V1 prepares for native
 
 - **One OpenAPI contract** (P2) generates the TS client (web and RN) and, if ever needed, Dart. Native-only endpoints are not allowed; the same REST is used.
-- **Auth:** the API already supports **bearer tokens on `api.<domain>`** (refresh in the body, stored in Android Keystore / iOS Keychain), with the same rotation and reuse detection (doc 12). `packages/api-client` has a `bearer` transport adapter from day one.
+- **Auth:** the API design supports **bearer tokens on `api.<domain>`** (refresh in the body, stored in Android Keystore / iOS Keychain), with the same rotation and reuse detection (doc 12). The host is reserved for native clients and not enabled for them in V1 (R27). `packages/api-client` has a `bearer` transport adapter from day one.
 - **DOM-free packages** (`utils`, `domain`, `api-client` core, i18n catalogs) are linted with an `no-restricted-globals: window, document` rule.
 - **Push abstraction on the server:** `push_subscriptions` gets a `kind` column (`webpush` | `fcm` | `apns`) now, so FCM tokens fit later without schema changes [requirement on doc 10/15].
 - **Deep-link paths are stable** (`/orders/{id}`, `/offers/{id}`, `/deliveries/{id}`) and are reused as Android App Links.
@@ -379,7 +394,7 @@ Capability detection, not UA sniffing, gates features (`'wakeLock' in navigator`
 
 ## 12. Low-end device test plan
 
-**Device lab** (bought, not emulated; about ₹40–60k in total [ASSUMPTION]):
+**Device lab** (bought, not emulated; about ₹40–60k in total [ASSUMPTION]; owner QA; cost line in doc 25 per M3/RV-062). Separately, Release/Ops procure **≈ 20 pre-configured counter devices** (budget Android, ≈ ₹6–8k each [ASSUMPTION]) for restaurants without a dedicated phone (persona P4), with the restaurant app installed, notification channel set, battery optimisation off and an order-receiver session registered:
 
 | # | Class | Example profile | Role |
 |---|---|---|---|
@@ -402,11 +417,11 @@ Capability detection, not UA sniffing, gates features (`'wakeLock' in navigator`
 
 | # | Scenario | Pass criteria |
 |---|---|---|
-| T1 | First visit from a WhatsApp-shared restaurant link on D1 / Slow 4G | LCP < 2.5 s (prerendered page), interactive menu < 5 s, total transfer < 500 KB |
+| T1 | First visit from a WhatsApp-shared restaurant link (`/r/{slug}` share page → SPA) on D1 / Slow 4G | Link preview shows OG title/image; LCP < 2.5 s, interactive menu < 5 s, total transfer < 500 KB |
 | T2 | Repeat visit, offline | Shell < 1 s; cached menu browsable; checkout disabled with message |
 | T3 | Full golden flow on D1 with UPI (PA test mode) where the OS **kills the tab** while the UPI app is open | Order page recovers and shows the correct payment state within 10 s of return |
 | T4 | Restaurant D5: 8-hour shift, screen on, plugged in, 30 test orders at random intervals | 100% alerted in-app within 5 s; no tab discard; wake lock held; memory stable (no growth > 50 MB) |
-| T5 | Restaurant D2/D3 with the app **backgrounded / screen off** for 15 min, then an order | Push received (record latency); escalation SMS fires on schedule when not acknowledged |
+| T5 | Restaurant D2/D3 with the app **backgrounded / screen off** for 15 min, then an order | Push received (record latency); owner SMS at 60 s and ops flag at 90 s when not acknowledged (R1/R43) |
 | T6 | Rider D2/D3: online for 2 h, 10 deliveries with Google Maps hand-offs | Location fresh when the app is foregrounded; offers received via push when backgrounded (latency recorded); battery drain recorded (target ≤ 20%/h [ASSUMPTION]) |
 | T7 | Rider offline transitions: `PICKED_UP` and `DELIVERED` (COD) taken in airplane mode, reconnect after 5 min | Outbox flushes in order; server accepts; no duplicates; new offers blocked until synced |
 | T8 | Rider: a delivery is cancelled by admin while the rider is offline with a queued `PICKED_UP` | `409` handled; blocking notice; outbox cleared |
@@ -414,12 +429,14 @@ Capability detection, not UA sniffing, gates features (`'wakeLock' in navigator`
 | T10 | Telugu UI on D1 with TalkBack (Google TTS Telugu voice) | Key flows operable; labels read in Telugu; veg/non-veg announced |
 | T11 | Data saver on / `saveData` | Small image variants only; no hero images |
 | T12 | Low storage (< 500 MB free) | App works; caches purge on quota errors; no crash loops |
+| T13 | Restaurant order-receiver device left idle 8 days, then a Chrome restart | Still logged in (device-bound session, R44); "Start shift" restores audio/wake lock; no re-login during service hours |
+| T14 | Rider backgrounded with stale location (5–14 min) | Offer arrives via push (tier 2, R34); after 15 min with no ping the rider is auto-offline |
 
 **Automation:**
 - Lighthouse CI (mobile) and `size-limit` on every PR (doc 17 §12).
 - Playwright E2E on emulated Pixel/Galaxy viewports with CPU throttling.
 - WebPageTest (or equivalent) from an India location on staging nightly [ASSUMPTION – availability of a free India test agent].
-- Field RUM (web-vitals) segmented by `deviceMemory` ≤ 2 vs > 2.
+- Field RUM (web-vitals via Grafana Faro, R36) segmented by `deviceMemory` ≤ 2 vs > 2.
 - Manual device passes before each release (T1–T12 subset) and the full set before pilot launch. Results recorded in the release checklist (doc 29).
 
 ---
@@ -431,16 +448,19 @@ Capability detection, not UA sniffing, gates features (`'wakeLock' in navigator`
 - No TWA or Play listing for the customer app. No iOS App Store presence.
 - No native apps (React Native) until the §10.2 triggers fire.
 - No notification action buttons. No custom notification sounds (not available on the web).
+- No automated voice-call escalation at launch (P1, R43). No rider offline queue beyond pickup/deliver (C12). No prerendered pages in the SW (R33).
 
 ## 14. Requirements on other docs
 
 | To | Requirement |
 |---|---|
-| 08 / 15 Notifications | VAPID keys in the secrets manager. Push sender with TTL/Urgency per type. 404/410 cleanup. Localised payloads. Restaurant presence tracking from SSE. Escalation ladder (repeat push → SMS → voice/IVR → ops → auto-reject) with configurable timers. Auto-pause of an unreachable outlet. `push_subscriptions.kind` for future FCM/APNs. |
+| 08 / 13 / 15 Notifications | VAPID keys in the secrets manager. Push sender with TTL/Urgency per type. 404/410 cleanup. Localised payloads. Restaurant presence from SSE (counts as heartbeat, R27). Escalation ladder per R1/R43 (repeat alert/push every 30 s → owner SMS 60 s → ops flag + manual call 90 s → `CANCELLED`/`RESTAURANT_UNRESPONSIVE` 180 s); voice/IVR P1. Auto-pause after 3 min without heartbeat. Tier-2 rider offers via push (R34). `push_subscriptions.kind` for future FCM/APNs. |
 | 11 API | Push-subscription endpoints (§6.1). `payment-status` endpoint. Rider transition endpoint accepting `Idempotency-Key`, `occurred_at`, `expected_from_status`, `location`. `/config/client` with `min_supported_version`. Backward compatibility across ≥ 2 frontend releases. |
-| 13 State machine | Mark which delivery transitions may arrive late or out of band (§4.3) and the clamping rule for `occurred_at`. Decide whether a delivery OTP exists. |
+| 13 State machine | Accept queued `PICKED_UP` from `ASSIGNED`/`AT_RESTAURANT` and queued `DELIVERED` from `PICKED_UP`/`AT_DROP` (§4.3), with the clamping rule for `occurred_at`. Delivery OTP per R39. Dispatch tier values (R34). |
 | 14 Payments | PA checkout with UPI intent on mobile web. Return URL and status polling contract. Webhook-driven truth. |
-| 05 / 06 UX | "Start shift" and device-readiness onboarding for restaurants. Install and permissions checklist for riders. "Syncing" state in the rider flow. |
+| 05 / 06 UX | "Start shift" and device-readiness onboarding for restaurants, incl. order-receiver registration (R44). Install and permissions checklist for riders. "Syncing" state in the rider flow. |
+| 12 Auth | Device-bound order-receiver sessions and rider 30-day sliding sessions (done in 12 v1.1). |
+| 25 / 29 Release | Device lab and ≈ 20 counter devices budgeted (M3); TWA for restaurant devices as a Gate A target. |
 | 22 DevOps | Serve `/.well-known/assetlinks.json` (restaurant, rider). `sw.js` and manifests `no-cache`. Ability to ship a self-destroying SW. |
 | 28 Milestones | TWA packaging after the PWA pilot. Play organisation account (D-U-N-S) started early. |
 

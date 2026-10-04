@@ -4,9 +4,18 @@
 |---|---|
 | **Purpose** | Define telemetry for rovo: OpenTelemetry instrumentation (Go + frontend), the collector, logs (with PII redaction), metrics (RED/USE/business KPIs), traces and sampling, dashboards, SLOs and alerts, alert routing and on-call for a tiny team, uptime/synthetics, RUM, the audit-log boundary, and the data-volume budget vs cost. Also picks the production telemetry backend with a cost comparison. |
 | **Owner** | DevOps Architect |
-| **Status** | Draft v1 (aligned with baseline §4a / P15, 2026-10-04) |
-| **Depends on** | `00-planning-baseline.md` P3/P4/P11/P15; `22-deployment-architecture.md` (otel-gateway, accounts); `25-free-hosting-comparison.md` §10 (load model), §14.6 (prices); `13-order-state-machine.md` (statuses); `14-payment-architecture.md` (webhooks); `12-auth-rbac.md` / `19` (PII classes, audit); `20-testing-strategy.md` (synthetics) |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
+| **Depends on** | `00-planning-baseline.md` P3/P4/P11/P15; `22-deployment-architecture.md` (otel-gateway, accounts); `20-testing-strategy.md` §12.1 (load model, R45); `25-free-hosting-comparison.md` §14.6 (prices), §15 (cost, R46); `13-order-state-machine.md` (statuses); `14-payment-architecture.md` (webhooks); `12-auth-rbac.md` / `19` (PII classes, audit); `20-testing-strategy.md` (synthetics) |
 | **Feeds** | `21-cicd-strategy.md` (deploy verification queries), `23-backup-disaster-recovery.md` (backup alerts), `29-production-readiness-checklist.md` |
+
+**Changes in v1.1**
+- **R36 / D10:** Grafana Cloud for metrics, traces, logs **and Faro** (frontend errors + RUM). **No Sentry in V1.** UptimeRobot (free, card-free) for external uptime checks.
+- **CERT-In archive (M1):** CloudWatch Logs / S3 in `ap-south-1`, 180 days for all logs and ≥ 1 year (400 d) for security events (§1.2). The 3-day "safety copy" is gone. Cost is in `25` §15.1.
+- **No CORS (R27/R14):** frontends call same-origin `/api/v1/*` on their own host, so trace headers need no CORS allowance. `tracePropagationTargets` is same-origin. Span names use `/api/v1` (R15).
+- **No outbox table (R22/R42):** the outbox metrics and relay span are replaced by **River queue latency** and trace context carried in River job metadata. Alert A8 has been redefined accordingly.
+- Added the **NOTIFY queue-usage alert and LISTEN watchdog (M12)**, the **missed-settlement / periodic catch-up alert (M11)** and the CERT-In archive delivery alert.
+- `closed-pilot` exports OTLP **directly** from the SDKs (no Alloy gateway, R32). DB metrics come from a worker `db-stats` job plus CloudWatch.
+- Accept-timeout values are referenced by doc 13 keys, not restated (R48). Volumes follow R45/doc 20. On-call aligned with RV-067.
 
 ---
 
@@ -14,26 +23,42 @@
 
 | Env | Logs / metrics / traces | Errors | Uptime |
 |---|---|---|---|
-| local | **`grafana/otel-lgtm`** container (Loki, Grafana, Tempo, Prometheus/Mimir), dashboards provisioned from `deploy/observability/` | console + optional Sentry DSN | — |
+| local | **`grafana/otel-lgtm`** container (Loki, Grafana, Tempo, Prometheus/Mimir), dashboards provisioned from `deploy/observability/`. Works offline | console; Faro optional against local Alloy | — |
 | ci | none (test output); E2E traces dumped as artifacts on failure | — | — |
-| preview | Grafana Cloud Free stack `rovo-dev` (or local LGTM on the VM) | Sentry project `rovo-preview` | — |
-| staging | Grafana Cloud stack `rovo-nonprod` | Sentry `rovo-staging` | Grafana synthetic golden-flow (§9) |
-| **production** | **Grafana Cloud stack `rovo-prod`, region AWS `ap-south-1` (Mumbai)** [S73] via OTLP | **Sentry** `rovo-prod` (frontend + backend) | **UptimeRobot** (external, independent) + Grafana Synthetic Monitoring |
-| production (last resort) | **CloudWatch**: AWS-vended metrics (ALB, ECS, RDS) + ~15 alarms → SNS; `awslogs` safety copy, 3-day retention | — | — |
+| demo | the local stack (R24); no separate telemetry backend | — | — |
+| staging | Grafana Cloud stack `rovo-nonprod` | **Faro** | Grafana synthetic golden flow (§9) |
+| **production** | **Grafana Cloud stack `rovo-prod`, region AWS `ap-south-1` (Mumbai)** [S73] via OTLP: Free in `closed-pilot`, Pro in `public-launch` (`25` §15.1) | **Grafana Faro** (frontend errors + RUM) + backend error logs/spans | **UptimeRobot** (external, independent, free) + Grafana Synthetic Monitoring |
+| production (compliance + last resort) | **CloudWatch**: AWS-vended metrics (ALB, ECS, RDS, CloudFront) + ~15 alarms → SNS; **CERT-In log archive** (§1.2) | — | — |
+
+Grafana Cloud Free and UptimeRobot Free need no credit card. They are optional for developers and never required for the golden flow (RV-024).
 
 ### 1.1 Cost comparison for production (pilot volumes from `25` §10)
 
 | Signal (pilot volume) | AWS-native (Mumbai, verified unit prices) | Grafana Cloud |
 |---|---|---|
-| Logs ≈ 21 GB/month | CloudWatch Logs $0.67/GB ingest → **≈ $14** + storage $0.03/GB-mo [C11] | Included in Free (50 GB/mo, 14 d) [S71] |
+| Logs ≈ 2–15 GB/month (closed pilot → month 3; §11) | CloudWatch Logs $0.67/GB ingest (Standard) [C11] | Included in Free (50 GB/mo, 14 d) [S71] |
 | Metrics ≈ 5,000 active series | CloudWatch custom metrics $0.30/metric-month → **≈ $1,500** [C11] | Included in Free (10k series) [S71] |
 | Traces ≈ 25 GB/month (sampled) | X-Ray **UNVERIFIED** | Included in Free (50 GB) [S71] |
 | Alerting | $0.10/alarm-month [C11] | Included; Telegram/Discord/email contact points [S74] |
 | Users | IAM | Free: 3 users; **Pro $19/mo** platform fee + usage [S71] |
 | **Pilot total** | **≈ $1,500+/month** with OTel metrics | **$0 (Free) / $19 (Pro)** |
 
-**Decision:** Grafana Cloud for application telemetry, **Pro from production launch** ($19/mo) for support and headroom beyond 3 users [S71]. CloudWatch only for vended metrics and last-resort alarms. Telemetry leaves AWS only through OTLP, so the backend stays swappable (P15). If Grafana pricing/terms change, the fallback is self-hosted LGTM on ECS + S3 (more ops) or New Relic (100 GB free [S81]).
-Data residency: the Grafana stack in `ap-south-1` keeps telemetry in India. Logs are PII-redacted at source (§3.3) anyway [LEGAL].
+**Decision (R36):** Grafana Cloud for application telemetry, including Faro. **Free in `closed-pilot`; Pro in `public-launch`** ($19/mo, for more than 3 users and IRM headroom) [S71]. No Sentry in V1; re-evaluate after the pilot only if Faro's error triage is inadequate. CloudWatch only for vended metrics and last-resort alarms. Telemetry leaves AWS only through OTLP, so the backend stays swappable (P15). If Grafana pricing/terms change, the fallback is self-hosted LGTM on ECS + S3 (more ops) or New Relic (100 GB free [S81]).
+Data residency: the Grafana stack in `ap-south-1` keeps telemetry in India. Logs are PII-redacted at source (§3.3) anyway. Grafana Labs is recorded as a processor in the DPA register (RV-032) [LEGAL].
+
+### 1.2 CERT-In log archive (M1, R36) — compliance copy, separate from Grafana
+
+| Log class | Path | Retention (India, `ap-south-1`) |
+|---|---|---|
+| App JSON logs (`api`, `worker`, `migrate`) | stdout → `awslogs` → CloudWatch Logs `/rovo/prod/app`, **Infrequent Access** class | **180 days** |
+| App security events (auth/OTP abuse, admin sign-in/TOTP, role grants, maker-checker decisions, KYC views, refused outbound hosts, origin-secret failures) | `slog` with `log.stream=security` → `/rovo/prod/security` | **400 days** |
+| RDS PostgreSQL logs (incl. connections/auth) | RDS log export → CloudWatch Logs | 180 days (auth subset 400 days) |
+| ALB + CloudFront access logs | S3 `rovo-prod-logs` | 180 days |
+| CloudTrail (org), AWS Config, WAF logs, VPC flow logs (all), GuardDuty findings | S3 `rovo-audit-security-logs`, Object Lock | **400 days** |
+
+- Clock source: AWS time sync (NTP) for all tasks; CERT-In requires synchronised clocks.
+- Retrieval: CloudWatch Logs Insights (works on the IA class) and Athena over S3 for incident response and CERT-In requests (6-hour reporting, doc 19 §8.10).
+- **Never rely on Grafana retention for compliance.** The archive is a Gate A item (`29`). Delivery is monitored by alert A24. Cost: `25` §15.1.
 
 ---
 
@@ -43,32 +68,29 @@ Data residency: the Grafana stack in `ap-south-1` keeps telemetry in India. Logs
 
 | Area | Library / approach | Output |
 |---|---|---|
-| SDK | `go.opentelemetry.io/otel` SDK; resource attrs `service.name=rovo-api|rovo-worker`, `service.version`, `deployment.environment`, `cloud.region`, `aws.ecs.task.arn` | OTLP gRPC → `otel.rovo.internal:4317` |
-| HTTP server | `otelhttp` middleware; **span name = route template** (`GET /v1/orders/{id}`), never raw path | Spans + `http.server.request.duration` histogram |
+| SDK | `go.opentelemetry.io/otel` SDK; resource attrs `service.name=rovo-api|rovo-worker`, `service.version`, `deployment.environment`, `cloud.region`, `aws.ecs.task.arn` | `closed-pilot`: OTLP/HTTPS **directly** to the Grafana Cloud OTLP endpoint (batch processor, bounded queue, drop on overflow). `public-launch`: the same, or `otel.rovo.internal:4317` if the optional gateway is deployed (§2.3) |
+| HTTP server | `otelhttp` middleware; **span name = route template** (`GET /api/v1/orders/{id}`, R15), never raw path | Spans + `http.server.request.duration` histogram |
 | HTTP clients (PA, SMS, Web Push) | `otelhttp.NewTransport` | Client spans, dependency latency |
 | PostgreSQL | **pgx tracer** (`otelpgx`) attached to `pgxpool`; SQL text recorded **without parameters**; sqlc query name as span name | DB spans; pool stats metrics (acquired, idle, wait duration) |
 | River jobs | River middleware/hooks: span per job (`river.job <kind>`), attrs `job.kind`, `attempt`, `queue`; **trace context carried in job metadata** at insert, so the job span **links** to the enqueuing request | Job spans + metrics (§4.3) |
-| Outbox | `outbox` rows store `traceparent`; the relay creates a span linked to the original | End-to-end causality across async hops |
+| Events (R22/R42) | No outbox table and no relay. The publisher inserts one River job per subscriber in the business transaction (`InsertManyTx`), and each job's metadata carries `traceparent`. The subscriber job span **links** to the publishing request | End-to-end causality across async hops |
 | SSE | One short span per connect/disconnect; **span events** (not child spans) per pushed message; gauge of open connections | Avoids hour-long spans |
-| Logs | `slog` JSON handler wrapped to add `trace_id`, `span_id` from context; `ReplaceAttr` redaction (§3.3) | stdout → `awslogs` (safety copy) **and** OTLP logs exporter → gateway |
+| Logs | `slog` JSON handler wrapped to add `trace_id`, `span_id` from context; `ReplaceAttr` redaction (§3.3) | stdout → `awslogs` → CloudWatch Logs (**CERT-In archive**, §1.2) **and** OTLP logs exporter → Grafana Cloud |
 | Runtime | `go.opentelemetry.io/contrib/instrumentation/runtime` | GC, goroutines, heap |
 | Health | `/livez` (process), `/readyz` (DB ping, migrations at expected version, River client running for worker) — **excluded from tracing/logging** | — |
 
-### 2.2 Frontend (3 SPAs/PWAs)
+### 2.2 Frontend (4 SPAs/PWAs: customer, restaurant, rider, admin — R14)
 
-- **Sentry Browser SDK** (React) for errors, release health and source maps (uploaded in CI, not served publicly). `tracePropagationTargets: [/^https:\/\/api\.rovo\.example/]` adds W3C `traceparent` (+ `baggage`) to API calls, so a browser action links to the backend trace.
-  - **API CORS must allow `traceparent`, `tracestate`, `baggage`, `sentry-trace` headers.**
-- **RUM / Web Vitals:** Grafana **Faro** Web SDK → Grafana Cloud Frontend Observability (Free: 50k sessions/month [S71]). Use 25% session sampling at pilot (≈ 20k sessions/day × 30 × 0.25 ≈ 150k > 50k, so **10% sampling** at the high scenario).
-- **PII:** Sentry `sendDefaultPii: false`; `beforeSend` scrubs phone, address and lat/lng; replays only in `admin` (masked inputs), not on customer/rider apps [LEGAL].
-- **Offline/PWA:** errors captured offline are queued by the SDK transport and sent on reconnect.
+- **Grafana Faro Web SDK** → Grafana Cloud Frontend Observability (R36; no Sentry). It captures JS errors (with source maps uploaded in CI and not served publicly), Web Vitals and release tags. The Faro OTel web tracing instrumentation adds W3C `traceparent` to **same-origin** `/api/v1/*` calls only (`propagateTraceHeaderCorsUrls` not needed). A browser action then links to the backend trace. **No CORS is involved**, because every app calls the API on its own host through CloudFront (R27).
+- **Sampling:** session sampling by phase (§11). Faro Free covers 50k sessions/month [S71]. Use 100% in `closed-pilot` and ≈ 50% from month 3 (≈ 75k sessions/month).
+- **PII:** a `beforeSend` hook scrubs phone, address, lat/lng and IDs in URLs (order IDs replaced by the route template). No session replay on any app [LEGAL].
+- **Offline/PWA:** errors captured offline are buffered by the transport and sent on reconnect (bounded).
 
-### 2.3 Collector: `otel-gateway` (Grafana Alloy) on ECS
+### 2.3 Collector: none in `closed-pilot`; optional Alloy gateway in `public-launch`
 
-Pipeline: `otlp receiver → memory_limiter → attributes/redaction (2nd layer) → resource detection (ECS) → tail_sampling (traces) → batch → otlphttp exporter (Grafana Cloud)`.
-It also runs a **postgres_exporter-equivalent** integration against RDS (read-only role, `pg_stat_statements` top 20 by total time) and remote-writes it.
-
-- Sizing: 0.25 vCPU / 0.5 GB, 1 task (pilot). If it is down, apps buffer briefly and then **drop telemetry, never block requests** (`otlp` exporter with bounded queue).
-- Locally: the same Alloy config with the exporter switched to the LGTM container.
+- **`closed-pilot` (R32):** there is no gateway task. The Go SDK exports OTLP/HTTPS directly to Grafana Cloud with batching. PII redaction happens in code (§3.3). Traces are sampled at **100%** in the SDK, which fits the Free allowance at pilot volume (§11). If the exporter fails, the bounded queue **drops telemetry and never blocks requests**.
+- **DB metrics without a gateway:** a worker periodic job `ops.db_stats` (every 60 s, leader-only, catch-up irrelevant) reads `pg_notification_queue_usage()`, River queue stats, long-running transactions, dead tuples and connection counts, and emits them as OTel gauges. RDS CPU, credits, storage and IOPS come from the Grafana CloudWatch data source. Top queries come from Performance Insights / `pg_stat_statements` on demand.
+- **`public-launch`:** still direct by default. Add a 1-task **Grafana Alloy** gateway (0.25 vCPU / 0.5 GB, cost in `25` §15.1) only when trace volume exceeds ≈ 70% of the plan allowance. It provides tail sampling (§5) and a second redaction layer. Locally, the same Alloy config can run against the LGTM container.
 
 ---
 
@@ -106,7 +128,7 @@ CI test: a unit test feeds known PII through the logger and asserts redaction, a
 
 - Drop `/livez` and `/readyz` access logs and SSE heartbeat logs.
 - Access logs: 100% at pilot (≈ 21 GB/month fits). At 10×, sample successful `GET` access logs at 20% (errors/4xx/5xx and all writes stay 100%).
-- CloudWatch `awslogs` copy retention is **3 days** (cost and forensics bridge only).
+- The CloudWatch copy is the **CERT-In archive** (§1.2): 180 days, IA class, security stream 400 days. Volume control applies only to the OTLP/Grafana path. The archive keeps every non-health log line.
 
 ### 3.5 Audit log ≠ observability
 
@@ -115,7 +137,7 @@ The **audit log** (admin actions, money movements, KYC access, role changes, ord
 - Kept per legal retention and included in backups (`23`).
 - Queryable in the admin app.
 
-Observability logs are **operational, sampled, short-retention (14 days on Grafana Free; 30-day+ retention on Pro is UNVERIFIED) and PII-redacted**. Never rely on Loki for audit/compliance evidence. Never write audit records only to logs.
+Observability logs in Grafana are **operational, sampled, short-retention (14 days on Grafana Free; 30-day+ retention on Pro is UNVERIFIED) and PII-redacted**. Never rely on Loki for audit/compliance evidence. The compliance log copy is the CERT-In archive (§1.2), and business audit records live in the DB. Never write audit records only to logs.
 
 ---
 
@@ -142,8 +164,11 @@ Observability logs are **operational, sampled, short-retention (14 days on Grafa
 |---|---|
 | `rovo_river_jobs` (gauge by state: available, running, retryable, scheduled) | `kind`, `state` |
 | `rovo_river_job_duration` (histogram), `rovo_river_job_failures_total` | `kind` |
-| `rovo_outbox_lag_seconds` (age of oldest unpublished row) | — |
-| `rovo_outbox_pending` | — |
+| `rovo_river_queue_latency_seconds` (age of the oldest `available` job whose `scheduled_at` ≤ now; replaces outbox lag, R22/R42) | `queue` |
+| `rovo_pg_notification_queue_usage` (ratio 0–1 from `pg_notification_queue_usage()`, M12) | — |
+| `rovo_listen_watchdog_ok` (1 if the replica's self-NOTIFY ping, sent every 30 s, returned within 5 s), `rovo_listen_reconnects_total` (M12) | `replica` |
+| `rovo_periodic_job_last_success_timestamp` (catch-up jobs, M11: settlement, PA recon, retention sweeps) | `job` |
+| `rovo_settlement_last_completed_period_end` (M11) | `kind` (restaurant, rider) |
 | `rovo_webhook_lag_seconds` (provider event time → processed) | `provider` |
 | `rovo_webhook_failures_total` | `provider`, `reason` (signature, parse, handler) |
 
@@ -206,12 +231,12 @@ Guardrails: Alloy `relabel` drops unknown labels; CI lint for metric definitions
 2. **API RED** by route group; top slow routes; error log panel (Loki) with trace links.
 3. **Dispatch**: offers sent/accepted/expired, time to assign histogram, cascade depth, riders online/busy heatmap by zone/hour.
 4. **Payments & webhooks**: success/failure by method, webhook lag, signature failures, reconciliation status.
-5. **Async**: River queue depth by kind/state, job latency/failures, outbox lag.
+5. **Async**: River queue depth by kind/state, queue latency per queue, job latency/failures, NOTIFY queue usage, LISTEN watchdog/reconnects, periodic-job last success.
 6. **Database**: RDS CPU/credits/memory/storage/IOPS, connections, `pg_stat_statements` top queries, locks, long transactions, autovacuum.
 7. **Infrastructure**: ECS task CPU/memory/restarts, ALB, deploy annotations.
-8. **Frontend (RUM)**: Web Vitals (LCP, INP, CLS) by app/device class, JS errors (Sentry link), PWA install/offline usage.
+8. **Frontend (RUM, Faro)**: Web Vitals (LCP, INP, CLS) by app/device class, JS errors with stack traces, PWA install/offline usage.
 9. **SLOs**: error budget burn per SLO.
-10. **Cost & cardinality**: Grafana usage (series, GB), AWS cost (Cost Explorer data via CloudWatch billing metric in us-east-1 [ASSUMPTION]).
+10. **Cost & cardinality**: Grafana usage (series, GB, Faro sessions), AWS cost (CloudWatch billing metric in us-east-1 [ASSUMPTION]), **CloudFront requests per month vs the 10M flat-rate allowance** (`25` §15.7, M13).
 
 ---
 

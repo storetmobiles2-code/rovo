@@ -4,9 +4,24 @@
 |---|---|
 | **Purpose** | Authoritative logical and physical data model for rovo V1. It covers tables, columns, types, constraints, indexes, module ownership, PII classification, retention, partitioning, seed data, migration rules and multi-city readiness. |
 | **Owner** | Backend Architect |
-| **Status** | Draft v1 (2026-10-04) |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
 | **Depends on** | 00 planning baseline (vocabulary, money, IDs, §4a managed cloud); 08 system architecture (module map, boundary rules, outbox via River `InsertTx`, SSE via `NOTIFY`); 12 auth/RBAC (identity model, sessions, maker-checker, audit, KYC storage); 13 order state machine (status values, history rows); 14 payment architecture (PA flows, journal templates, invoices: the detail lives there); 16 delivery zone architecture (geo semantics); 19 threat model (encryption, retention) |
 | **Consumed by** | 11 API spec, 13, 14, 16, 20 testing, 22/23 deployment/backup, 26 repo structure, 27 backlog |
+
+**Changes in v1.1**
+- **Table count 81 → 90.** Removed `rider_shifts` (C12) and `outbox_events` (R42/C8). Added the M4 tables `rate_limit_buckets` (R21), `transfers`, `pa_settlements`, `pa_settlement_lines`, `recon_exceptions` (14, R25), `erasure_requests` (M15), `leads`, `waitlist`, `staff_invites`, `sos_events`, `contact_tap_log` (§1.5).
+- **R18 (register row 37):** fee slabs re-seeded to 10 km road distance with `[from, to)` bounds (8–10 km ₹60). `fee_configs.max_serviceable_distance_m` (8,000, ambiguous) → `max_serviceable_radius_m` (7,000, **straight-line**). Fee/commission default values are owned by 16 §6.5 (R48).
+- **R16 (row 34):** `delivery_offers.status` adds `REVOKED`, with a status ↔ `close_reason` CHECK.
+- **R30 / C1:** surge removed (zone surge columns, `surge_fee_paise`, the `SURGE_FEE` component).
+- **R41 / RV-006:** real FKs to `orders` from `payments`, `refunds`, `deliveries`, `invoices`, `transfers`, `ledger_postings` and `payout_items` (DB-D04).
+- **R42 / C8 / RV-039:** no `outbox_events` table and **no day-one partitioning**. Retention is by batched-delete jobs; partition a table when it passes ~10 M rows (§14). **C6 / RV-028:** `audit_logs` is append-only through grants and a trigger; no hash chain.
+- **R31 / RV-081:** `approval_requests.action_type` limited to the five action families, plus break-glass self-approval with 24 h post-review.
+- **R29 / RV-047:** COD compensation by manual UPI refund with UTR (`refunds.channel`) or coupon; the "COD never refunded" rule is removed. **R39 / RV-049:** `orders.requires_delivery_code` + encrypted stored code; seed flag on.
+- **R44 / M10:** device-bound sessions (`sessions.binding`, `restaurant_devices.session_id`). **R14:** four app audiences (`customer`, `restaurant`, `rider`, `admin`).
+- **RV-045 (row 66):** ledger account codes and the `gstin_state` / `normal_side` columns follow 14 §10.2. **M6:** `ADJUSTMENT` journals carry `adjustment_type` incl. `MG_TOPUP`, `PEAK_BONUS`.
+- **M5:** gig-worker registration fields on `riders` + `GIG_WORKER_REGISTRATION` export [LEGAL]. **M15:** erasure map per table/bucket (§13.1) [LEGAL]. **M11:** periodic jobs are catch-up jobs (13 §5.2).
+- **C12** `ON_BREAK` removed; **C14** review moderation queue → profanity filter + admin hide; **C16** coupon `SHARED` funding and `CUISINE`/`USER` targets removed; **C20** tax rules seeded by migration (no CRUD/approval).
+- **RV-030 (row 68):** PA webhook payloads are PII-redacted at ingest; the raw body goes to a 180-day object-store prefix. **RV-005 (row 41):** payout cut-off uses journal `occurred_at` from the app clock (R19). **R38:** KYC files are images with SSE-KMS, without app-layer envelope encryption. **Rows 56–58:** commission 0–3,000 bps, line quantity 1–20, prep time 5–90.
 
 > **Design artifacts only.** The SQL below is illustrative DDL for review. It is not a migration file. Phase 2 turns it into `goose` migrations. DDL is grouped by module for reading, **not** in executable order. Migrations order it by dependency (e.g. `users` before `zones.paused_by`, `fee_configs` before `quotes`). Deferred FKs are added with `ALTER TABLE`.
 
@@ -16,19 +31,22 @@
 
 | ID | Decision | Why |
 |---|---|---|
-| DB-D01 | **PostgreSQL 17 or 18 + PostGIS 3.4+**, run as a **managed service** in an India region (RDS/Aurora PostgreSQL, Cloud SQL, or Azure Database for PostgreSQL Flexible Server, per §4a). Only these extensions are used: `postgis`, `btree_gist`, `citext`, `pg_trgm`, `pgcrypto`. All five are on the supported-extension lists of the three managed offerings `[ASSUMPTION — DevOps re-verifies on the chosen provider and version; on Azure each extension must be allow-listed in `azure.extensions`]`. **Not used:** `h3-pg`, `pg_partman`, `pg_cron`, `timescaledb`, `pgvector`. They are not universally available on managed services, and we don't need them. Partitions are created by a River periodic job instead of `pg_partman`. | Portability across clouds, per baseline §4a rule 1. |
+| DB-D01 | **PostgreSQL 17 + PostGIS 3.4+** (18 only if the provider offers it with PostGIS; no 18-only features, R22), run as a **managed service** in an India region (RDS/Aurora PostgreSQL, Cloud SQL, or Azure Database for PostgreSQL Flexible Server, per §4a). Only these extensions are used: `postgis`, `btree_gist`, `citext`, `pg_trgm`, `pgcrypto`. All five are on the supported-extension lists of the three managed offerings `[ASSUMPTION — DevOps re-verifies on the chosen provider and version; on Azure each extension must be allow-listed in `azure.extensions`]`. **Not used:** `h3-pg`, `pg_partman`, `pg_cron`, `timescaledb`, `pgvector`. They are not universally available on managed services, and we don't need them. There is no day-one partitioning (C8); retention runs as batched-delete jobs (§14). | Portability across clouds, per baseline §4a rule 1. |
 | DB-D02 | **UUIDv7 generated in the application** (`platform/idgen`). The schema never relies on PG 18's native `uuidv7()`, which keeps PG 17 viable. No DB defaults are used for PKs. | PG 18's `uuidv7()` exists ([postgresql.org docs](https://www.postgresql.org/docs/18/functions-uuid.html), accessed 2026-10-04), but managed-service PG 18 + PostGIS availability varies `[OPEN — DevOps]`. |
 | DB-D03 | **Enums are `text` + `CHECK`**, not PG `ENUM` types. Values are `UPPER_SNAKE` everywhere, including `veg_type` (`VEG`, `NON_VEG`, `EGG`). | Adding or removing values is a cheap `NOT VALID` constraint swap. Uppercase matches the canonical status names. |
-| DB-D04 | **One schema (`public`) and module-owned tables.** Following 08 §4.1: **FKs within a module only, plus FKs to `cities` and `users` from anywhere**. Other cross-module references are plain `uuid` columns marked `-- ref:` in DDL and checked by a nightly orphan-check job plus integration tests. | Keeps modules extractable. The integrity loss is compensated by tests and the orphan check. |
+| DB-D04 | **One schema (`public`) and module-owned tables.** FKs within a module, plus FKs to `cities` and `users` from anywhere, **plus FKs to `orders` on money paths (R41):** `payments`, `refunds`, `transfers`, `deliveries`, `invoices`, `ledger_postings` and `payout_items`. Other cross-module references are plain `uuid` columns marked `-- ref:` in DDL and checked by a nightly orphan-check job plus integration tests. | Integrity where money is at stake. Go import boundaries still keep modules separate; dropping an FK if a module is ever extracted is a one-line migration. |
 | DB-D05 | **Translations in `*_i18n jsonb`** (`{"te": "…"}`) next to a canonical `name` column, which holds English or what the owner typed. This is not `name_te` columns. | Adding Hindi/Urdu/Kannada for the next city needs no migration. sqlc maps it to a typed Go struct via override. |
 | DB-D06 | **No server-side cart in V1** (Lead ruling 12, following 17). The cart lives on the device. `POST /api/v1/cart/quote` is stateless for the client: it takes the cart lines and returns a **signed, short-TTL `quoteId`**. The server **persists the priced quote** (`quotes`, TTL 10 min) so that order creation needs only `quoteId` + `Idempotency-Key` and uses exactly what the customer saw (08 §5.1). | One less mutable aggregate, and offline-friendly. Server price authority is kept via the persisted quote. Lost: cross-device cart and abandoned-cart analytics, deferred to V1.1 as an expand-only `carts` table if wanted. |
 | DB-D07 | **Orders snapshot everything they need**: restaurant identity, address, item names/prices/addons, fee config, commission rate, tax rules. History never joins back to mutable catalog rows. | Legal invoices, disputes and settlement must not change when a menu changes. |
 | DB-D08 | **Status columns over soft delete.** No blanket `deleted_at`. Lifecycle entities have `status`. Catalog rows referenced by history get `archived_at`. Ephemeral rows are hard-deleted. Users are **anonymised**, not deleted (DPDP erasure vs. tax retention, §13). | Soft-delete everywhere leaks into every query and keeps PII forever. |
 | DB-D09 | **Double-entry ledger.** Journals are append-only. Every journal balances to zero (deferred constraint trigger). Corrections are made by reversal journals only. `ledger_account_balances` holds locked running balances for gating checks. | Money correctness (08 §7.2, 14). |
 | DB-D10 | **Zones are `geometry(MultiPolygon,4326)`; points are `geography(Point,4326)`.** Point-in-zone uses `ST_Covers(zone.boundary, point::geometry)`. Distances use geography or Go haversine (16). | Admins draw on a Web-Mercator map with straight edges, so planar polygons match what was drawn. Geography is used where metres matter. |
-| DB-D11 | **Day-one partitioning** only for `rider_location_pings` (daily), `audit_logs` (monthly) and `outbox_events` (monthly). Other high-volume tables are partition-ready and converted when they cross the thresholds in §14. | Avoids premature complexity, but partitioning these three later would be painful. |
+| DB-D11 | **No day-one partitioning (C8).** All tables are plain tables. Retention runs as a catch-up job doing batched `DELETE`s by an indexed timestamp (§13, §14). A table is partitioned only when it passes **~10 M rows** (expand/contract recipe in §14). | V1 volume is tiny. A missed partition-maintenance run would push rows into a DEFAULT partition and block later creates (RV-039). |
 | DB-D12 | **No brand/chain table in V1.** One `restaurants` row per outlet. A future `brands` table is an expand-only migration (new table + nullable `restaurants.brand_id`). Multi-outlet owners are already modelled through `user_roles`. | YAGNI for a single-city launch. Nothing in V1 blocks it. |
 | DB-D13 | Object storage is referenced only by **provider-neutral `(bucket, object_key)`** in `file_objects`, never by URL. URLs (CDN or presigned) are built at request time from config. | Works with S3, GCS (S3 interop), Azure via an S3 gateway, and MinIO locally (§4a). |
+| DB-D14 | **No event table (R42).** A domain event is the args of River jobs inserted with `InsertManyTx`, one per subscriber, in the business transaction (River is the outbox, R22). `processed_events` keeps handler idempotency. | One less hop and one less store for the same fact (RV-002). |
+| DB-D15 | **Append-only audit without a hash chain (C6).** `audit_logs` has no `UPDATE`/`DELETE` grant for `rovo_app`, plus the `forbid_mutation()` trigger. Tamper evidence (hourly batch sealing to a WORM bucket) is V1.1. | Per-row chaining serialised all audited writes (RV-028). |
+| DB-D16 | **Parameter ownership (R48).** This doc owns the seed mechanism and the `app_config` key set (§15). Timer/threshold **values** are owned by 13 §5.1; fee, commission and rider-pay **values** by 16 §6.5. DDL `DEFAULT`s mirror those values for readability only. Business SQL takes `:now` from the app clock; `DEFAULT now()` is only for technical `created_at`/`updated_at` (R19). | One source per value (RV-086). |
 
 ---
 
@@ -79,7 +97,6 @@ BEGIN RAISE EXCEPTION '% is append-only', TG_TABLE_NAME USING ERRCODE = 'insuffi
 | `rovo_owner` | Owns all objects. `CREATE` on schema. Member of the provider's admin role (`rds_superuser` / `cloudsqlsuperuser` / `azure_pg_admin`) only for `CREATE EXTENSION`. | `rovo migrate` one-off job (goose + River migrations) |
 | `rovo_app` | `SELECT, INSERT, UPDATE, DELETE` on module tables. **`SELECT, INSERT` only** on append-only tables. No DDL. | `rovo api`, `rovo worker` |
 | `rovo_report` | `SELECT` on `*_report` views and a read replica | reporting exports, BI |
-| `rovo_partition` | `CREATE`/`DROP` on partitioned children only (`SECURITY DEFINER` function owned by `rovo_owner`) | River periodic job `platform.partitions_maintain` |
 
 Row-level security is **not** used in V1 (12 §8). City scoping is enforced in repository queries (12 AUTH-D09).
 
@@ -91,30 +108,30 @@ Row-level security is **not** used in V1 (12 §8). City scoping is enforced in r
 | Catalog referenced by history | `archived_at` (hidden from menus, kept for FK integrity inside the module and for analytics) | menu_categories, menu_items, item_variants, addon_groups, addons |
 | Customer-owned convenience data | **hard delete** on user request (orders keep snapshots) | customer_addresses, push_subscriptions |
 | Financial, order and legal records | never deleted inside the retention period; PII redacted after the dispute window (§9) | orders, payments, refunds, ledger_*, invoices |
-| Ephemeral / security | hard delete by TTL sweeper | otp_challenges, idempotency_keys, quotes, processed_events, refresh_tokens (expired) |
+| Ephemeral / security | hard delete by TTL sweeper | otp_challenges, idempotency_keys, quotes, processed_events, refresh_tokens (expired), rate_limit_buckets, staff_invites (expired) |
 
 ### 1.5 Module ownership (08 §3)
 
 | Module (Go package) | Tables |
 |---|---|
-| `geo` | cities, localities, zones |
-| `users` | users, customer_profiles, customer_addresses, user_consents |
-| `identity` | user_roles, otp_challenges, sessions, refresh_tokens, admin_credentials, admin_recovery_codes, phone_change_requests, devices |
-| `catalog` | restaurants, restaurant_users, restaurant_devices, restaurant_kyc_documents, restaurant_operating_hours, restaurant_closures, cuisines, restaurant_cuisines, menu_categories, menu_items, item_variants, addon_groups, addons, menu_item_addon_groups |
+| `geo` | cities, localities, zones, **waitlist** |
+| `users` | users, customer_profiles, customer_addresses, user_consents, **erasure_requests** |
+| `identity` | user_roles, otp_challenges, sessions, refresh_tokens, admin_credentials, admin_recovery_codes, phone_change_requests, devices, **rate_limit_buckets** (shared facility, schema owned here as in 08 §3.2) |
+| `catalog` | restaurants, restaurant_users, restaurant_devices, restaurant_kyc_documents, restaurant_operating_hours, restaurant_closures, cuisines, restaurant_cuisines, menu_categories, menu_items, item_variants, addon_groups, addons, menu_item_addon_groups, **staff_invites**, **leads** |
 | `pricing` (quote & pricing) | quotes, fee_configs, tax_rules |
 | `promotions` | coupons, coupon_targets, coupon_redemptions |
 | `ordering` | orders, order_items, order_charges, order_status_history |
-| `payments` | payments, payment_attempts, payment_events, refunds |
-| `dispatch` | riders, rider_availability, rider_kyc_documents, rider_shifts, rider_location_pings, deliveries, delivery_offers, delivery_status_history |
+| `payments` | payments, payment_attempts, payment_events, refunds, **transfers**, **pa_settlements**, **pa_settlement_lines**, **recon_exceptions** |
+| `dispatch` | riders, rider_availability, rider_kyc_documents, rider_location_pings, deliveries, delivery_offers, delivery_status_history, **sos_events**, **contact_tap_log** |
 | `ledger` (& settlement) | ledger_accounts, ledger_journals, ledger_postings, ledger_account_balances, commission_plans, payout_accounts, payouts, payout_items, cod_deposits, invoices, invoice_sequences |
 | `ratings` | ratings, reviews, rating_aggregates |
 | `notifications` | notifications, notification_deliveries, notification_templates, push_subscriptions |
 | `support` | support_tickets, ticket_messages |
 | `admin` (& audit) | audit_logs, approval_requests, reason_codes, feature_flags, app_config, report_exports |
-| `platform` (shared infra, importable by all) | outbox_events, processed_events, idempotency_keys, file_objects |
+| `platform` (shared infra, importable by all) | processed_events, idempotency_keys, file_objects |
 | River (library-managed, via `rivermigrate`) | river_job, river_leader, river_queue, river_client, river_migration… (not counted) |
 
-**Total: 81 application tables** (plus River's own), counted from the DDL below. Doc 14 may add `pa_settlements`, `pa_settlement_lines` and `recon_exceptions` (08 §3.2). They are not specified here.
+**Total: 90 application tables** (plus River's own), counted from the DDL below: v1's 81 − `rider_shifts` (C12) − `outbox_events` (R42) + 11 new tables (M4, in **bold** above). Not added as tables, on purpose: bulk menu CSV import (M7) runs as a synchronous validate-then-apply request over a `file_objects` upload (11 §2.6); ops-assisted orders (M8) are ordinary `orders` with `placed_via = 'OPS_ASSISTED'`; bank-statement uploads reuse `pa_settlements` with `source = 'BANK_STATEMENT'`; 12's `partner_applications` are `restaurants` in `DRAFT/SUBMITTED` and `riders` in `APPLIED/UNDER_REVIEW`.
 
 ### 1.6 Name reconciliation with sibling drafts
 
@@ -124,8 +141,8 @@ Row-level security is **not** used in V1 (12 §8). City scoping is enforced in r
 |---|---|---|---|
 | 12 | `role_assignments(scope_type, scope_id)` | `user_roles(city_id, restaurant_id)` | Explicit typed scope columns instead of polymorphic `scope_id`. `city_id` gets a real FK. |
 | 12 | `recovery_codes` | `admin_recovery_codes` | |
-| 12 / 08 | `audit_events` / `audit_log` | `audit_logs` | Columns follow 12 §5.7, including the hash chain. |
-| 08 | `event_log` | `outbox_events` | Same role: the event row is written in the business tx, and River `InsertTx` fans it out. |
+| 12 / 08 | `audit_events` / `audit_log` | `audit_logs` | Columns follow 12 §5.7, **without** the hash chain (C6). |
+| 08 | `event_log` / `outbox_events` | — (none) | R42: events are River job args, one job per subscriber via `InsertManyTx`; dedupe in `processed_events`. |
 | 08 | `payment_intents` | `payments` | One row per PA order (intent). Attempts are in `payment_attempts`. |
 | 08 | `webhook_events` | `payment_events` | Notification-provider DLR webhooks go to `notification_deliveries`. |
 | 08 | `ledger_journals`, `account_balances` | `ledger_journals`, `ledger_account_balances` | |
@@ -135,6 +152,10 @@ Row-level security is **not** used in V1 (12 §8). City scoping is enforced in r
 | 08 | `order_lines`, `order_address_snapshots` | `order_items`, `orders.delivery_address_snapshot` | |
 | 08 | `tickets`, `ticket_actions` | `support_tickets`, `ticket_messages` (`kind='ACTION'`) | |
 | 12 | `auth_settings` | `app_config` keys `auth.*` (scope CITY) | |
+| 12 | `partner_applications` | `restaurants` (`DRAFT`→`SUBMITTED`) / `riders` (`APPLIED`→`UNDER_REVIEW`) | The application *is* the lifecycle row. |
+| 12 | `staff_invites` | `staff_invites` | Same name (§4). |
+| 14 | `payment_intents`, `webhook_events`, `account_balances` | `payments`, `payment_events`, `ledger_account_balances` | Table names per this doc; **account codes per 14 §10.2** (register row 66). |
+| 14 | `transfers`, `pa_settlements`, `pa_settlement_lines`, `recon_exceptions` | same names (§7.1) | Added in v1.1 (M4). |
 
 ---
 
@@ -174,7 +195,6 @@ erDiagram
         geometry boundary "MultiPolygon 4326"
         text status
         timestamptz paused_until
-        bigint surge_fee_paise
     }
     localities {
         uuid id PK
@@ -306,8 +326,9 @@ erDiagram
     payments |o..o{ payment_events : "webhooks"
     riders ||--|| rider_availability : "live state"
     riders ||--o{ rider_kyc_documents : submits
-    riders ||--o{ rider_shifts : works
     riders ||--o{ rider_location_pings : reports
+    riders ||--o{ sos_events : raises
+    deliveries ||--o{ contact_tap_log : "call taps"
     deliveries ||--o{ delivery_offers : "offered via"
     riders ||--o{ delivery_offers : receives
     riders |o--o{ deliveries : "assigned"
@@ -332,12 +353,12 @@ erDiagram
         uuid id PK
         uuid delivery_id FK
         uuid rider_id FK
-        text status "PENDING|ACCEPTED|DECLINED|EXPIRED"
+        text status "PENDING|ACCEPTED|DECLINED|EXPIRED|REVOKED"
         timestamptz expires_at
     }
     rider_availability {
         uuid rider_id PK
-        bool is_online
+        text state "OFFLINE|AVAILABLE|ON_DELIVERY"
         geography last_location
         timestamptz last_location_at
         bigint cash_in_hand_paise "cached"
@@ -376,6 +397,52 @@ erDiagram
         text target_type "RESTAURANT|RIDER"
         smallint stars
         bool thumbs_up
+    }
+```
+
+
+### 2.6 PA settlement & reconciliation, privacy and growth (added in v1.1)
+
+```mermaid
+erDiagram
+    orders ||--o{ payments : "paid by"
+    payments ||--o{ transfers : "split to restaurant"
+    pa_settlements ||--|{ pa_settlement_lines : contains
+    pa_settlement_lines }o--o| payment_attempts : matches
+    pa_settlement_lines }o--o| refunds : matches
+    pa_settlement_lines }o--o| transfers : matches
+    recon_exceptions }o--o| pa_settlement_lines : "raised for"
+    users ||--o{ erasure_requests : requests
+    cities ||--o{ waitlist : "demand outside zones"
+    cities ||--o{ leads : "restaurant/rider leads"
+    restaurants ||--o{ staff_invites : invites
+    transfers {
+        uuid id PK
+        uuid order_id FK
+        uuid restaurant_id "ref"
+        text provider_transfer_id
+        bigint amount_paise
+        bool on_hold
+        text status
+    }
+    pa_settlements {
+        uuid id PK
+        text provider
+        text source "PA_REPORT|BANK_STATEMENT"
+        date report_date
+        text status
+    }
+    recon_exceptions {
+        uuid id PK
+        text exception_type
+        text status
+        bigint amount_paise
+    }
+    erasure_requests {
+        uuid id PK
+        uuid user_id FK
+        text status
+        timestamptz due_at
     }
 ```
 
@@ -440,22 +507,33 @@ CREATE TABLE zones (
   pause_reason            text CHECK (pause_reason IN ('RAIN','RIDER_SHORTAGE','LAW_AND_ORDER','FESTIVAL','TECHNICAL','OTHER')),
   pause_message_i18n      jsonb NOT NULL DEFAULT '{}',
   paused_by               uuid REFERENCES users(id),
-  -- manual surge (16 §6.2): flat surcharge with mandatory expiry
-  surge_reason            text CHECK (surge_reason IN ('RAIN','PEAK','LOW_RIDERS','FESTIVAL','OTHER')),
-  surge_fee_paise         bigint CHECK (surge_fee_paise BETWEEN 100 AND 5000),
-  surge_rider_bonus_paise bigint CHECK (surge_rider_bonus_paise BETWEEN 0 AND 5000),
-  surge_expires_at        timestamptz,
+  -- no surge columns in V1 (R30, C1); manual zone surge is a V1.1 expand-only migration
   version                 int NOT NULL DEFAULT 1,
   created_by              uuid REFERENCES users(id),
   created_at              timestamptz NOT NULL DEFAULT now(),
   updated_at              timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ux_zones__city_code UNIQUE (city_id, code),
-  CONSTRAINT ck_zones__valid     CHECK (ST_IsValid(boundary) AND ST_SRID(boundary) = 4326),
-  CONSTRAINT ck_zones__surge     CHECK ((surge_fee_paise IS NULL) = (surge_expires_at IS NULL)
-                                        AND (surge_fee_paise IS NULL) = (surge_reason IS NULL))
+  CONSTRAINT ck_zones__valid     CHECK (ST_IsValid(boundary) AND ST_SRID(boundary) = 4326)
 );
 CREATE INDEX ix_zones__boundary ON zones USING gist (boundary);
 CREATE INDEX ix_zones__city_active ON zones (city_id) WHERE status = 'ACTIVE';
+
+CREATE TABLE waitlist (                             -- "notify me when you deliver here" (01 CUS-ADDR-003, 04 C-04) — M4
+  id                 uuid PRIMARY KEY,
+  city_id            uuid REFERENCES cities(id),     -- nearest city by centroid; NULL if none within 50 km
+  user_id            uuid REFERENCES users(id),      -- NULL for anonymous sign-ups
+  phone_e164         text CHECK (phone_e164 ~ '^\+[1-9][0-9]{7,14}$'),   -- needed to notify anonymous sign-ups
+  location           geography(Point,4326) NOT NULL, -- the unserviceable pin
+  locality_id        uuid REFERENCES localities(id),
+  pin_code           char(6) CHECK (pin_code ~ '^[1-9][0-9]{5}$'),
+  consent_notice_version text NOT NULL,              -- DPDP notice shown at sign-up
+  status             text NOT NULL DEFAULT 'WAITING' CHECK (status IN ('WAITING','NOTIFIED','UNSUBSCRIBED')),
+  notified_at        timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_waitlist__contact CHECK (user_id IS NOT NULL OR phone_e164 IS NOT NULL)
+);
+CREATE INDEX ix_waitlist__city ON waitlist (city_id, status);
+CREATE INDEX ix_waitlist__location ON waitlist USING gist (location) WHERE status = 'WAITING';   -- coverage-expansion analysis
 ```
 
 Zone overlap among `ACTIVE` zones of a city is **rejected by the admin write path** (16 §8.2) and not by a constraint: `EXCLUDE ... &&` would only compare bounding boxes. Zone → fee config resolution is **by effective date** (`fee_configs.zone_id` + range, §5.4), not by a pointer on `zones`. This keeps price history immutable and lets ops schedule a fee change in advance. This is a deliberate deviation from "zones (… fee config ref)".
@@ -546,7 +624,26 @@ CREATE TABLE user_consents (                     -- append-only consent ledger (
   created_at       timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX ix_user_consents__current ON user_consents (user_id, purpose, created_at DESC);
+
+CREATE TABLE erasure_requests (                  -- DPDP erasure ledger (23 §9, M15); holds NO PII beyond the user id
+  id                 uuid PRIMARY KEY,
+  user_id            uuid NOT NULL REFERENCES users(id),
+  source             text NOT NULL CHECK (source IN ('SELF_SERVICE','SUPPORT','GRIEVANCE_OFFICER')),
+  status             text NOT NULL DEFAULT 'RECEIVED' CHECK (status IN ('RECEIVED','ON_HOLD','EXECUTING','COMPLETED','REJECTED')),
+  hold_reason        text CHECK (hold_reason IN ('OPEN_ORDER','OPEN_PAYOUT','OPEN_DISPUTE','LEGAL_HOLD','CASH_IN_HAND')),
+  due_at             timestamptz NOT NULL,       -- received + 30 days [LEGAL]
+  executed_at        timestamptz,
+  executed_by        text,                       -- 'job:erasure.execute' or admin user id
+  steps_completed    jsonb NOT NULL DEFAULT '[]',-- erasure-map rows applied (§13.1), for restore replay (23 §9)
+  rejection_reason   text,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX ux_erasure_requests__open ON erasure_requests (user_id) WHERE status IN ('RECEIVED','ON_HOLD','EXECUTING');
+CREATE INDEX ix_erasure_requests__due ON erasure_requests (due_at) WHERE status IN ('RECEIVED','ON_HOLD');
 ```
+
+`erasure_requests` is the erasure ledger that a database restore **replays** before serving traffic (23 §9). Execution (catch-up job `erasure.execute`, 13 §5.2) applies the §13.1 map; it is audited and is not maker-checker (R31).
 
 ### 3.3 identity
 
@@ -581,7 +678,7 @@ CREATE TABLE otp_challenges (
   phone_e164            text NOT NULL,
   purpose               text NOT NULL CHECK (purpose IN ('LOGIN','PHONE_CHANGE_OLD','PHONE_CHANGE_NEW','STEP_UP','PARTNER_AGREEMENT')),
   audience              text NOT NULL CHECK (audience IN ('customer','partner')),
-  channel               text NOT NULL CHECK (channel IN ('SMS','WHATSAPP','VOICE')),
+  channel               text NOT NULL CHECK (channel IN ('SMS')),   -- WhatsApp/voice OTP are V1.1 (C2): widen the CHECK then
   code_hmac             bytea NOT NULL,           -- HMAC-SHA-256(pepper, id || code) (12 AUTH-D07)
   attempts              smallint NOT NULL DEFAULT 0,
   max_attempts          smallint NOT NULL DEFAULT 5,
@@ -604,7 +701,7 @@ CREATE TABLE devices (
   install_id       text NOT NULL UNIQUE,       -- random id from the client (rovo_did cookie / native install id)
   user_id          uuid REFERENCES users(id),  -- last signed-in user
   platform         text NOT NULL CHECK (platform IN ('WEB_ANDROID','WEB_IOS','WEB_DESKTOP','ANDROID','IOS')),
-  app              text NOT NULL CHECK (app IN ('customer','partner','admin')),
+  app              text NOT NULL CHECK (app IN ('customer','restaurant','rider','admin')),   -- four apps/hosts (R14)
   app_version      text,
   user_agent       text,
   first_seen_at    timestamptz NOT NULL DEFAULT now(),
@@ -615,9 +712,14 @@ CREATE INDEX ix_devices__user ON devices (user_id);
 CREATE TABLE sessions (                            -- one row per login = refresh-token family (12 §4.3)
   id                    uuid PRIMARY KEY,           -- = JWT 'sid'
   user_id               uuid NOT NULL REFERENCES users(id),
-  audience              text NOT NULL CHECK (audience IN ('customer','partner','admin','customer_native','partner_native')),
-  active_context        text,                       -- 'rider' | 'restaurant:<uuid>' (partner only)
+  audience              text NOT NULL CHECK (audience IN ('customer','restaurant','rider','admin',
+                                                     'customer_native','restaurant_native','rider_native')),   -- = host (R14)
+  active_context        text,                       -- 'restaurant:<uuid>' (restaurant audience, multi-outlet owners)
   device_id             uuid REFERENCES devices(id),
+  binding               text NOT NULL DEFAULT 'STANDARD' CHECK (binding IN ('STANDARD','DEVICE_BOUND')),
+                                                    -- DEVICE_BOUND: registered order-receiver device (R44, M10)
+  idle_timeout_s        int NOT NULL,               -- sliding window; R44: restaurant device 30 d, rider 30 d; others per 12
+  absolute_timeout_s    int NOT NULL,               -- R44: restaurant device 90 d
   device_label          text,
   amr                   text[] NOT NULL,            -- {'otp'} | {'pwd','totp'}
   step_up_at            timestamptz,
@@ -628,8 +730,10 @@ CREATE TABLE sessions (                            -- one row per login = refres
   absolute_expires_at   timestamptz NOT NULL,
   revoked_at            timestamptz,
   revoke_reason         text CHECK (revoke_reason IN ('LOGOUT','LOGOUT_OTHERS','REFRESH_REUSE','ADMIN_REVOKED',
-                                                      'USER_BLOCKED','PHONE_CHANGED','PASSWORD_CHANGED','GLOBAL_NOT_BEFORE')),
-  created_at            timestamptz NOT NULL DEFAULT now()
+                                                      'USER_BLOCKED','PHONE_CHANGED','PASSWORD_CHANGED','GLOBAL_NOT_BEFORE',
+                                                      'DEVICE_REVOKED')),          -- owner/admin revoked a bound device (R44)
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ck_sessions__device_bound CHECK (binding = 'STANDARD' OR (device_id IS NOT NULL AND audience = 'restaurant'))
 );
 CREATE INDEX ix_sessions__user_live ON sessions (user_id) WHERE revoked_at IS NULL;
 
@@ -684,7 +788,21 @@ CREATE TABLE phone_change_requests (
   created_at         timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX ux_phone_change__pending ON phone_change_requests (user_id) WHERE status = 'PENDING';
+
+CREATE TABLE rate_limit_buckets (                -- R21: Postgres-backed limits shared across replicas (12 §2.2)
+  bucket_key      text NOT NULL,                 -- 'otp:phone:<hmac>', 'otp:ip:<ip/24>', 'sms:global', 'api:user:<id>'
+  window_start    timestamptz NOT NULL,          -- fixed window start (app clock); sliding = weighted sum of 2 windows
+  window_s        int NOT NULL CHECK (window_s > 0),
+  hits            int NOT NULL DEFAULT 0,
+  expires_at      timestamptz NOT NULL,          -- window_start + 2 × window_s; swept by retention.sweep
+  PRIMARY KEY (bucket_key, window_start)
+) WITH (fillfactor = 70);
+CREATE INDEX ix_rate_limit_buckets__expiry ON rate_limit_buckets (expires_at);
+-- INSERT … ON CONFLICT (bucket_key, window_start) DO UPDATE SET hits = rate_limit_buckets.hits + 1 RETURNING hits;
+-- Keys never contain raw phone numbers or IPs (HMAC). Moves to the Redis adapter only if/when P6 enables it.
 ```
+
+Device-bound sessions (R44, M10): a restaurant owner (or ops) **registers** a device as an order receiver. Its session gets `binding = 'DEVICE_BOUND'`, `idle_timeout_s = 30 d` (sliding) and `absolute_timeout_s = 90 d`. The refresh token stays bound to `devices.install_id`, and owners/admins can revoke it (`DEVICE_REVOKED`). Re-authentication is scheduled outside service hours. Rider sessions use a 30-day sliding idle timeout. All other timeouts are owned by 12.
 
 ---
 
@@ -713,6 +831,7 @@ CREATE TABLE restaurants (                       -- one row per physical outlet 
   pin_code                    char(6) NOT NULL CHECK (pin_code ~ '^[1-9][0-9]{5}$'),
   location                    geography(Point,4326) NOT NULL,
   max_delivery_radius_m       int NOT NULL DEFAULT 7000 CHECK (max_delivery_radius_m BETWEEN 500 AND 15000),
+                                                 -- STRAIGHT-LINE metres (R18); effective = min(this, fee_configs.max_serviceable_radius_m)
   avg_prep_time_min           smallint NOT NULL DEFAULT 20 CHECK (avg_prep_time_min BETWEEN 5 AND 90),
   min_order_paise             bigint NOT NULL DEFAULT 0 CHECK (min_order_paise >= 0),
   cost_for_two_paise          bigint CHECK (cost_for_two_paise >= 0),
@@ -747,22 +866,61 @@ CREATE INDEX ix_restaurants__city_status   ON restaurants (city_id, status);
 CREATE INDEX ix_restaurants__name_trgm     ON restaurants USING gin (lower(name) gin_trgm_ops);
 CREATE INDEX ix_restaurants__fssai_expiry  ON restaurants (fssai_valid_until) WHERE status = 'ACTIVE';
 
-CREATE TABLE restaurant_users (                -- staff membership + invitation workflow
+CREATE TABLE restaurant_users (                -- staff membership (activated from an accepted staff_invite)
   id                   uuid PRIMARY KEY,
   restaurant_id        uuid NOT NULL REFERENCES restaurants(id),
-  user_id              uuid REFERENCES users(id),           -- NULL until the invite is accepted
-  invited_phone_e164   text NOT NULL,
+  user_id              uuid NOT NULL REFERENCES users(id),
   role                 text NOT NULL CHECK (role IN ('RESTAURANT_OWNER','RESTAURANT_STAFF')),
   permissions          text[] NOT NULL DEFAULT '{}',        -- staff narrowing, e.g. {MENU_EDIT} (12 §5.2)
   display_name         text,
-  status               text NOT NULL DEFAULT 'INVITED' CHECK (status IN ('INVITED','ACTIVE','REMOVED')),
+  status               text NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','REMOVED')),
+  staff_invite_id      uuid,                                -- the invite it came from (NULL for the owner)
   user_role_id         uuid,                                -- ref: identity.user_roles row created on activation
-  invited_by           uuid REFERENCES users(id),
   removed_at           timestamptz,
   created_at           timestamptz NOT NULL DEFAULT now(),
   updated_at           timestamptz NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX ux_restaurant_users__member ON restaurant_users (restaurant_id, invited_phone_e164) WHERE status <> 'REMOVED';
+CREATE UNIQUE INDEX ux_restaurant_users__member ON restaurant_users (restaurant_id, user_id) WHERE status = 'ACTIVE';
+
+CREATE TABLE staff_invites (                    -- owner invites staff by phone (12 §2.3) — M4
+  id                   uuid PRIMARY KEY,
+  restaurant_id        uuid NOT NULL REFERENCES restaurants(id),
+  phone_hmac           bytea NOT NULL,                      -- HMAC(pepper, E.164); the phone itself is not stored
+  phone_last4          text NOT NULL,
+  display_name         text,
+  permissions          text[] NOT NULL DEFAULT '{}',
+  token_sha256         bytea NOT NULL UNIQUE,               -- single-use invite code sent by SMS
+  status               text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','ACCEPTED','REVOKED','EXPIRED')),
+  expires_at           timestamptz NOT NULL,                -- created + 72 h (12 §2.3)
+  invited_by           uuid NOT NULL REFERENCES users(id),
+  accepted_by          uuid REFERENCES users(id),           -- must have the invited phone (HMAC match)
+  accepted_at          timestamptz,
+  created_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX ux_staff_invites__pending ON staff_invites (restaurant_id, phone_hmac) WHERE status = 'PENDING';
+ALTER TABLE restaurant_users ADD CONSTRAINT fk_restaurant_users__invite FOREIGN KEY (staff_invite_id) REFERENCES staff_invites(id);
+
+CREATE TABLE leads (                            -- restaurant "partner with us" form (05 §2) and rider interest — M4
+  id                   uuid PRIMARY KEY,
+  lead_type            text NOT NULL CHECK (lead_type IN ('RESTAURANT','RIDER')),
+  city_id              uuid REFERENCES cities(id),
+  locality_id          uuid,                                -- ref: geo.localities
+  business_name        text CHECK (char_length(business_name) <= 80),
+  contact_name         text NOT NULL CHECK (char_length(contact_name) <= 100),
+  phone_e164           text NOT NULL CHECK (phone_e164 ~ '^\+[1-9][0-9]{7,14}$'),   -- OTP-verified (05 §2)
+  cuisine_codes        text[] NOT NULL DEFAULT '{}',
+  fssai_state          text CHECK (fssai_state IN ('YES','NO','APPLIED')),
+  preferred_call_time  text,
+  status               text NOT NULL DEFAULT 'NEW' CHECK (status IN ('NEW','CONTACTED','CONVERTED','DISQUALIFIED')),
+  assigned_admin_id    uuid REFERENCES users(id),
+  converted_restaurant_id uuid,                             -- ref when converted
+  converted_rider_id   uuid,
+  notes                text,
+  consent_notice_version text NOT NULL,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_leads__queue ON leads (city_id, lead_type, status, created_at);
 ```
 
 ```sql
@@ -773,20 +931,23 @@ CREATE TABLE restaurant_devices (              -- counter device liveness (rulin
   user_id             uuid REFERENCES users(id),           -- staff signed in on it
   label               text,                                -- 'Counter tablet'
   is_order_receiver   boolean NOT NULL DEFAULT true,       -- rings for new orders
-  last_heartbeat_at   timestamptz NOT NULL DEFAULT now(),  -- POST /restaurant/devices/heartbeat every 30 s + SSE presence
+  session_id          uuid,                                -- ref: identity.sessions (DEVICE_BOUND, R44) while registered
+  registered_by       uuid REFERENCES users(id),           -- owner or ops who bound it
+  revoked_at          timestamptz,                         -- owner/admin revoked the binding
+  last_heartbeat_at   timestamptz NOT NULL DEFAULT now(),  -- heartbeat every 60 s OR SSE presence (R27; 13 §5.1)
   last_sse_connected_at timestamptz,
   push_ok             boolean NOT NULL DEFAULT false,      -- has a live push subscription
   app_version         text,
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ux_restaurant_devices__device UNIQUE (restaurant_id, device_id)
-);
+) WITH (fillfactor = 70);                                  -- hot heartbeat updates (RV-042)
 CREATE INDEX ix_restaurant_devices__liveness ON restaurant_devices (restaurant_id, last_heartbeat_at DESC) WHERE is_order_receiver;
 ```
 
-Liveness rule (River periodic job every 30 s): an outlet that is **open** (accepting orders, within hours, not paused) and has **no order-receiver heartbeat for 3 min** is auto-paused with `pause_reason='DEVICE_OFFLINE'` and `paused_until='infinity'`. The owner is sent an SMS. It resumes automatically on the next heartbeat plus an explicit "Resume" tap (05 §8).
+Liveness rule (River periodic job every 30 s; T-DEVICE-HB in 13 §5): an outlet that is **open** (accepting orders, within hours, not paused) and has **no order-receiver heartbeat or SSE presence for `restaurant.device_offline_pause_s`** (3 min) is auto-paused with `pause_reason='DEVICE_OFFLINE'` and `paused_until='infinity'`. The owner is sent an SMS. It resumes automatically on the next heartbeat plus an explicit "Resume" tap (05 §8).
 
-**Rule:** `user_roles` is the only table read for authorisation. `restaurant_users` holds the invitation and staff profile. Activating or removing a member writes both rows in one transaction (catalog calls `identity.Grant/Revoke`, a tx-participating method added to 08 §4.1's list).
+**Rule:** `user_roles` is the only table read for authorisation. `staff_invites` holds the invitation; `restaurant_users` holds the staff profile. Activating or removing a member writes both rows in one transaction (catalog calls `identity.Grant/Revoke`, a tx-participating method added to 08 §4.1's list).
 
 ```sql
 CREATE TABLE restaurant_kyc_documents (
@@ -1020,14 +1181,16 @@ CREATE TABLE fee_configs (
   effective_from                   timestamptz NOT NULL,
   effective_to                     timestamptz,       -- NULL = open-ended
   -- customer fees (00 §5 defaults)
-  delivery_fee_slabs               jsonb NOT NULL,    -- [{"uptoM":2000,"feePaise":2000},{"uptoM":4000,"feePaise":3000},
-                                                      --  {"uptoM":6000,"feePaise":4000},{"uptoM":8000,"feePaise":5000}]
+  delivery_fee_slabs               jsonb NOT NULL,    -- ROAD metres, [fromM, toM): [{"fromM":0,"toM":2000,"feePaise":2000},
+                                                      --  {"fromM":2000,"toM":4000,"feePaise":3000},{"fromM":4000,"toM":6000,"feePaise":4000},
+                                                      --  {"fromM":6000,"toM":8000,"feePaise":5000},{"fromM":8000,"toM":10000,"feePaise":6000}] (R18)
   free_delivery_min_order_paise    bigint,            -- NULL = no free-delivery threshold
   platform_fee_paise               bigint NOT NULL DEFAULT 500,
   small_cart_threshold_paise       bigint NOT NULL DEFAULT 14900,
   small_cart_fee_paise             bigint NOT NULL DEFAULT 1500,
   road_factor_milli                int NOT NULL DEFAULT 1300 CHECK (road_factor_milli BETWEEN 1000 AND 3000),
-  max_serviceable_distance_m       int NOT NULL DEFAULT 8000,   -- city/zone cap on top of restaurant radius
+  max_serviceable_radius_m         int NOT NULL DEFAULT 7000 CHECK (max_serviceable_radius_m BETWEEN 500 AND 15000),
+                                                      -- STRAIGHT-LINE cap on top of restaurant radius (R18)
   cod_enabled                      boolean NOT NULL DEFAULT true,
   cod_max_order_paise              bigint NOT NULL DEFAULT 100000,   -- ₹1,000 per order (ruling 6)
   cod_first_order_max_paise        bigint NOT NULL DEFAULT 60000,    -- ₹600 on a customer's first order (ruling 6)
@@ -1044,7 +1207,7 @@ CREATE TABLE fee_configs (
   -- ETA model (16 §5)
   eta_params                       jsonb NOT NULL,    -- {"pickupBufferMin":5,"handoverMin":2,"speedKmphByBand":[...]}
   status                           text NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','APPROVED','RETIRED')),
-  approval_id                      uuid,              -- maker-checker (12 §5.5)
+  approval_id                      uuid,              -- maker-checker (R31 family 3: fee-config change)
   created_by                       uuid REFERENCES users(id),
   created_at                       timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ux_fee_configs__version UNIQUE NULLS NOT DISTINCT (city_id, zone_id, version),
@@ -1058,7 +1221,9 @@ CREATE TABLE fee_configs (
 );
 ```
 
-Resolution: `zone-specific APPROVED row covering now()` → else `city default (zone_id NULL)`. The resolved `fee_config_id` is stored on the quote and the order.
+Resolution: `zone-specific APPROVED row covering :now` (app clock) → else `city default (zone_id NULL)`. The resolved `fee_config_id` is stored on the quote and the order.
+
+**Default values** are owned by 16 §6.5 (R48); the DDL `DEFAULT`s mirror them. **Save-time validation** (app, because it spans JSON elements) guarantees "every serviceable point has exactly one slab" (16 §6.1): slabs contiguous from `fromM = 0` with `toM > fromM`, and `ceil(max_serviceable_radius_m × road_factor_milli / 1000) < last.toM`.
 
 ### 5.3 Tax rules [LEGAL]
 
@@ -1066,7 +1231,7 @@ Resolution: `zone-specific APPROVED row covering now()` → else `city default (
 CREATE TABLE tax_rules (
   id                     uuid PRIMARY KEY,
   country_code           char(2) NOT NULL DEFAULT 'IN',
-  component              text NOT NULL CHECK (component IN ('ITEM_TOTAL','PACKAGING','DELIVERY_FEE','SURGE_FEE',
+  component              text NOT NULL CHECK (component IN ('ITEM_TOTAL','PACKAGING','DELIVERY_FEE',
                                                             'PLATFORM_FEE','SMALL_CART_FEE','COMMISSION')),
   tax_category           text NOT NULL DEFAULT 'DEFAULT',   -- 'RESTAURANT_SERVICE' for food lines
   rate_bps               int NOT NULL CHECK (rate_bps BETWEEN 0 AND 10000),
@@ -1077,8 +1242,7 @@ CREATE TABLE tax_rules (
   legal_basis            text NOT NULL,                     -- notification reference, reviewed by CA
   effective_from         timestamptz NOT NULL,
   effective_to           timestamptz,
-  approval_id            uuid,
-  created_by             uuid REFERENCES users(id),
+  created_by             uuid REFERENCES users(id),      -- rows are seeded by migration after CA sign-off (no CRUD UI, C20)
   created_at             timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ex_tax_rules__no_overlap EXCLUDE USING gist (
       country_code WITH =, component WITH =, tax_category WITH =, tstzrange(effective_from, effective_to) WITH &&)
@@ -1090,7 +1254,7 @@ Seed values are proposals only, **to be confirmed by a chartered accountant befo
 | Component | Rate | Liable | Basis |
 |---|---|---|---|
 | `ITEM_TOTAL` + `PACKAGING` (category `RESTAURANT_SERVICE`) | 5% (2.5% CGST + 2.5% SGST), no ITC | `PLATFORM_SEC_9_5` | Restaurant services supplied through an e-commerce operator are taxed under CGST §9(5) (since 1 Jan 2022). Verify the current notification. |
-| `DELIVERY_FEE`, `SURGE_FEE` | 18%, **inclusive** in the displayed fee (ruling 8, [OPEN — CA]) | `PLATFORM_SEC_9_5` when the rider is unregistered | Local delivery services through an ECO were notified under §9(5) at 18% from 22 Sep 2025 (Notification 17/2025-CT per [a2ztaxcorp summary](https://a2ztaxcorp.net/gst-alert-local-delivery-services-to-attract-18-tax-from-september-22-says-cbic/) and [PIB doc](https://static.pib.gov.in/WriteReadData/specificdocs/documents/2025/sep/doc2025921642801.pdf), accessed 2026-10-04). **[LEGAL] verify.** |
+| `DELIVERY_FEE` | 18%, **inclusive** in the displayed fee (ruling 8, [OPEN — CA]) | `PLATFORM_SEC_9_5` when the rider is unregistered | Local delivery services through an ECO were notified under §9(5) at 18% from 22 Sep 2025 (Notification 17/2025-CT per [a2ztaxcorp summary](https://a2ztaxcorp.net/gst-alert-local-delivery-services-to-attract-18-tax-from-september-22-says-cbic/) and [PIB doc](https://static.pib.gov.in/WriteReadData/specificdocs/documents/2025/sep/doc2025921642801.pdf), accessed 2026-10-04). **[LEGAL] verify.** |
 | `PLATFORM_FEE`, `SMALL_CART_FEE` | 18%, inclusive (ruling 8) | `PLATFORM` | Platform's own service. |
 | `COMMISSION` (charged to the restaurant, not on the customer bill) | 18% | `PLATFORM` | Appears on the restaurant's commission invoice and settlement. |
 
@@ -1122,13 +1286,11 @@ CREATE TABLE coupons (
   redemption_count         int NOT NULL DEFAULT 0,          -- counts RESERVED + APPLIED
   budget_paise             bigint CHECK (budget_paise > 0),
   budget_used_paise        bigint NOT NULL DEFAULT 0,
-  funded_by                text NOT NULL CHECK (funded_by IN ('PLATFORM','RESTAURANT','SHARED')),
-  restaurant_share_bps     int CHECK (restaurant_share_bps BETWEEN 0 AND 10000),
+  funded_by                text NOT NULL CHECK (funded_by IN ('PLATFORM','RESTAURANT')),   -- SHARED funding is V1.1 (C16)
   new_users_only           boolean NOT NULL DEFAULT false,  -- delivered_order_count = 0
   payment_methods          text[],                           -- NULL = any; e.g. {ONLINE}
   is_public                boolean NOT NULL DEFAULT true,    -- listed in "Offers" vs secret code
   status                   text NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','ACTIVE','PAUSED','ENDED','ARCHIVED')),
-  approval_id              uuid,                             -- maker-checker when budget > ₹5,000 (12 §5.5)
   created_by               uuid REFERENCES users(id),
   version                  int NOT NULL DEFAULT 1,
   created_at               timestamptz NOT NULL DEFAULT now(),
@@ -1139,7 +1301,6 @@ CREATE TABLE coupons (
   CONSTRAINT ck_coupons__validity CHECK (valid_until > valid_from),
   CONSTRAINT ck_coupons__limits   CHECK (global_limit IS NULL OR redemption_count <= global_limit),
   CONSTRAINT ck_coupons__budget   CHECK (budget_paise IS NULL OR budget_used_paise <= budget_paise),
-  CONSTRAINT ck_coupons__shared   CHECK (funded_by <> 'SHARED' OR restaurant_share_bps IS NOT NULL),
   CONSTRAINT ck_coupons__goodwill CHECK (kind <> 'GOODWILL' OR (owner_user_id IS NOT NULL AND discount_type = 'FLAT'
                                          AND global_limit = 1 AND per_user_limit = 1 AND is_public = false))
 );
@@ -1149,7 +1310,7 @@ CREATE INDEX ix_coupons__owner ON coupons (owner_user_id) WHERE kind = 'GOODWILL
 
 CREATE TABLE coupon_targets (                       -- empty set = all restaurants/zones in the coupon's city
   coupon_id     uuid NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,
-  target_type   text NOT NULL CHECK (target_type IN ('ZONE','RESTAURANT','CUISINE','USER')),
+  target_type   text NOT NULL CHECK (target_type IN ('ZONE','RESTAURANT')),   -- CUISINE/USER targets are V1.1 (C16)
   target_id     uuid NOT NULL,                      -- ref (logical) to the target's module
   PRIMARY KEY (coupon_id, target_type, target_id)
 );
@@ -1166,7 +1327,8 @@ CREATE TABLE coupon_redemptions (
   status                     text NOT NULL CHECK (status IN ('RESERVED','APPLIED','RELEASED')),
   reserved_at                timestamptz NOT NULL DEFAULT now(),
   applied_at                 timestamptz,                 -- at DELIVERED
-  released_at                timestamptz,                 -- on PAYMENT_FAILED / REJECTED / CANCELLED (refunded)
+  released_at                timestamptz,                 -- any non-delivered terminal state EXCEPT customer-fault UNDELIVERABLE,
+                                                          -- which burns the coupon (stays APPLIED) (RV-048)
   CONSTRAINT ck_coupon_redemptions__split CHECK (platform_funded_paise + restaurant_funded_paise = discount_paise)
 );
 CREATE INDEX ix_coupon_redemptions__user ON coupon_redemptions (coupon_id, user_id) WHERE status IN ('RESERVED','APPLIED');
@@ -1178,7 +1340,7 @@ CREATE INDEX ix_coupon_redemptions__user ON coupon_redemptions (coupon_id, user_
 3. Run `UPDATE coupons SET redemption_count = redemption_count + 1, budget_used_paise = budget_used_paise + $d …`. The CHECKs then enforce the global limit and budget atomically.
 4. Insert `RESERVED`.
 
-Release reverses step 3. **Goodwill coupons (ruling 9)** replace a wallet. They are issued by support (`ADMIN_SUPPORT`; maker-checker above ₹150) or automatically for COD-related compensation. Each is a `FLAT`, single-use, non-public coupon bound to `owner_user_id`, platform-funded, valid 30 days `[ASSUMPTION]`, and journalled to a goodwill-liability account when issued (14). Restaurant-funded and shared coupons must target only restaurants that signed up for them (app rule plus admin UI).
+Release reverses step 3. **Goodwill coupons (R9)** replace a wallet. They are issued by support (`ADMIN_SUPPORT`; maker-checker above `approvals.goodwill_threshold_paise`, 13 §5.1). For COD-order compensation a coupon is only one of the customer's two choices; the other is a manual UPI refund (R29, §7). Each goodwill coupon is a `FLAT`, single-use, non-public coupon bound to `owner_user_id`, platform-funded and valid 30 days `[ASSUMPTION]`. It is journalled to `EXPENSE_GOODWILL` when redeemed (14 §10.2 has no goodwill-liability account; `[OPEN — Finance]` whether issued-but-unredeemed coupons need an accrual). Restaurant-funded coupons must target only restaurants that signed up for them (app rule plus admin UI). Coupon budgets are total budgets only (per-day budgets and bulk unique codes are V1.1, C16); budget changes are audited, not maker-checker (R31).
 
 ---
 
