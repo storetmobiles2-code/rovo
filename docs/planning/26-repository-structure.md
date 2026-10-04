@@ -4,11 +4,19 @@
 |---|---|
 | **Purpose** | Defines the single-repository (monorepo) layout for rovo: the Go backend module, the OpenAPI contract, the pnpm web workspace, deployment (local Compose and cloud IaC), docs, tooling, naming conventions, code ownership, branching and versioning, task-runner targets, local development setup, licensing, and the community files to create in Phase 2. |
 | **Owner** | Solution Architect |
-| **Status** | Draft v1 (Phase 1 — planning only; nothing in this tree is created until Phase 2) |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 (Phase 1 — planning only; nothing in this tree is created until Phase 2) |
 | **Depends on** | `00-planning-baseline.md` (§4a environments), `08-system-architecture.md` (§4 module boundaries), `09-architecture-decision-records.md` (ADR-003, 005, 006, 010, 016, 025, 026) |
 | **Must stay consistent with** | `17-frontend-architecture.md` §2 (web workspace packages), `20-testing-strategy.md`, `21-cicd-strategy.md`, `22-deployment-architecture.md` (§10 local Compose, §12 IaC), `27-implementation-backlog.md` |
 
 Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`.
+
+**Changes in v1.1 (2026-10-04)**
+- Confirmed **R14** (four apps under `web/`) and **R23** (IaC under `deploy/terraform/`); alignment notes closed (§1).
+- Custom CI tools `tools/tableowner` and `tools/eventschema` cut (**C9**): go-arch-lint/depguard + `table_ownership.yaml` review checklist; JSON fixtures per event (§1.1, §1.5, §5, §6).
+- `platform/events` publishes with `InsertManyTx`, no fan-out worker (**R22/R42**) (§1.1).
+- IaC: `closed-pilot` / `public-launch` profiles (**R32**), `/api/*` behaviour on four app hosts (**R27**), 180-day log archive (**R36**), NAT toggle (**R28**), 4 AWS accounts (**C18**) (§1.4).
+- Local Docker only, no preview compose/env (**R24**); `cloudflared` quick tunnel default; WhatsApp adapters V1.1 (**C2**); no build-time prerender (**R33**); fake bot-challenge adapter and local map tiles (§1, §6, §7, §8).
+- JSON field naming aligned with doc 11 (`camelCase`); seed translations as `*_i18n` (**R17**); fee slabs to 10 km (**R18**) (§2, §8).
 
 ---
 
@@ -20,7 +28,7 @@ rovo/
 ├── openapi/                 # OpenAPI 3.1 contract: the single source of truth for HTTP APIs
 ├── web/                     # pnpm workspace: 4 PWAs + shared packages
 ├── deploy/
-│   ├── compose/             # local dev (and optional free preview) Docker Compose
+│   ├── compose/             # local dev Docker Compose (the only dev/demo environment, R24)
 │   ├── terraform/           # OpenTofu/Terraform IaC for staging + prod (managed cloud)
 │   ├── docker/              # Dockerfiles (backend, postgres-postgis dev image), .dockerignore
 │   └── observability/       # Grafana dashboards, alert rules, OTel collector configs (shared by local + cloud)
@@ -30,7 +38,7 @@ rovo/
 │   ├── runbooks/            # incident, deploy, rollback, restore, key rotation, PA outage, OTP outage
 │   ├── api/                 # rendered API reference (generated, not committed, or published via Pages)
 │   └── contributing/        # dev setup, architecture overview, module guide, style guides
-├── tools/                   # repo-internal Go tools (separate go module): tableowner, eventschema, seedgen
+├── tools/                   # repo-internal Go tools (separate go module): seedgen (no tableowner/eventschema in V1, C9)
 ├── scripts/                 # thin shell scripts called by Make targets (bootstrap, tunnel, release notes)
 ├── .github/
 │   ├── workflows/           # CI/CD (doc 21)
@@ -48,9 +56,9 @@ rovo/
 - `openapi/` sits at the top level because both `backend/` and `web/` generate from it. It is neither side's property.
 - `deploy/` holds everything needed to *run* rovo anywhere: local Compose and the managed cloud via IaC (baseline §4a).
 
-> **Alignment notes:**
-> - Doc 17 §2 draws the web workspace at the repo root (`rovo/apps`, `rovo/packages`). This document places it under **`web/`**; the internal structure is unchanged `[OPEN → Frontend Architect: update doc 17 tree prefix]`.
-> - Doc 22 §12 names the IaC root `infra/`. Per the Lead's directive it is **`deploy/terraform/`**, with doc 22's AWS module set mapped onto it (§1.4) `[OPEN → DevOps: update doc 22 paths]`.
+> **Alignment notes (decided):**
+> - The web workspace lives under **`web/`** (R14). Doc 17 §2 must use the `web/` prefix (31 §14 minor drift).
+> - The IaC root is **`deploy/terraform/`** (R23), not `infra/`. Docs 21 and 22 must use these paths (register row 45), and doc 21's path filters must match `openapi/` and `backend/migrations/` (31 §14 minor drift).
 
 ### 1.1 `backend/` (Go module)
 
@@ -68,7 +76,7 @@ backend/
 │   │   ├── httpx/                         # middleware chain, problem+json, request id, idempotency, ETag, rate-limit headers, SSE writer
 │   │   ├── auth/                          # authn middleware (JWT verify, session-state check), principal in ctx, RBAC helpers
 │   │   ├── otel/                          # tracer/meter/logger setup, slog handler with trace ids
-│   │   ├── events/                        # event envelope, Record(tx, evt), subscription registry, fan-out worker
+│   │   ├── events/                        # event envelope, Publish(tx, evt) → InsertManyTx one job per subscriber, static subscription table (R42; no fan-out worker, no event table)
 │   │   ├── queue/                         # job interface over River (Enqueue, EnqueueTx, Schedule); River setup + middleware
 │   │   ├── realtime/                      # SSE hub, topic auth, pubsub.Bus interface (postgres NOTIFY impl; redis impl)
 │   │   ├── cache/  ratelimit/             # interfaces + memory/postgres/redis implementations (ADR-007)
@@ -77,7 +85,8 @@ backend/
 │   │   └── health/                        # /healthz, /readyz checks
 │   ├── adapters/                          # vendor-specific implementations ONLY here (ADR-025 depguard rule)
 │   │   ├── payments/{razorpay,cashfree,fake}/
-│   │   ├── notify/{webpush,msg91,gupshup,metacloud,smtp,resend,fake}/
+│   │   ├── notify/{webpush,msg91,gupshup,smtp,resend,fake}/   # metacloud (WhatsApp) added in V1.1 (C2)
+│   │   ├── botchallenge/{turnstile,fake}/ # fake adapter for local/CI/E2E (doc 12)
 │   │   └── blob/{s3,fake}/                # GCS via S3 interop uses s3; azure only if chosen
 │   ├── modules/                           # one directory per bounded module (doc 08 §3.2)
 │   │   ├── identity/
@@ -96,7 +105,7 @@ backend/
 │   └── testutil/                          # testcontainers helpers, fixtures, golden files, fake clock
 ├── migrations/                            # goose SQL migrations, timestamped: 20261005120000_create_cities.sql
 │   └── seeds/                             # dev/demo seed data (Mahabubnagar), never run in prod
-├── table_ownership.yaml                   # table → module manifest (CI check, doc 08 §4.3)
+├── table_ownership.yaml                   # table → module manifest (PR review checklist + CODEOWNERS, doc 08 §4.3, C9)
 ├── sqlc.yaml                              # one sqlc package per module (queries → internal/store)
 ├── oapi-codegen.yaml                      # codegen config (strict server, std-http, models)
 ├── .golangci.yml                          # incl. depguard rules (module DAG, vendor SDK ban), forbidigo (no float in money pkgs)
@@ -108,6 +117,7 @@ Notes:
 - **Nested `internal/`** per module makes the Go compiler forbid cross-module imports of internals (doc 08 §4.2). Other modules see only `identity.go` / `events.go`.
 - **Why `migrations/` is global, not per module:** goose needs one ordered history. Ownership of each table is declared in `table_ownership.yaml`, and the migration's file name carries the module (`…_ordering_create_orders.sql`). If a module is extracted later, its migrations move with it.
 - River's own schema migrations are applied by `rovo migrate` through `rivermigrate` (pinned River version). They are not copied into `migrations/`.
+- Restaurant share-preview pages (`/r/{slug}`, OG tags + redirect into the SPA, R33, P1) are a small handler in `modules/catalog/internal/httpapi`.
 - Generated code (`internal/api`, `internal/modules/*/internal/store`) **is committed**. Reviews show the diff, `go build` needs no codegen step, and CI verifies that it is up to date (`make generate && git diff --exit-code`).
 
 ### 1.2 `openapi/`
@@ -133,7 +143,7 @@ web/
 ├── pnpm-workspace.yaml          # apps/*, packages/*; pnpm catalogs pin shared versions
 ├── .npmrc  tsconfig.base.json  eslint.config.js (re-export from packages/config)
 ├── apps/
-│   ├── customer/                # app.<domain> / apex — customer PWA (+ prerendered public/legal pages)
+│   ├── customer/                # app.<domain> / apex — customer PWA (static legal pages + OG meta in index.html; no build-time prerender, R33)
 │   ├── restaurant/              # restaurant.<domain> — "rovo Partner"
 │   ├── rider/                   # rider.<domain> — "rovo Delivery Partner"
 │   └── admin/                   # admin.<domain> — admin SPA (no service worker)
@@ -156,38 +166,39 @@ deploy/
 ├── compose/
 │   ├── compose.yaml             # local: postgres(+postgis), minio(+init), mailpit, lgtm, valkey[profile cache], migrate, api, worker
 │   ├── compose.override.example.yaml   # hot reload (Air), debugger ports
-│   ├── compose.preview.yaml     # optional free-tier preview (doc 25) — never production
 │   ├── env/
-│   │   ├── local.env.example    # all ROVO_* vars with safe dev defaults (fakes on)
-│   │   └── preview.env.example
+│   │   └── local.env.example    # all ROVO_* vars with safe dev defaults (fakes on)
 │   └── initdb/                  # role creation mirroring prod (app, migrator, readonly), extensions (postgis, pg_trgm)
 ├── docker/
 │   ├── backend.Dockerfile       # multi-stage: golang:1.27 builder → distroless/static nonroot; multi-arch
-│   ├── postgres-postgis.Dockerfile  # dev/CI multi-arch PG + PostGIS image (doc 22 §10)
+│   ├── postgres-postgis.Dockerfile  # dev/CI multi-arch PG 17 + PostGIS 3.5 image (doc 22 §10, R22)
 │   └── web.Dockerfile           # optional: static build verification / preview only (prod serves from object storage)
 ├── terraform/                   # OpenTofu (Terraform-compatible) — ADR-026
 │   ├── modules/
-│   │   ├── network/             # VPC/VNet, subnets (public/private/db), NAT toggle, endpoints, flow logs
-│   │   ├── db/                  # managed Postgres + PostGIS: instance, params, subnet group, KMS, PITR, cross-region backup copy
+│   │   ├── network/             # VPC, subnets (public/private/db), NAT toggle (off at closed pilot, one NAT before Gate B, R28), VPC endpoints, flow logs (all traffic)
+│   │   ├── db/                  # RDS PostgreSQL 17 + PostGIS: instance, params, subnet group, KMS, PITR, cross-region backup copy; multi_az flag per profile (R32)
 │   │   ├── cache/               # managed Redis/Valkey — enabled=false by default (ADR-007)
-│   │   ├── storage/             # secure bucket module: public-media, private-docs, web-apps, backups, logs
-│   │   ├── cdn/                 # CDN distributions (SPA + media), WAF/web ACL, edge functions for SPA rewrite + /api routing
+│   │   ├── storage/             # secure bucket module: public-media, private-docs, 4 web-app buckets, backups, log-archive (180-day lifecycle, security subset ≥ 1 year, R36)
+│   │   ├── cdn/                 # CloudFront for app./restaurant./rider./admin. (+ media): /api/* behaviour to the ALB on every app host, origin-verify header, SPA rewrite, WAF (admin host: rate + geo-IN rules) (R27, R37)
 │   │   ├── compute/             # container cluster, api service (+LB), worker service, migrate/tools one-off tasks, autoscaling
-│   │   ├── observability/       # OTel collector config, log groups, alarms, notification channels, dashboards links
+│   │   ├── observability/       # CloudWatch log groups + S3 archive subscriptions (CERT-In 180 days, R36), alarms, notification channels, Grafana Cloud links
 │   │   ├── security/            # KMS keys, secrets shells, CI OIDC roles (plan/apply/deploy), IAM boundaries
 │   │   ├── registry/            # container registry + lifecycle policies
 │   │   ├── dns/                 # zones, records, certificates
 │   │   └── budgets/             # cost budgets + anomaly alerts (INR)
+│   ├── profiles/                # tfvars sets applied to prod (R32)
+│   │   ├── closed-pilot.tfvars  # RDS Single-AZ db.t4g.small, 2 small api + 1 worker, no NAT, no collector gateway
+│   │   └── public-launch.tfvars # Multi-AZ (before Gate B or > 100 orders/day), sizes from the doc 20 load test, NAT on
 │   ├── envs/
-│   │   ├── shared/              # bootstrap: state bucket + lock, registry, org-level bits
-│   │   ├── staging/             # main.tf, variables.tf, terraform.tfvars, backend.tf (scaled-down, stoppable)
+│   │   ├── shared/              # bootstrap: state bucket + lock, registry, org-level bits (4 AWS accounts: mgmt, prod, nonprod, audit/backup; C18)
+│   │   ├── staging/             # main.tf, variables.tf, terraform.tfvars, backend.tf (closed-pilot sizes, stoppable)
 │   │   └── prod/                # main.tf, variables.tf, terraform.tfvars, backend.tf
 │   ├── policies/                # checkov/conftest rules (no public DB, encryption on, tags required)
 │   └── README.md                # how to plan/apply, state layout, OIDC, drift detection
 └── observability/
     ├── dashboards/              # Grafana JSON: RED per module, orders funnel, dispatch, payments, notifications
     ├── alerts/                  # alert rules (PromQL/LogQL) + runbook links
-    └── otel-collector/          # collector configs for local (lgtm) and cloud (backend chosen in doc 24)
+    └── otel-collector/          # collector config for local (lgtm); cloud exports OTLP to Grafana Cloud directly at pilot (R36)
 ```
 
 **Module mapping to doc 22's AWS design** (current instantiation): `compute` ⊇ ecs-cluster, ecs-service, ecs-oneoff-task, alb. `cdn` ⊇ cloudfront-spa, cloudfront-media, waf. `db` = rds-postgres. `cache` = elasticache-valkey. `storage` = s3-bucket. `security` ⊇ kms, secrets, github-oidc. `registry` = ecr. Inside a logical module, provider-specific resources live directly in the module (single-cloud). A second cloud would add `modules/<name>/<cloud>/` variants rather than abstracting prematurely (ADR-026).
@@ -196,13 +207,11 @@ deploy/
 
 ```
 tools/                       # separate go.mod so tool deps don't leak into backend
-├── tableowner/              # verifies sqlc queries + migrations against table_ownership.yaml
-├── eventschema/             # exports event structs → JSON Schema, diffs against main
 ├── seedgen/                 # generates the Mahabubnagar demo dataset (zones, localities, restaurants, menus, riders)
 └── tools.go                 # pinned versions of sqlc, goose, oapi-codegen, golangci-lint, go-arch-lint, govulncheck
 scripts/
 ├── bootstrap.sh             # checks prerequisites (docker, go, node, pnpm, mise), installs tools
-├── tunnel.sh                # exposes local API for PA sandbox webhooks (cloudflared/ngrok) — dev only
+├── tunnel.sh                # exposes the local stack for demos / PA sandbox webhooks via a cloudflared quick tunnel (no account, card-free; R24) — dev only
 └── release-notes.sh
 ```
 
@@ -222,7 +231,7 @@ scripts/
 | Events | Go type `PastTense`, type key `<module>.<snake_event>.v<N>` | `ordering.order_accepted.v1` |
 | River job kinds | `<module>.<verb_noun>` | `dispatch.expire_offer` |
 | HTTP paths | `/api/v1/<plural-resource>/{id}/<action>`; kebab-case for multiword | `/api/v1/rider/offers/{id}/accept` |
-| JSON fields | `snake_case` (consistent with DB). Enums UPPER_SNAKE. | `total_paise` |
+| JSON fields | `camelCase` per doc 11 API-D02 (DB columns stay `snake_case`). Enums UPPER_SNAKE. | `totalPaise`, `nameI18n` |
 | Error codes | `UPPER_SNAKE`, stable | `ORDER_STATE_CONFLICT` |
 | Env vars | `ROVO_<AREA>_<NAME>` | `ROVO_DB_URL`, `ROVO_PA_PROVIDER` |
 | Feature flags | `kebab.dot` scope | `dispatch.broadcast-mode` |
@@ -287,7 +296,7 @@ Two approvals are required for `payments`, `ledger`, `migrations`, `auth` and `d
 | sqlc store code | `backend/internal/modules/*/queries`, `migrations` | `make gen-sqlc` | yes | drift diff + `sqlc vet` |
 | TS API types | `openapi/` | `make gen-ts` (openapi-typescript) | yes (`web/packages/api-client/src/schema.d.ts`) | drift diff |
 | MSW handlers from examples | `openapi/examples` | `make gen-mocks` | yes | drift diff |
-| Event JSON Schemas | Go event structs | `make gen-events` | yes (`docs/api/events/`) | breaking-change diff |
+| ~~Event JSON Schemas~~ | — | — | — | Replaced by hand-written **JSON fixtures per event** checked by unit tests (C9, doc 20 §6.7) |
 | Bundled OpenAPI | `openapi/` | `make api-bundle` | no (artifact) | lint (Redocly) + `oasdiff breaking` vs last release |
 
 All generators are pinned in `tools/tools.go` or `web/package.json`, so builds are reproducible.
@@ -309,7 +318,7 @@ All generators are pinned in `tools/tools.go` or `web/package.json`, so builds a
 | `make web-dev app=customer` | Vite dev server for one app (proxy `/api` → `:8080`) |
 | `make dev` | `up` + `migrate` + `seed` + api + worker + all four Vite apps (process manager) |
 | `make generate` | All generators (§5) |
-| `make lint` | golangci-lint (+ depguard), go-arch-lint, tableowner, Redocly lint, ESLint, Prettier check, `tofu fmt -check`, tflint, hadolint, markdownlint |
+| `make lint` | golangci-lint (+ depguard), go-arch-lint, Redocly lint, ESLint, Prettier check, `tofu fmt -check`, tflint, hadolint, markdownlint |
 | `make test` | Go unit tests + Vitest |
 | `make test-integration` | Go integration tests with testcontainers (Postgres+PostGIS, MinIO, Valkey) |
 | `make test-e2e` | Playwright against the local stack with fake providers (golden flow) |
@@ -319,7 +328,7 @@ All generators are pinned in `tools/tools.go` or `web/package.json`, so builds a
 | `make api-bundle` / `make api-docs` | Bundle the spec / render a local API reference |
 | `make vuln` | govulncheck, `pnpm audit`, trivy fs |
 | `make tf-plan env=staging` / `make tf-validate` | OpenTofu plan / validate + checkov (apply runs only from CI) |
-| `make tunnel` | Expose local API for PA/WhatsApp sandbox webhooks |
+| `make tunnel` | Expose the local stack via a cloudflared quick tunnel (demos, PA sandbox webhooks) |
 | `make otp phone=+91…` | Print the last fake OTP for a phone (local only) |
 | `make help` | List targets |
 
@@ -328,7 +337,7 @@ All generators are pinned in `tools/tools.go` or `web/package.json`, so builds a
 ## 7. Configuration conventions
 
 - **12-factor:** all runtime config comes from env vars (`ROVO_*`) or mounted files. There are no config files baked into images. `internal/platform/config` validates at startup, fails fast, and logs a **redacted** config summary.
-- **Provider selection is config:** `ROVO_PA_PROVIDER=fake|razorpay|cashfree`, `ROVO_OTP_PRIMARY=sms|whatsapp`, `ROVO_SMS_PROVIDER=fake|msg91|gupshup`, `ROVO_EMAIL_PROVIDER=smtp|resend`, `ROVO_BLOB_ENDPOINT` (MinIO locally), `ROVO_CACHE_BACKEND=memory|redis`, `ROVO_PUBSUB_BACKEND=postgres|redis`.
+- **Provider selection is config:** `ROVO_PA_PROVIDER=fake|razorpay|cashfree`, `ROVO_OTP_PRIMARY=sms` (`whatsapp` from V1.1, C2), `ROVO_SMS_PROVIDER=fake|msg91|gupshup`, `ROVO_SMS_SECONDARY_PROVIDER=…`, `ROVO_BOTCHALLENGE=fake|turnstile`, `ROVO_EMAIL_PROVIDER=smtp|resend`, `ROVO_BLOB_ENDPOINT` (MinIO locally), `ROVO_CACHE_BACKEND=memory|redis`, `ROVO_PUBSUB_BACKEND=postgres|redis`.
 - **Secrets:** never in the repo. Local defaults live in `deploy/compose/env/local.env.example` (fake values only). Cloud secrets come from the secrets manager via the platform (doc 22). `gitleaks` runs in pre-commit and CI.
 - **Business config** (fees, zones, dispatch parameters, feature flags) lives in the **database**, managed via admin, and is seeded for local. It is not in env vars.
 
@@ -350,7 +359,7 @@ make dev            # compose up → migrate → seed → api+worker → 4 Vite 
 ```
 
 **Local services** (Compose, doc 22 §10):
-- Postgres + PostGIS (multi-arch image, same major as prod, roles mirroring prod).
+- Postgres 17 + PostGIS 3.5 (multi-arch image, same major as prod, R22; roles mirroring prod).
 - MinIO (S3 API) with buckets mirroring prod names.
 - **Mailpit** (SMTP catcher).
 - **grafana/otel-lgtm** (OTLP → Grafana/Loki/Tempo/Prometheus).
@@ -358,18 +367,20 @@ make dev            # compose up → migrate → seed → api+worker → 4 Vite 
 - **Fake providers** inside the binary:
   - `fakepay`: a checkout page with Success / Fail / Delay webhook / Late capture buttons, plus webhook replay.
   - `fakeotp`: OTP printed to logs and shown on `make otp`. It also accepts the code `000000` in `env=local` only.
-  - `fakepush`/`fakesms`/`fakewa`: log sinks with an admin "outbox viewer".
+  - `fakepush`/`fakesms`: log sinks with an admin "message log viewer".
+  - `BotChallenge=fake`: accepts any token, so login works offline.
+- Map tiles: a small PMTiles extract or blank style served from MinIO (`tileStyleUrl` configurable).
 - The full golden flow runs **offline** (baseline §4a).
 
-**PA sandbox (optional):** set `ROVO_PA_PROVIDER=razorpay` with test keys in `deploy/compose/env/local.env` (gitignored), run `make tunnel`, and register the tunnel URL as the sandbox webhook. The same pattern works for the WhatsApp Cloud API test number.
+**PA sandbox (optional, mainly staging):** set `ROVO_PA_PROVIDER=razorpay` with test keys in `deploy/compose/env/local.env` (gitignored), run `make tunnel`, and register the tunnel URL as the sandbox webhook. Nobody needs it to develop: the fakepay contract suite covers every doc 14 §20 scenario. Optional SaaS sign-ups (PA sandbox, Grafana Cloud) are never required for the golden flow.
 
 **Seeded Mahabubnagar data** (`backend/migrations/seeds`, generated by `tools/seedgen`, all fictional `[ASSUMPTION: coordinates approximate, to be validated by Ops]`):
 - City `Mahabubnagar` (`Asia/Kolkata`, road factor 1.3), 3–4 zone polygons around the town centre, ~25 localities with Telugu names, and PIN codes 509001/509002 `[verify]`.
-- 12 demo restaurants (veg and non-veg; biryani, tiffins, Chinese, bakery). Fictional names, menus with `name_te`, packaging rules and hours.
+- 12 demo restaurants (veg and non-veg; biryani, tiffins, Chinese, bakery). Fictional names, menus with `name_i18n` (en + te, R17), packaging rules and hours.
 - 8 demo riders with positions spread across zones, 20 demo customers with addresses and landmarks.
 - Admin users for each role (TOTP secret printed in the seed output).
 - A second **test city** (`Testpur`) for multi-city tests (ADR-020), CI only.
-- Pricing configs per baseline §5, sample coupons (platform-, restaurant- and co-funded).
+- Fee configs per the doc 16 defaults (R48), slabs to 10 km road distance `[lo,hi)` (R18); sample coupons (platform- and restaurant-funded; `SHARED` funding cut, C16). Seed values come from doc 10 §15.
 
 **Editor setup:** a `.vscode/` recommendations file (Go, ESLint, Prettier, Tailwind, YAML with the OpenAPI schema) is optional and committed as `extensions.json` only.
 
@@ -421,7 +432,7 @@ make dev            # compose up → migrate → seed → api+worker → 4 Vite 
 
 ## 12. Open items
 
-- `[OPEN → Frontend Architect]` Prefix doc 17's workspace tree with `web/`.
-- `[OPEN → DevOps]` Rename doc 22's `infra/` to `deploy/terraform/`. Confirm the logical module grouping in §1.4. Pick Renovate vs Dependabot and release-please vs git-cliff.
+- ~~Prefix doc 17's workspace tree with `web/`~~ and ~~rename doc 22's `infra/`~~: decided by R14/R23; the owning docs apply them.
+- `[OPEN → DevOps]` Confirm the logical module grouping and the `profiles/` mechanism in §1.4. Pick Renovate vs Dependabot and release-please vs git-cliff.
 - `[OPEN → Maintainers]` DCO vs CLA. Require signed commits?
 - `[OPEN → Ops]` Validate the seeded zone polygons and locality names for Mahabubnagar.

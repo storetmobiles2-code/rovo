@@ -2,10 +2,17 @@
 
 | Field | Value |
 |---|---|
-| **Purpose** | Defines how restaurant partners (`RESTAURANT_OWNER`, `RESTAURANT_STAFF`) sign up, onboard, go live and run daily operations in the restaurant mode of the `partner` PWA. It covers the order inbox, menu management, analytics, payouts and support. |
+| **Purpose** | Defines how restaurant partners (`RESTAURANT_OWNER`, `RESTAURANT_STAFF`) sign up, onboard, go live and run daily operations in the `restaurant` app (PWA at the `restaurant.` host, R14). It covers the order inbox, menu management, analytics, payouts and support. |
 | **Owner** | UX Architect |
-| **Status** | Draft v1 |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
 | **Depends on** | `00-planning-baseline.md` · `04-customer-journey.md` §1 (UX principles — apply here) · `07-admin-workflow.md` (approval, escalation, settlements) · `06-delivery-workflow.md` (handover) · `13-order-state-machine.md` · `14-payment-architecture.md` (payouts, commission, tax) · `15-notification-architecture.md` (alerts, push, SMS) · `17-frontend-architecture.md` / `18-mobile-pwa-strategy.md` (wake lock, audio, push) · `12-auth-rbac.md` (session length, staff roles) |
+
+**Changes in v1.1**
+- Accept ladder per **R1** (§4.3 diagram and text, §11): alarm/push every 30 s, owner SMS + push at 60 s, ops flagged and phones at 90 s (may accept on behalf), `CANCELLED` by `SYSTEM` with reason `RESTAURANT_UNRESPONSIVE` at 180 s, 30-min auto-pause, 2 consecutive misses → paused until the owner resumes; automated voice call is P1 (**R43**). Timer values owned by doc 13 §5 (**R48**).
+- Payout day referenced as an `app_config` key (**R53**); SSE heartbeat 20 s (**R52**).
+- `ACCEPTED → PREPARING` after 60 s or on tap (**R3**); implicit ready flag renamed `restaurant_skipped_ready` (**R4**); restaurant cancel after accept is ops-mediated (**R40**, unchanged, now ruled).
+- Separate `restaurant` app/host (**R14**); device-bound counter sessions 30-day idle / 90-day absolute (**R44**); heartbeat every 60 s, SSE presence counts (**R27**); SSE single stream, 20 s heartbeat, no replay (**R10**).
+- Counter-device provisioning by rovo (M3); ops bulk menu CSV import (M7); KYC uploads images only (**R38**); PA linked-account KYC if split settlement (**R35**); price-change flag at 30 % (register row 55); FSSAI expiry → auto-paused (01 BR-RES-004); analytics limited to today/this week (C13); support phone line (M9).
 
 Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. Canonical statuses as defined in the baseline.
 
@@ -15,10 +22,10 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. Canonical statuses as defined in the 
 
 | Constraint | Design response |
 |---|---|
-| A **cheap shared Android phone or tablet** (2–3 GB RAM, Android 9+, Chrome) sits on the counter, plugged in, open all day `[ASSUMPTION]` | A single "Orders" screen is the home and stays open. Screen Wake Lock keeps it awake. Large fonts. Few routes. Low memory use (no heavy maps or images in the inbox). |
+| A **cheap shared Android phone or tablet** (2–3 GB RAM, Android 9+, Chrome) sits on the counter, plugged in, open all day `[ASSUMPTION]`. Restaurants without a suitable device get a **pre-configured counter device from rovo** (01 RES-ONB-008, M3) | A single "Orders" screen is the home and stays open. Screen Wake Lock keeps it awake. Large fonts. Few routes. Low memory use (no heavy maps or images in the inbox). |
 | Noisy kitchen; staff not watching the screen | **Loud, looping alarm** that repeats until someone acts. A full-screen colour takeover. Vibration where supported. Web Push + SMS escalation when the app is in the background or the device is off. |
 | Low digital literacy; Telugu-first staff; minimal typing | **Icons + Telugu labels** on every action (bilingual where helpful). Buttons ≥ 56 px tall. Choices are chips, not text fields. Numbers come from a big numpad. Destructive actions need a confirmation. **No text entry needed to run an order** end-to-end. |
-| Several staff share one device | One **long-lived device session** for the counter device (§3.4). Per-staff attribution is not required in V1. |
+| Several staff share one device | One **device-bound long-lived session** for the counter device (§3.6, R44). Per-staff attribution is not required in V1. |
 | Power cuts and patchy broadband/4G | A device-liveness heartbeat plus **auto-pause** when the device is unreachable (§8). A clear "Connected / Not connected" indicator. |
 | Owner may not be on site | The owner's own phone gets SMS / push for escalations, a daily summary, and payout information. |
 
@@ -37,6 +44,8 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. Canonical statuses as defined in the 
 | Handed over | Given to rider | రైడర్‌కి ఇచ్చాం | 🤝 |
 | Call support | Call rovo | rovo కి కాల్ | 📞 |
 
+The new-order alarm includes a short pre-recorded Telugu voice line ("కొత్త ఆర్డర్ వచ్చింది", one precached asset) for staff who do not read (RV-058) `[ASSUMPTION — native review]`.
+
 ---
 
 ## 2. Roles and permissions (restaurant side)
@@ -47,7 +56,7 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. Canonical statuses as defined in the 
 | Open / pause / close the outlet | ✅ | ✅ |
 | Toggle item availability | ✅ | ✅ |
 | Edit menu (names, descriptions, images, categories, add-ons) | ✅ | ❌ (request via owner) `[OPEN — allow "menu editor" staff flag]` |
-| Edit **prices** and packaging charges | ✅ (audit-logged; changes > 25 % flagged to ops) | ❌ |
+| Edit **prices** and packaging charges | ✅ (audit-logged; increases > 30 % flagged to ops, 01 RES-MENU-008) | ❌ |
 | Operating hours | ✅ | ❌ |
 | Bank details, documents, commission agreement | ✅ (bank change → admin verification, doc 07 §10) | ❌ |
 | Payout statements, invoices | ✅ | ❌ |
@@ -69,7 +78,7 @@ flowchart TD
     LF --> LQ[Lead in admin queue]
     LQ --> CALL[Ops calls within 48 h, explains commercials]
     CALL --> W{Self-serve or assisted?}
-    W -- Self-serve --> WZ[Onboarding wizard in partner app]
+    W -- Self-serve --> WZ[Onboarding wizard in restaurant app]
     W -- Assisted --> AS[Ops visits or calls; fills wizard with owner; owner confirms via OTP]
     AS --> WZ
     WZ --> SUB[Submit for review]
@@ -85,7 +94,7 @@ flowchart TD
 Fields: outlet name, owner name, mobile (OTP verified to prevent spam), locality (dropdown), cuisine type (chips), "Do you have an FSSAI licence/registration?" (Yes / No / Applied), and preferred call time. On submit: "Thanks! Our team will call you within 2 working days." `[ASSUMPTION — ops SLA]`. A "No FSSAI" lead gets guidance text with a link to the FoSCoS portal. Onboarding cannot complete without FSSAI `[LEGAL]`.
 
 ### 3.3 Onboarding wizard (P-02 … P-09)
-Rules: a progress bar ("Step 3 of 8"); **save and resume** at every step (server-side draft); each step works on a 360 px phone; documents can be photographed with the camera (`<input type="file" accept="image/*,application/pdf" capture="environment">`); images are compressed on the device to ≤ 1600 px and ≤ 500 KB; PDFs ≤ 5 MB.
+Rules: a progress bar ("Step 3 of 8"); **save and resume** at every step (server-side draft); each step works on a 360 px phone; documents can be photographed with the camera (`<input type="file" accept="image/*" capture="environment">`); **images only** (JPEG/PNG/WebP) — a PDF the partner already has is converted to an image on the device; images are compressed on the device to ≤ 1600 px and ≤ 500 KB and re-encoded by the server (R38, C5).
 
 | Step | Screen | Fields | Validation / notes |
 |---|---|---|---|
@@ -95,7 +104,7 @@ Rules: a progress bar ("Step 3 of 8"); **save and resume** at every step (server
 | 4 | P-05 Bank details | Account holder name *, account number * (entered twice, masked), IFSC * (lookup shows bank and branch name `[ASSUMPTION — static IFSC dataset]`), cancelled cheque or passbook photo * | Name mismatch with PAN → ops review. Penny-drop verification through the PA if available `[OPEN — doc 14]`. |
 | 5 | P-06 Operating hours | Per day: Open/Closed toggle + one or two slots (e.g. 11:00–15:00, 18:30–23:00). "Copy Monday to all days" button. A time picker with large wheels, not typing | Stored as local wall-clock time + day of week (baseline). |
 | 6 | P-07 Photos | Cover photo * (16:9 crop guide), logo (optional), up to 5 food photos | Guidance: "Natural light, top view, no text on photos". |
-| 7 | P-08 Menu | Option A: **"Upload photos of your paper menu"** (ops digitises it — recommended for low-literacy partners). Option B: build the menu in the app (§7) | Minimum 5 items with prices before go-live. |
+| 7 | P-08 Menu | Option A: **"Upload photos of your paper menu"** (ops digitises it with the ops-side bulk CSV import, 01 RES-MENU-009, M7 — recommended for low-literacy partners). Option B: build the menu in the app (§5) | Minimum 5 items with prices before go-live. |
 | 8 | P-09 Agreement & submit | Commission %, payout cycle, packaging policy, cancellation/penalty rules, rovo partner terms (scrollable, Telugu + English) → "I agree" checkbox + OTP confirmation `[LEGAL — e-acceptance validity; IT Act 2000; terms reviewed by counsel]` | Submit → status "Under review". |
 
 ### 3.4 Application status (P-10)
@@ -110,15 +119,16 @@ All items must be ✅ before the owner can tap "Go live". Ops can override any i
 |---|---|---|
 | 1 | Menu has ≥ 5 available items with prices, veg/non-veg marked, packaging set | Automatic |
 | 2 | Operating hours set | Automatic |
-| 3 | **Counter device set up:** partner app installed to home screen (PWA), logged in, notifications allowed | Device reports `display-mode: standalone` + push subscription |
+| 3 | **Counter device set up:** restaurant app installed to home screen (PWA) on the outlet's device or a rovo-provisioned counter device (M3), registered as order-receiver, notifications allowed, battery optimisation disabled | Device reports `display-mode: standalone` + push subscription; ops records provisioned device model/serial |
 | 4 | **Sound test passed** — "Did you hear the alarm?" Yes | Device reports a successful audio unlock |
 | 5 | **Screen-awake test** — wake lock acquired | Device reports |
 | 6 | Staff phone numbers added (optional) | — |
 | 7 | **Test order** placed by ops and completed: accept → ready → handover (to an ops "test rider") | Automatic on completion |
 | 8 | Owner watched the 3-minute training video (Telugu) or ops marked it trained | Checkbox |
+| 9 | **PA linked-account KYC complete** — only if the PA split-settlement model is chosen (R25/R35) `[LEGAL]` | PA status |
 
 ### 3.6 Login and sessions
-- Phone + OTP (baseline P9). **Counter device:** after OTP, ask "Is this the shop's order device?" If **Yes**, the device gets a long-lived session (refresh rotation, **30-day sliding expiry** `[OPEN — Security doc 12]`) and is registered as a `restaurant_device` with a name ("Counter tablet"). The owner can see and revoke devices.
+- Phone + OTP (baseline P9). **Counter device:** after OTP, ask "Is this the shop's order device?" If **Yes**, the device is registered as an order-receiver `restaurant_device` with a name ("Counter tablet") and gets a **device-bound long-lived session: sliding 30-day idle, 90-day absolute, revocable by owner or admin** (R44); any forced re-auth is scheduled outside service hours. The owner can see and revoke devices.
 - Staff do not need their own login on the counter device. Actions on the counter device are attributed to "Counter tablet (staff)". Owner actions on the owner's phone are attributed to the owner.
 
 ---
@@ -149,7 +159,7 @@ A large three-state control at the top of the Orders screen:
 **Alert behaviour:**
 - When a new order arrives (`PLACED`) via SSE: a **full-screen takeover** (high-contrast amber background) with a **looping alarm sound** (Web Audio; ~85 % volume; a distinct two-tone pattern different from the other alerts) and `navigator.vibrate` pattern (where supported). It repeats until the order is accepted or rejected. **Tapping elsewhere does not silence it.** A "Mute 30 s" button exists for phone calls but re-arms automatically.
 - Several new orders stack as cards ("2 new orders"), each with its own countdown.
-- If the app is **in the background or the screen is locked** (Wake Lock released): the server sends **Web Push** (`requireInteraction: true`, `renotify: true`, same `tag` per order) at T+0 and re-sends every 30 s until the order is acknowledged. A system notification cannot loop a sound, which is why the re-sends are needed `[ASSUMPTION — Android Chrome behaviour; Frontend to verify in doc 18]`.
+- If the app is **in the background or the screen is locked** (Wake Lock released): the server sends **Web Push** (`requireInteraction: true`, `renotify: true`, same `tag` per order) at T+0 and re-sends every 30 s until the order is acknowledged (R1; doc 13 T-ACC-RING). A system notification cannot loop a sound, which is why the re-sends are needed `[ASSUMPTION — Android Chrome behaviour; Frontend to verify in doc 18]`.
 
 **Order card content (big type, scannable in 3 seconds):**
 - Order code with the **last 4 characters enlarged** (`RV-7K·3P9Q` → "**3P9Q**") for handover matching.
@@ -157,11 +167,11 @@ A large three-state control at the top of the Orders screen:
 - Customer note ("less spicy") in a yellow box.
 - Item total (restaurant's view: item total + packaging), plus a payment label: "Prepaid" or "Cash — rider collects". The label tells staff that the **restaurant never collects cash** (aligned with doc 01 RES-ORD-001).
 - Customer first name only. **No phone number or address** (privacy; the rider handles delivery).
-- **Accept countdown:** "Accept in 2:41".
+- **Accept countdown** from the 180 s window (R1): "Accept in 2:41".
 
 **Accept (P-22):**
 - **Prep time chips** (required, one tap): **10 · 15 · 20 · 30 · 45 min**. The default pre-selected chip = the outlet's rolling median prep time for a similar cart size. **Accept** is a big green button labelled with the time: "Accept · 20 min".
-- On accept: the order moves to `ACCEPTED`, and the system **immediately auto-advances it to `PREPARING`** (UX proposal: no "Start preparing" tap; see §11). The card moves to the "Preparing" column.
+- On accept: the order moves to `ACCEPTED` with the chosen prep time, and moves to `PREPARING` **automatically after 60 s or when staff tap "Start preparing"** (R3; `ordering.auto_preparing_after_s`). The card moves to the "Preparing" column.
 - The sound stops only when no unacknowledged orders remain.
 
 **Reject (P-23):**
@@ -172,10 +182,10 @@ A large three-state control at the top of the Orders screen:
   4. **Kitchen problem** (gas, power, etc.).
   5. **Other** (optional voice-free short text; not required).
 - Confirm: "Reject this order? The customer will get a full refund." → **[Go back]** **[Reject]**.
-- Result: `REJECTED` with `reject_reason`. The customer sees a friendly reason (doc 04 §9.2).
+- Result: `REJECTED` with `reject_reason` from the doc 13 §6.3 `ORDER_REJECT` catalogue (`ITEMS_OUT_OF_STOCK`, `TOO_BUSY`, `CLOSING_SOON`, `KITCHEN_ISSUE`, `RESTAURANT_OTHER`). The customer sees a friendly reason (doc 04 §9.2).
 - **Partial fulfilment (accept without one item) is not supported in V1.** Out-of-stock → reject + item marked out of stock + the customer gets a one-tap "Reorder without unavailable items". Reason: modifying an order mid-flow needs customer consent, partial refunds and re-quoting — too complex for V1 `[OPEN — revisit in V1.1]`.
 
-**Accept timeout and escalation (defaults; all configurable per city `[OPEN]`):**
+**Accept timeout and escalation (R1, R43; timer keys and defaults owned by doc 13 §5 `T-ACC-*`):**
 
 ```mermaid
 sequenceDiagram
@@ -187,20 +197,22 @@ sequenceDiagram
     participant Cu as Customer
     API->>Dev: SSE order.placed (looping alarm)
     API->>Dev: Web Push T+0, repeat every 30 s
-    Note over API,Dev: T+90 s still not acknowledged
+    Note over API,Own: T+60 s still not acknowledged
     API->>Own: SMS + push - New order waiting, open rovo
-    Note over API,Ops: T+3 min - accept SLA breached
+    Note over API,Ops: T+90 s - accept SLA breached
     API->>Ops: Unaccepted order alert (red row + sound)
-    Ops->>Dev: Ops phones the outlet
+    Ops->>Dev: Ops phones the outlet, may accept on behalf (audited)
     API->>Cu: Taking longer than usual, contacting restaurant
-    Note over API,Cu: T+6 min - still not accepted
-    API->>API: Order CANCELLED (cancelled_by system, reason RESTAURANT_NO_RESPONSE)
+    Note over API,Cu: T+180 s - still not accepted
+    API->>API: Order CANCELLED (cancelled_by SYSTEM, reason RESTAURANT_UNRESPONSIVE)
     API->>Cu: Cancelled + full refund + similar restaurants
     API->>Dev: Outlet auto-paused 30 min + missed-order banner
     API->>Own: SMS - order missed, outlet paused
 ```
 
-- The device always shows the remaining accept time. At T+2 min the takeover turns **red** with "Accept now or the order will be cancelled".
+- The device always shows the remaining accept time. At T+90 s the takeover turns **red** with "Accept now or the order will be cancelled".
+- **Pause after misses (R1):** each missed order pauses the outlet for 30 min; **2 consecutive misses** pause it until the owner taps Resume (owner SMS). A missed order counts as `RESTAURANT_UNRESPONSIVE`, not as a rejection, but still counts against the restaurant in quality metrics.
+- **Voice escalation (R43):** V1 has no automated call; ops calls manually at 90 s (ops desk staffed during service hours). An automated IVR call to the counter device and owner is a P1 add-on if the pilot shows > 5 % of orders reaching 90 s.
 - Accept rate and accept latency feed partner analytics and ops quality dashboards.
 
 ### 4.4 Customer cancels during the grace window
@@ -234,7 +246,7 @@ sequenceDiagram
     Dev->>API: Optional tap Handed over
     Rd->>RApp: Checks bag count, taps Picked up and confirms
     RApp->>API: delivery PICKED_UP
-    API->>API: If order still PREPARING, set READY_FOR_PICKUP then PICKED_UP (implicit ready)
+    API->>API: If order still PREPARING, allow PICKED_UP and flag restaurant_skipped_ready
     API->>Dev: SSE - card moves to Out
 ```
 
@@ -269,7 +281,7 @@ sequenceDiagram
 | Description | Text, max 200 | Optional |
 | Category * | Picker / create | — |
 | Food type * | Veg / Non-veg / Egg | Icons. Egg shows as non-veg in the FSSAI marker plus a visible "Contains egg" tag `[OPEN — product]` |
-| Price * | ₹ numpad | Changes are audit-logged. A change > 25 % triggers a "Are you sure?" confirmation and an ops flag |
+| Price * | ₹ numpad | Changes are audit-logged. An increase > 30 % (01 RES-MENU-008) triggers a "Are you sure?" confirmation and an ops flag |
 | Packaging charge | ₹ numpad | Per item. Or set per order in outlet settings |
 | Image | Camera / gallery, 4:3 crop guide | Compressed to ≤ 1280 px, ≤ 250 KB WebP on the device |
 | Variants | Variant editor (P-32) | e.g. Half / Full, each with its own price |
@@ -292,12 +304,12 @@ Camera-first with in-app guidance overlay. A 4:3 crop. Uploaded images go throug
 ---
 
 ## 6. Analytics (P-40) — "How is my shop doing?"
-Kept simple, with plain-language cards and one chart per card. Period switch: **Today · 7 days · 30 days**.
+Kept simple, with plain-language cards and one chart per card. Period switch: **Today · This week** (01 RES-ANLY-001). 7/30-day trends are deferred to V1.1 (RES-ANLY-002, C13).
 
 | Card | Content |
 |---|---|
 | Orders & sales | Delivered orders count, item sales (₹), average order value; a bar chart by day |
-| Missed & rejected | Rejected count + top reasons, missed (timed-out) orders, accept time median. Coaching tip: "Each missed order is a lost customer — keep the sound on." |
+| Missed & rejected | Rejected count + top reasons, missed orders (cancelled as `RESTAURANT_UNRESPONSIVE`), accept time median. Coaching tip: "Each missed order is a lost customer — keep the sound on." |
 | Kitchen speed | Prep time promised vs actual (median), % orders ready on time |
 | Ratings | Average rating (30 days), count, tag cloud ("Tasty", "Small portion"), latest 10 reviews |
 | Top items | Top 5 items by quantity; items most often marked out of stock |
@@ -308,7 +320,7 @@ Data refreshes at most every 15 min. No real-time analytics in V1.
 ---
 
 ## 7. Payouts and statements (P-41, P-42)
-- **Payout list (P-41):** weekly cycles (Mon–Sun `[ASSUMPTION]`), each with status **Upcoming → Processing → Paid** (with **UTR / reference** and paid date) or **On hold** (with reason, e.g. "Bank details under verification").
+- **Payout list (P-41):** weekly cycles (Mon–Sun; payout day is an `app_config` key owned by doc 10 — default restaurant settlement on Tuesday, R53; settlement model PA split vs collect-and-payout decided with counsel, R35), each with status **Upcoming → Processing → Paid** (with **UTR / reference** and paid date) or **On hold** (with reason, e.g. "Bank details under verification").
 - **Statement detail (P-42), per cycle:**
   - Orders delivered (count), **item total**, **packaging charges**, restaurant-funded discounts (−), **commission** at X % (−), **GST on commission** (−), **TCS / TDS** deductions if applicable (−) `[LEGAL — e-commerce operator TCS under CGST §52 and TDS under Income-tax §194-O; verify applicability for §9(5) restaurant services]`, refunds or penalties attributable to the restaurant (−, each with an order code and reason), adjustments (±) → **Net payout**.
   - Per-order breakdown table (scrollable; CSV/PDF download).
@@ -318,10 +330,10 @@ Data refreshes at most every 15 min. No real-time analytics in V1.
 ---
 
 ## 8. Support (P-50)
-- **Big "Call rovo" button** (ops phone, `tel:`) on every screen's overflow menu, plus inline on order cards that have a problem.
+- **Big "Call rovo" button** (the staffed support/ops phone line, `tel:`, M9) on every screen's overflow menu, plus inline on order cards that have a problem.
 - Ticket categories: order problem (pre-filled from the card), rider problem, payout question, menu change help, app/device help, documents/licence renewal.
 - Ticket thread like the customer's (doc 04 §13.4), with photos allowed.
-- **FSSAI expiry reminders:** at 30, 15, 7 and 1 days before expiry → banner + SMS. **At expiry the outlet is auto-suspended from ordering** until a renewed licence is uploaded and approved `[LEGAL]`.
+- **FSSAI expiry reminders:** at 30, 15, 7 and 1 days before expiry → banner + SMS. **At expiry the outlet is auto-paused** (01 BR-RES-004) until a renewed licence is uploaded and approved `[LEGAL]`.
 
 ---
 
@@ -329,8 +341,8 @@ Data refreshes at most every 15 min. No real-time analytics in V1.
 
 | # | Situation | Behaviour |
 |---|---|---|
-| R1 | **Power cut / phone dies / Chrome killed with orders pending** | The server tracks **device liveness** (SSE connection + a 30 s heartbeat from the foreground app). If **no live restaurant device for 3 min** while the outlet is Open: (a) **auto-pause** new orders ("Busy — device offline"); (b) SMS + push to the owner; (c) ops board shows "Outlet offline" with its count of active orders. Orders already `PLACED` follow the normal accept-timeout (§4.3), so ops calls the outlet. Orders already `PREPARING` continue — the rider still arrives and the rider's "Picked up" works without the restaurant device. **On reconnect:** a full-screen "You were offline 14 min — 1 order was cancelled, 2 orders are in progress" summary, then "Resume taking orders?" (manual resume, so a shop that is still in the dark doesn't re-open by accident). |
-| R2 | **Restaurant forgets to mark ready** | Prep overrun nudges (§4.5). When the rider is `AT_RESTAURANT`, the card shows "Rider waiting · 4 min". The rider's "Picked up" sets the order to ready implicitly (`PREPARING → READY_FOR_PICKUP → PICKED_UP`, both timestamps written, flagged `ready_marked_by=implicit`). This counts against the "ready on time" metric. |
+| R1 | **Power cut / phone dies / Chrome killed with orders pending** | The server tracks **device liveness** (an open SSE connection counts as presence, plus a 60 s heartbeat from the foreground app — R27). If **no live order-receiver device for 3 min** while the outlet is Open (R1, doc 13 T-DEVICE-HB): (a) **auto-pause** new orders ("Busy — device offline"); (b) SMS + push to the owner; (c) ops board shows "Outlet offline" with its count of active orders. Orders already `PLACED` follow the normal accept-timeout (§4.3), so ops calls the outlet. Orders already `PREPARING` continue — the rider still arrives and the rider's "Picked up" works without the restaurant device. **On reconnect:** a full-screen "You were offline 14 min — 1 order was cancelled, 2 orders are in progress" summary, then "Resume taking orders?" (manual resume, so a shop that is still in the dark doesn't re-open by accident). |
+| R2 | **Restaurant forgets to mark ready** | Prep overrun nudges (§4.5). When the rider is `AT_RESTAURANT`, the card shows "Rider waiting · 4 min". The rider's "Picked up" sets the order to ready implicitly (`PREPARING → READY_FOR_PICKUP → PICKED_UP`, both timestamps written, flagged `restaurant_skipped_ready`, R4). This counts against the "ready on time" metric. |
 | R3 | **Rider late or no rider assigned when food is ready** | The card shows "Rider delayed — rovo is on it" (no action expected from the restaurant). If `READY_FOR_PICKUP` for more than 10 min with no rider at the restaurant: ops alert (doc 07). The restaurant can tap **"Rider not here"** to ping ops. Food quality concerns are ops' responsibility; no restaurant penalty. |
 | R4 | **Two riders arrive for one order** (e.g. after a reassignment) | Only the **current** assigned rider appears on the card. The previous rider's app shows "Order reassigned — do not pick up" (doc 06). Staff hand over only on a code + photo match. "Wrong rider?" → ops. |
 | R5 | **Order accepted by mistake, cannot be made** | "Can't make this order" → urgent ops ticket with a reason; ops cancels (admin cancel, refund). Counts toward the outlet's quality metrics. |
@@ -344,14 +356,14 @@ Data refreshes at most every 15 min. No real-time analytics in V1.
 
 ---
 
-## 10. Screen inventory (restaurant mode of `partner` app)
+## 10. Screen inventory (`restaurant` app)
 
 | ID | Screen | Purpose | Key components | Loading | Empty | Error |
 |---|---|---|---|---|---|---|
 | P-01 | Lead form (public) | Capture interest | Fields, OTP, submit | Submit spinner | — | OTP/validation |
 | P-02 | Wizard: Outlet basics | Identity | Name en/te, phone, cuisines, food type, cost for two | — | — | Validation |
-| P-03 | Wizard: Location | Pin + address | Map fixed pin, address fields, storefront photo | Tile placeholder | — | Out-of-zone; tile failure → locality-only + ops verifies |
-| P-04 | Wizard: Documents | KYC | FSSAI no. + photo + expiry, PAN + photo, GSTIN optional | Upload progress per file | — | Format errors, upload retry |
+| P-03 | Wizard: Location | Pin + address | Map fixed pin, address fields, storefront photo | Tile placeholder | — | Out-of-zone; tile failure → "use current location" as pin + ops verifies on visit |
+| P-04 | Wizard: Documents | KYC | FSSAI no. + photo + expiry, PAN + photo, GSTIN optional (images only) | Upload progress per file | — | Format errors, upload retry |
 | P-05 | Wizard: Bank | Payout destination | Holder, account × 2, IFSC lookup, cheque photo | IFSC lookup | — | Mismatch, IFSC not found |
 | P-06 | Wizard: Hours | Timings | Day toggles, slots, copy-to-all | — | — | Overlapping slots |
 | P-07 | Wizard: Photos | Visuals | Cover, logo, food photos | Upload progress | Placeholder tiles | Upload retry |
@@ -371,7 +383,7 @@ Data refreshes at most every 15 min. No real-time analytics in V1.
 | P-32 | Variant editor | Half/Full etc. | Options with prices | — | "No variants" | Validation |
 | P-33 | Add-on group editor | Extras | Group min/max, options, attach to items | — | — | min/max validation |
 | P-34 | Image capture | Photos | Camera guide, crop, compress | Processing | — | Too large/blurred hint |
-| P-40 | Analytics | Performance | Period switch, cards, charts | Skeleton cards | "Not enough data yet" | Retry |
+| P-40 | Analytics | Performance | Today / this week switch, cards | Skeleton cards | "Not enough data yet" | Retry |
 | P-41 | Payouts list | Cycles | Status, amount, UTR | Skeleton | "First payout after your first week" | Retry |
 | P-42 | Statement detail | Breakdown | Summary lines, per-order table, downloads, raise issue | Skeleton | — | Retry |
 | P-43 | Outlet settings | Hours, packaging, devices, staff | Sections | — | — | Save errors |
@@ -382,20 +394,20 @@ Data refreshes at most every 15 min. No real-time analytics in V1.
 ## 11. Requirements for Backend / Frontend and challenges to the baseline
 
 **Requirements**
-1. **Restaurant inbox SSE** per outlet (`order.placed`, `order.cancelled`, `delivery.status`, `delivery.rider`) with a heartbeat every ≤ 25 s and `Last-Event-ID` replay of the last 15 min. Polling fallback every 10 s while any order is `PLACED`.
-2. **Device liveness**: record the last heartbeat per `restaurant_device`. Worker rule: auto-pause after 3 min with no live device while Open (configurable).
-3. **Escalation timers** (T+90 s owner SMS, T+3 min ops alert, T+6 min system cancel + 30 min auto-pause) as durable jobs, cancelled on accept/reject.
+1. **Restaurant inbox events** on the single SSE stream `GET /api/v1/stream` (R10; event names per doc 11 §4.2: order placed/cancelled, delivery status, rider), heartbeat every 20 s, **no server replay** — the device refetches the inbox snapshot on reconnect. Polling fallback every 10 s while any order is `PLACED`.
+2. **Device liveness**: record the last heartbeat per `restaurant_device` (60 s heartbeat; SSE presence counts, R27). Worker rule: auto-pause after 3 min with no live order-receiver while Open (R1; `restaurant.device_offline_pause_s`).
+3. **Escalation timers** per R1 / doc 13 §5 (repeat every 30 s, owner SMS at 60 s, ops flag at 90 s, `CANCELLED`/`RESTAURANT_UNRESPONSIVE` at 180 s + 30-min auto-pause; 2 consecutive → paused until resume) as durable jobs that re-check state.
 4. **Web Push re-notify** every 30 s for unacknowledged orders (server-driven), with a per-order `tag`.
 5. **Prep-time default** = the outlet's rolling median, returned with the order.
-6. **Auto-advance `ACCEPTED → PREPARING`** (same transaction, or a worker within seconds), keeping both timestamps.
-7. **Implicit ready**: the rider's pickup from `PREPARING` writes `READY_FOR_PICKUP` and `PICKED_UP` with `ready_marked_by=implicit`.
+6. **Auto-advance `ACCEPTED → PREPARING`** after 60 s or on tap (R3), keeping both timestamps.
+7. **Implicit ready**: the rider's pickup is allowed from `PREPARING`, flagged `restaurant_skipped_ready` (R4; exact transition per doc 13).
 8. **Item availability with an auto re-enable time** (`unavailable_until`).
 9. **Reject reasons** as an enum with an optional item list; selecting items marks them unavailable.
-10. **Device sessions**: long-lived refresh for registered counter devices, revocable by the owner (doc 12).
-11. **Frontend:** Screen Wake Lock re-acquired on `visibilitychange`; an audio unlock gate; Web Audio looping alarm; vibration; two installable entry points (restaurant vs rider) with separate manifests and icons inside the `partner` app (doc 18).
+10. **Device sessions** (R44): device-bound sessions for registered order-receiver devices — sliding 30-day idle, 90-day absolute, revocable by owner/admin (doc 12).
+11. **Frontend:** Screen Wake Lock re-acquired on `visibilitychange`; an audio unlock gate; Web Audio looping alarm with Telugu voice line; vibration; a separate `restaurant` app with its own manifest, icons and host (R14; doc 18).
 
-**Challenges / proposals to the baseline**
-- **`ACCEPTED` is effectively transient** for restaurants. Keep it in the state machine (for audit and future scheduled orders), but auto-advance it.
-- **Restaurant timeout cancellations** should be `CANCELLED` with `cancelled_by=system`, `cancel_reason=RESTAURANT_NO_RESPONSE`, not `REJECTED`. Analytics must still count them against the restaurant.
+**Challenges / proposals to the baseline — now resolved by rulings**
+- **`ACCEPTED` is short-lived** for restaurants: kept in the state machine, auto-advanced after 60 s (R3).
+- **Restaurant timeout cancellations** are `CANCELLED` with `cancelled_by=SYSTEM`, reason `RESTAURANT_UNRESPONSIVE`, not `REJECTED` (R1). Analytics still count them against the restaurant.
 - **Partial fulfilment is deferred.** Out-of-stock → reject + one-tap reorder for the customer.
-- **Restaurants cannot self-cancel after accepting** in V1 (ops-mediated).
+- **Restaurants cannot self-cancel after accepting** in V1 — ops-mediated (R40).

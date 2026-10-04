@@ -14,6 +14,7 @@
 - P4: accept ladder per **R1** (repeat 30 s, owner SMS 60 s, ops call 90 s, cancel 180 s, 30-min pause), mandatory device-heartbeat auto-pause, rovo-provisioned counter device (M3), device-bound session (**R44**), voice escalation P1 (**R43**).
 - P5: 7/30-day trends deferred to V1.1 (C13) — noted as a retention risk.
 - P6/P7: dispatch tiers (**R34**), pilot minimum guarantee (M6), manual peak bonus (**R30**), fleet sized to demand (**R47**), gig-worker registration [LEGAL] (M5), insurance decision.
+- Payout days referenced as `app_config` keys (**R53**).
 - P8/P9: maker-checker narrowed to the **R31** families, COD compensation choice (**R29**), bulk menu import (M7), bank-statement matching, finance FTE from Gate B.
 
 **How these personas were built.** They are *proto-personas*: synthesised from knowledge of small-city Telangana markets, national food-delivery patterns and the constraints in the baseline. **They are not yet validated by research** `[ASSUMPTION]`. Before Gate A (doc 02 §5.1), ops should run ≥ 5 interviews per persona group (customers, restaurants, riders) in Mahabubnagar and update this document. Names are illustrative; any resemblance to real people is unintended.
@@ -153,7 +154,7 @@
 - Multiple devices on one account so the son's phone also rings (RES-PROF-004).
 - One-tap out-of-stock with "back tomorrow" default (RES-AVAIL-001).
 - Restaurant never handles cash or customer phone numbers (RES-ORD-001/008).
-- Statement per order with plain-language labels in Telugu; masked account; weekly payout by Wednesday (RES-PAYO-001, BR-PAYOUT-001).
+- Statement per order with plain-language labels in Telugu; masked account; weekly settlement on a fixed day (default Tuesday, `app_config` per R53) (RES-PAYO-001, BR-PAYOUT-001).
 - Mandatory device-heartbeat auto-pause: if no order device is alive for 3 min while open, the outlet pauses so customers don't order into a dead phone (RES-HOUR-005, R1).
 
 ---
@@ -288,7 +289,7 @@
 | **Age / role** | 41; B.Com, semi-qualified accountant; part-time finance admin for rovo (role `ADMIN_FINANCE`) and works with an external CA for GST filing |
 | **Device** | Windows desktop, Excel, Tally, net banking with bulk-upload |
 | **Language** | English for accounting; Telugu conversationally |
-| **Context** | Weekly payout runs (restaurants Wednesday, riders Tuesday), daily COD deposit confirmations, monthly GST working papers, PA settlement reconciliation |
+| **Context** | Weekly payout runs (days are `app_config` keys, R53 — defaults riders Monday, restaurants Tuesday), daily COD deposit confirmations, monthly GST working papers, PA settlement reconciliation |
 
 > *"If the ledger, the bank and the payment gateway don't agree, I don't release payouts."*
 

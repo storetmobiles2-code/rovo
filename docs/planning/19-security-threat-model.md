@@ -224,20 +224,20 @@ Owners: **BE** Backend, **FE** Frontend, **DO** DevOps/Cloud, **SEC** Security, 
 | ID | Component | STRIDE | Threat | L | I | Mitigation (→ SEC) | Residual | Owner | Rel |
 |---|---|---|---|---|---|---|---|---|---|
 | T-01 | OTP verify | S | **OTP brute force** across challenges/phones | M | H | 5 attempts per challenge, per-phone failure caps, new challenge per resend, HMAC+pepper, constant-time compare (SEC-001..004) | L | BE | V1 |
-| T-02 | OTP request | D / financial | **SMS pumping / toll fraud** | H | M | `+91` mobiles only; bot challenge on every request; layered limits (phone/IP/subnet/device) in Postgres; WAF rate rule on OTP path; global budget breaker + provider cap; conversion-ratio alerts (SEC-005..009, SEC-108) | L–M | BE/DO | V1 |
+| T-02 | OTP request | D / financial | **SMS pumping / toll fraud** | H | M | `+91` mobiles only; risk-based bot challenge (RV-034); layered limits (phone/IP/subnet/device) in Postgres; WAF rate rule on OTP path; global budget breaker + provider cap; conversion-ratio alerts (SEC-005..009, SEC-108) | L–M | BE/DO | V1 |
 | T-03 | OTP request | D | **SMS bombing** a victim's phone | M | L | Per-phone caps + exponential cooldown (SEC-006) | L | BE | V1 |
 | T-04 | Member accounts | S | **SIM-swap ATO** → payout redirection / PII | M | H (partner) / M | DoT 24 h SMS bar; step-up + 48 h cooling-off + out-of-band notice + finance approval for payout destination; new-device notice (SEC-010, SEC-052) | M | BE/FIN | V1 |
 | T-05 | Member accounts | S/I | **Recycled phone number** inherits old account | M | M | 180-day "is this you?" detach flow; partner re-KYC after 90 days (SEC-011) | L | BE/PRD | V1 |
 | T-06 | OTP channel | S | **OTP social engineering / phishing relay** | H | M | "Never share" SMS text; WebOTP origin binding; delivery PIN distinct from login OTP; in-app education (SEC-012) | M | PRD/BE | V1 |
 | T-07 | Auth endpoints | I | **Account enumeration** | M | L | Identical responses/timing (SEC-013) | L | BE | V1 |
-| T-08 | Admin login | S | **Admin phishing / credential stuffing** | M | H | argon2id, breached list, lockout, mandatory TOTP, IAP outer gate with workforce MFA, WAF rate rule; WebAuthn V1.1 (SEC-014..019) | M → L (V1.1) | SEC/BE | V1/V1.1 |
-| T-09 | Admin creds at rest | I | TOTP secrets/recovery codes from a DB dump | L | H | TOTP secrets KMS-envelope-encrypted; recovery codes HMAC'd with pepper in secrets manager (SEC-017, SEC-120) | L | BE | V1 |
+| T-08 | Admin login | S | **Admin phishing / credential stuffing** | M | H | argon2id, breached list, lockout, mandatory TOTP, WAF rate rule + geo-IN rule on the admin host (R37); passkeys/WebAuthn P1 (SEC-014..019, SEC-025). IAP withdrawn (C4) | M → L (P1) | SEC/BE | V1/P1 |
+| T-09 | Admin creds at rest | I | TOTP secrets/recovery codes from a DB dump | L | H | TOTP secrets field-level KMS-envelope-encrypted (kept under R38); recovery codes HMAC'd with pepper in secrets manager (SEC-017, SEC-120) | L | BE | V1 |
 | T-10 | Web sessions | I | **Token theft via XSS** | M | H | HttpOnly cookies; strict CSP; step-up on sensitive actions (SEC-026, SEC-061..066) | L–M | FE/BE | V1 |
 | T-11 | Refresh tokens | S | **Stolen refresh token replay** | M | H | Rotation; reuse → family revocation + notice; expiries; device list (SEC-027..029) | L | BE | V1 |
 | T-12 | JWT verify | S/E | **alg=none / confusion / forgery** | L | H | Fixed alg allowlist per `kid`, claim checks, size limit (SEC-030) | L | BE | V1 |
 | T-13 | Signing keys | S/E | Signing-key leak lets attacker mint tokens | L | H | Key in secrets manager, readable only by `role-api` (resource policy), access logged in cloud audit; rotation; KMS-held ES256 option (12 §4.10); server-side session check for admin/partner (SEC-031, SEC-121) | L | DO/SEC | V1 |
 | T-14 | Cookie-auth API | T | **CSRF** | M | H | Same-origin `/api` per app host, SameSite, Fetch-Metadata/Origin check, `X-Rovo-Client` + JSON → preflight, no GET side effects (SEC-032..034) | L | BE/FE | V1 |
-| T-15 | Multi-app | E | **Cross-app pivot** (customer-app XSS → admin API) | L | H | Host-only cookie jars per app host; admin `SameSite=Strict`; audience check; no CORS (SEC-035) | L | BE/DO | V1 |
+| T-15 | Multi-app | E | **Cross-app pivot** (customer-app XSS → admin API) | L | H | Host-only cookie jars per app host (four hosts, R14); admin `SameSite=Strict`; audience derived from `Host` + origin-verify secret, client `X-Rovo-Audience` ignored (RV-025); no CORS (SEC-035, SEC-186) | L | BE/DO | V1 |
 | T-16 | SSE / URLs | I | Tokens in URLs → CDN/LB/access logs | M | M | No tokens in query strings; cookie-auth SSE; CDN/LB logs exclude query strings on sensitive paths (SEC-036, SEC-131) | L | BE/FE | V1 |
 | T-17 | Login | S | Session fixation / login CSRF | L | M | New session on login; CSRF controls on auth endpoints (SEC-037) | L | BE | V1 |
 
@@ -277,11 +277,11 @@ Owners: **BE** Backend, **FE** Frontend, **DO** DevOps/Cloud, **SEC** Security, 
 | T-37 | Payment confirm | T | **Amount/currency/order mismatch** | M | H | One server-created PA order per rovo order; verify amount, INR, ids, `captured` (SEC-084) | L | BE | V1 |
 | T-38 | Payment return | S | Client "success" redirect trusted | M | H | Return endpoint non-authoritative; webhook/reconciliation only (SEC-085) | L | BE/FE | V1 |
 | T-39 | Refunds (customer) | T/R | **"Item missing" / "not delivered" refund abuse** | H | M | 2 h claim window; photo evidence; scored auto-approval; refund to source / platform credit; partner evidence (§6.6) (SEC-086, SEC-087) | M | PRD/OPS/BE | V1 |
-| T-40 | Refunds (insider) | T/E | **Insider refund fraud** | M | H | Thresholds + per-agent caps + maker-checker; source-only refunds; reason + ticket; anomaly report (SEC-088, SEC-053) | L | FIN/BE | V1 |
+| T-40 | Refunds (insider) | T/E | **Insider refund fraud** | M | H | Thresholds + per-agent caps + maker-checker above ₹500 (R31); break-glass with 24 h post-review (SEC-189); source-only refunds (COD: manual UPI with UTR or coupon by customer choice, R29); reason + ticket; anomaly report (SEC-088, SEC-053) | L | FIN/BE | V1 |
 | T-41 | Payouts | T/E | **Payout destination hijack** | M | H | Step-up + 48 h cooling-off + notice + finance verification + maker-checker (SEC-052, SEC-089) | L | FIN/BE | V1 |
 | T-42 | COD | T/R | **Rider COD cash theft** | H | M | Cash ledger; ₹2,000 limit; UPI deposits + reconciliation; ageing alerts (§6.7) (SEC-090, SEC-091) | M | FIN/OPS | V1 |
 | T-43 | COD | T | **Fake COD orders / refusal** | H | M | COD max value; COD block after 2 undeliverable; phone-verified only (SEC-092) | M | PRD/BE | V1 |
-| T-44 | Delivery completion | R/T | **Fake "delivered"** | M | M | Delivery PIN for COD/high-value; geofence; dispute flow (SEC-093) | L–M | BE/PRD | V1 |
+| T-44 | Delivery completion | R/T | **Fake "delivered"** | M | M | Delivery code for prepaid ≥ ₹300 (R39; off for COD); geofence; dispute flow (SEC-093) | L–M | BE/PRD | V1 |
 | T-45 | Rider location | S/T | **Location spoofing (mock location)** | H | M | PWAs cannot detect mock location; plausibility checks, geofences, fresh-fix rules, ops review; native attestation later (§6.8) (SEC-094) | **M–H (accepted V1)** | BE/OPS | V1 / native |
 | T-46 | Restaurant ops | R/T | **Fake rejections / gaming** | M | M | Reason codes; auto item-off; auto-pause thresholds; analytics; contract penalties `[PRD/LEG]` (SEC-095) | M | OPS/PRD | V1 |
 | T-47 | Onboarding | S | **Fake restaurants/riders** (forged FSSAI/DL, stolen IDs) | M | H | Manual KYC, FSSAI portal check, field/video verification, selfie match, bank-name match, probation (SEC-096) | M | OPS | V1 |
@@ -292,9 +292,9 @@ Owners: **BE** Backend, **FE** Frontend, **DO** DevOps/Cloud, **SEC** Security, 
 
 | ID | Component | STRIDE | Threat | L | I | Mitigation | Residual | Owner | Rel |
 |---|---|---|---|---|---|---|---|---|---|
-| T-50 | Admin console | I/E | **Insider PII browsing/exfiltration** | M | H | Least privilege; masking; reveal with step-up + reason + audit; export maker-checker; reveal-rate alerts; access reviews (SEC-049, SEC-050, SEC-054) | M | SEC/OPS | V1 |
-| T-51 | Admin console | T/E | **Compromised admin → mass refunds/payout redirect/role grants** | L | H | Step-up; maker-checker; caps; instant revocation; IAP (SEC-051..053) | L | SEC/BE | V1 |
-| T-52 | App audit log | R/T | **Audit tampering** by someone with DB access | L | H | Append-only privileges + trigger; hash chain; daily anchor to WORM bucket in log-archive account (SEC-126..128) | L | BE/DO | V1 |
+| T-50 | Admin console | I/E | **Insider PII browsing/exfiltration** | M | H | Least privilege; masking; reveal with step-up + reason + audit; PII export limited to finance/super with step-up + audit + next-day review (R31; SEC-050 withdrawn); reveal-rate alerts; access reviews (SEC-049, SEC-054) | M | SEC/OPS | V1 |
+| T-51 | Admin console | T/E | **Compromised admin → mass refunds/payout redirect/role grants** | L | H | Step-up; maker-checker (five R31 families); caps; instant revocation; WAF rate + geo-IN (SEC-051..053, SEC-189) | L | SEC/BE | V1 |
+| T-52 | App audit log | R/T | **Audit tampering** by someone with DB access | L | H | Append-only DB grants (no `UPDATE/DELETE/TRUNCATE` for `rovo_app`) + trigger; owner-role credentials break-glass only; pgaudit on role/DDL changes; CloudTrail in the audit/backup account. Per-row hash chain and WORM anchor withdrawn (C6); hourly batch sealing is the V1.1 option (SEC-118, SEC-126) | L–M | BE/DO | V1 |
 | T-53 | Impersonation | E/R | "Login as" abuse | — | — | **Not built** (12 §5.6) | n/a | — | — |
 
 ### 5.6 Uploads, storage & media
@@ -302,9 +302,9 @@ Owners: **BE** Backend, **FE** Frontend, **DO** DevOps/Cloud, **SEC** Security, 
 | ID | Component | STRIDE | Threat | L | I | Mitigation | Residual | Owner | Rel |
 |---|---|---|---|---|---|---|---|---|---|
 | T-54 | Images | S/I | **SSRF** via image URLs, reaching the cloud metadata/credentials endpoint (e.g. 169.254.169.254, ECS 169.254.170.2) to steal workload credentials | L (by design) | H | **No server-side URL fetching of user input**; outbound client allowlist; IMDSv2 hop-limit 1 wherever VMs/nodes exist; workload roles least-privilege (SEC-101, SEC-176) | L | BE/DO | V1 |
-| T-55 | Uploads | T/E | **Malicious upload** (polyglots, bombs, malware PDFs) | M | M | Presigned PUT conditions; magic bytes; re-encode; PDF feature rejection; ClamAV (§6.10); `nosniff`; separate media host (SEC-102..105) | L | BE/DO | V1 |
+| T-55 | Uploads | T/E | **Malicious upload** (polyglots, bombs, malware PDFs) | M | M | Images only (JPEG/PNG/WebP, R38); presigned PUT conditions; magic bytes; decode with pixel cap and re-encode; PDFs rejected; `nosniff`; separate media path (SEC-102, SEC-103, SEC-105, SEC-190). ClamAV withdrawn (C5) | L | BE/DO | V1 |
 | T-56 | Public media | I | **EXIF/GPS leakage** | M | L | Re-encode strips metadata (SEC-103) | L | BE | V1 |
-| T-57 | Buckets | I | **Public bucket / object exposure** (KYC, backups, logs) | L | H | Account-level Block Public Access / org-policy Public Access Prevention + guardrail deny; CDN origin access control for static/media; KYC app-encrypted; posture checks (SEC-106, SEC-174) | L | DO | V1 |
+| T-57 | Buckets | I | **Public bucket / object exposure** (KYC, backups, logs) | L | H | Account-level Block Public Access / org-policy Public Access Prevention + guardrail deny; CDN origin access control for static/media; KYC bucket SSE-KMS with a principal-restricted bucket policy and S3 data-event logging; posture checks (SEC-106, SEC-174) | L | DO | V1 |
 | T-58 | Presigned URLs | I | Presigned URL leak / long TTL | M | M | PUT 5 min; KYC via API stream (or GET ≤ 60 s); random keys; URLs signed by a dedicated narrow role (SEC-107) | L | BE | V1 |
 
 ### 5.7 Availability, abuse & cost
@@ -315,7 +315,7 @@ Owners: **BE** Backend, **FE** Frontend, **DO** DevOps/Cloud, **SEC** Security, 
 | T-60 | SSE | D | **SSE connection exhaustion** | M | M | Per-session/user/IP/replica caps; heartbeats; autoscale on connections (SEC-111) | L | BE/DO | V1 |
 | T-61 | Search/geo | D | Expensive query abuse | M | M | Indexes, `statement_timeout`, caps, caching, limits (SEC-109) | L | BE | V1 |
 | T-62 | Public catalog | I | **Scraping** | H | L | Accept; CDN caching of public catalog; rate limits; no PII on public endpoints (SEC-110) | L | PRD | V1 |
-| T-63 | Origin | D/S | **CDN/WAF bypass** by calling the LB/API directly; spoofed client-IP headers | M | H | LB security group allows only the CDN prefix list + secret origin-verify header; client IP taken from trusted proxy hops only (SEC-112, SEC-113) | L | DO | V1 |
+| T-63 | Origin | D/S | **CDN/WAF bypass** by calling the LB/API directly; spoofed client-IP headers | M | H | LB security group allows only the CloudFront prefix list + secret origin-verify header; requests without the secret rejected; audience never read from client headers (SEC-186); client IP taken from trusted proxy hops only (SEC-112, SEC-113) | L | DO | V1 |
 | T-64 | Billing | D (financial) | **Denial-of-wallet**: attack traffic drives autoscaling, WAF/CDN request charges, KMS/SMS spend; or a stolen credential spins up crypto-mining | M | M–H | Max replica caps; budgets + cost-anomaly alerts (AWS Budgets/Cost Anomaly Detection, GCP budgets); SMS budget breaker; guardrails restricting regions and instance types; GuardDuty/SCC crypto-mining findings (SEC-181) | L–M | DO/FIN | V1 |
 | T-65 | argon2 | D | Memory exhaustion via parallel admin logins | L | M | Per-replica semaphore; WAF rate rule (SEC-018) | L | BE | V1 |
 
@@ -330,20 +330,21 @@ Owners: **BE** Backend, **FE** Frontend, **DO** DevOps/Cloud, **SEC** Security, 
 | T-70 | Network | I | **Misconfigured security groups / public DB or cache** | L | H | DB/cache in isolated subnets, no public IP flag, guardrail deny for publicly accessible DB; IaC policy-as-code scans (checkov/tfsec/conftest) in CI; config-drift rules (AWS Config / Asset Inventory) (SEC-117, SEC-174) | L | DO | V1 |
 | T-71 | IaC | T/I | **Terraform state / IaC tampering** (state contains secrets and resource ids; malicious PR changes IAM) | M | H | Remote state in a locked, versioned, CMK-encrypted bucket in the prod account with access only for the deploy-infra role; `plan` on PR (read-only role, no apply from forks), `apply` only from protected env with approval; CODEOWNERS on `infra/` (SEC-179) | L | DO | V1 |
 | T-72 | Postgres | I/E | **DB credential misuse / over-privileged app role** | L | H | Separate DB roles (§7.1); credentials in secrets manager with rotation (or IAM DB auth `[OPEN]`); TLS enforced; `statement_timeout`; pgaudit for DDL/role changes (SEC-118, SEC-119) | L | DO/BE | V1 |
-| T-73 | Data at rest | I | Storage/snapshot theft, provider insider | L | H | Managed storage encryption with **CMKs** (`kms-db`, `kms-logs`); C1 fields app-level KMS envelope encryption; snapshots never shared publicly (guardrail) (SEC-120, SEC-174) | L | DO | V1 |
+| T-73 | Data at rest | I | Storage/snapshot theft, provider insider | L | H | Managed storage encryption with **CMKs** (`kms-db`, `kms-logs`, `kms-kyc`); C1 fields (bank numbers, VPAs, PAN/DL, TOTP secrets) field-level KMS envelope encryption; snapshots never shared publicly (guardrail) (SEC-120, SEC-174) | L | DO | V1 |
 | T-74 | KMS | D/T | **KMS key disable/deletion (sabotage/ransom) or key-policy lockout** makes data unreadable | L | H | Key deletion waiting period 30 days; guardrail denies `ScheduleKeyDeletion`/`DisableKey`/policy changes except break-glass; alarms on those events; key admins ≠ key users (SEC-124, SEC-180) | L | DO/SEC | V1 |
 | T-75 | Backups | I/T/D | **Backup deletion/encryption by attacker**, or restore failure | L | H | Automated backups + PITR (≥ 7 days, target 14–35); **cross-account, cross-region (India) copies to a locked vault** (AWS Backup Vault Lock / GCP backup vault enforced retention); weekly logical dump to Object-Lock bucket; monthly restore drill (SEC-122, SEC-123) | L | DO | V1 |
 | T-76 | Cloud audit | R/T | **Attacker disables or deletes cloud audit logs** to hide tracks | L | H | Org-level trail / audit config owned by the security account; guardrail denies `StopLogging`/`DeleteTrail`/sink changes; log files validated (CloudTrail digest) and WORM-stored in the log-archive account; alarms on audit config changes (SEC-182) | L | DO/SEC | V1 |
-| T-77 | Logs/telemetry | I | **PII/secrets in logs or SaaS** | H | M | slog redaction; no bodies; error-tracking scrubbing; logs in India-region log store; CDN/LB/WAF logs minimised (SEC-129..132) | L | BE/DO | V1 |
+| T-77 | Logs/telemetry | I | **PII/secrets in logs or SaaS** | H | M | slog redaction; no bodies; Faro scrubbing (IDs stripped from URL paths, IP collection off); logs in India-region log store; CDN/LB/WAF logs minimised (SEC-129..132) | L | BE/DO | V1 |
 | T-78 | Data residency | I (legal) | **Residency drift**: resources, backups, logs or replicas created outside India (e.g. GCP `_Required`/`_Default` log buckets default to the `global` location; CloudFront/WAF-for-CloudFront logging resources are global or `us-east-1`; SaaS) | M | M | Guardrail region restriction (SCP `aws:RequestedRegion` / Org Policy `gcp.resourceLocations`) to India regions, with documented exceptions for global services (IAM, CDN, WAF-for-CDN, DNS); redirect `_Default` sink to a regional bucket and keep `_Required` content PII-free; CDN/WAF logs to India-region buckets where supported, with IP truncation `[ASSUMPTION — verify per service]`; processor register (SEC-161, SEC-183) | L–M | DO/LEG | V1 |
 | T-79 | Secrets | I | **Secret leakage** (repo, task definitions in plain env, IaC state, CI logs, local dev copies) | M | H | Secrets manager references (not plaintext) in task definitions; masked CI logs; gitleaks + push protection; prod secrets never leave the cloud (no local copies); rotation runbooks (SEC-121, SEC-136..138, SEC-185) | L | DO | V1 |
-| T-80 | Workloads | E | **Container compromise → lateral movement** | L | H | Distroless non-root images, read-only root FS, no shell; minimal task role; egress allowlist; runtime threat detection (GuardDuty Runtime Monitoring / SCC) `[OPEN — cost]` (SEC-116, SEC-176) | L | DO | V1 |
+| T-80 | Workloads | E | **Container compromise → lateral movement** | L | H | Distroless non-root images, read-only root FS, no shell; minimal task role; SG egress + app host allow-list; **GuardDuty Runtime Monitoring on ECS** (V1, a compensating control for R28) (SEC-116, SEC-176, SEC-187) | L | DO | V1 |
 | T-81 | Dependencies | T/E | **Malicious/vulnerable dependency** | M | H | Lockfiles; blocked lifecycle scripts; `minimumReleaseAge` `[verify]`; govulncheck + osv-scanner; registry image scanning; Dependabot; SBOM (SEC-139..142) | M | DO/SEC | V1 |
 | T-82 | CI/CD | E/T | **Compromised Action / workflow injection** | M | H | SHA-pinned Actions; least-privilege `GITHUB_TOKEN`; no `pull_request_target` with PR checkout; `id-token: write` only in deploy jobs; zizmor/actionlint; Scorecard (SEC-143..145) | L | DO | V1 |
 | T-83 | CI secrets | I | **Fork PRs exfiltrating credentials** | M | H | No long-lived cloud keys exist in GitHub at all (OIDC only); fork PRs get no secrets and read-only token; prod OIDC subject only matches the protected environment; first-time contributor approval (SEC-146, SEC-177) | L | DO | V1 |
 | T-84 | Images/deploy | T | **Image tampering** | L | H | Immutable registry tags; cosign keyless signing + provenance; deploy by digest; signature verification at deploy (or GCP Binary Authorization) (SEC-147) | L | DO | V1 |
 | T-85 | Time | R | Inaccurate timestamps undermine forensics | L | L | Cloud provider time sync (Amazon Time Sync / Google internal NTP); CERT-In traceability `[LEGAL/verify]` (SEC-133) | L | DO | V1 |
-| T-86 | Managed provider | I | Provider-side insider / managed-service compromise | L | H | Accept residual; CMKs + app-layer encryption for C1; provider attestations (ISO 27001/SOC 2) on file (SEC-120) | L | SEC | V1 |
+| T-98 | Network (closed pilot, R28) | I/E | **Tasks with public IPv4 in public subnets** become directly reachable through a misconfigured SG, or use unrestricted egress for exfiltration / C2 traffic | M | H | SG ingress only from the ALB SG (IaC policy check, external probe of task IPs fails); SG egress 443 only + 5432 to DB SG; app-level outbound host allow-list; VPC endpoints for S3/ECR/Secrets Manager/CloudWatch Logs; GuardDuty Runtime Monitoring; **time limit:** NAT Gateway (single AZ) + private subnets before Gate B, or earlier if a provider requires IP allow-listing (SEC-187) | L–M (pilot) → L (Gate B) | DO/SEC | V1 pilot |
+| T-86 | Managed provider | I | Provider-side insider / managed-service compromise | L | H | Accept residual; CMKs + field-level encryption for C1 fields; provider attestations (ISO 27001/SOC 2) on file (SEC-120) | L | SEC | V1 |
 
 ### 5.9 Privacy, regulatory & open-source
 
@@ -353,13 +354,13 @@ Owners: **BE** Backend, **FE** Frontend, **DO** DevOps/Cloud, **SEC** Security, 
 | T-88 | Rights | I/R | **Rights not honoured in time** | M | M | Self-service export/correction/deletion; SLA queue; grievance officer (SEC-157..160) | L | PRD/OPS | V1 |
 | T-89 | Children | I | Children's data without verifiable parental consent | L | M | 18+ service; declaration; block on knowledge `[LEGAL]` (SEC-164) | M | LEG/PRD | V1 |
 | T-90 | Breach response | R | **Missing CERT-In 6 h / DPB 72 h** | M | H | IR plan §10; PoC registered; tabletop (SEC-166..170) | L | SEC/LEG | V1 |
-| T-91 | Cross-border | I | PII processed outside India (CDN edges, error-tracking SaaS, email/push providers) | M | M | DPDP s.16 (transfers allowed unless restricted; `[LEGAL — re-check]`); data at rest in India; SaaS gets redacted data; DPAs (SEC-132, SEC-161) | L | LEG/DO | V1 |
+| T-91 | Cross-border | I | PII processed outside India (CDN edges, email/push providers; telemetry SaaS) | M | M | DPDP s.16 (transfers allowed unless restricted; `[LEGAL — re-check]`); data at rest in India; Grafana Cloud stack in an India region where offered `[ASSUMPTION — verify, doc 24]` with redacted telemetry; **Sentry not used** (R36, resolves RV-032); DPAs (SEC-132, SEC-161) | L | LEG/DO | V1 |
 | T-92 | Payments scope | I | **Card data enters rovo** | L | H | PA hosted checkout; no card fields; never store PAN/CVV (SEC-162) | L | BE/FE | V1 |
 | T-93 | OSS | I | Attackers study public code | H | M | Kerckhoffs; security tests; thresholds in DB; PVR (SEC-148, SEC-149) | M | SEC | V1 |
 | T-94 | OSS | R | No disclosure channel | M | M | `SECURITY.md`, PVR, `security.txt` (SEC-150) | L | SEC | V1 |
 | T-95 | OSS self-hosters | S/E | **Insecure defaults** in forks/self-hosts | M | H | Prod mode refuses dev keys/empty secrets/debug; no default creds; bootstrap CLI (SEC-125) | L | BE | V1 |
 | T-96 | Push | I | PII on lock screens | M | L | Order code + status only (SEC-072) | L | BE | V1 |
-| T-97 | Non-prod envs | I | **Production data copied to dev/free-tier/preview environments** (laptops, free hosts outside India) | M | H | Policy: no prod data outside prod; synthetic seed data; anonymised staging snapshots only via an approved masking job; preview/free tiers use fake providers (SEC-185) | L | DO/SEC | V1 |
+| T-97 | Non-prod envs | I | **Production data copied to dev/demo environments** (laptops, tunnels) | M | H | Policy: no prod data outside prod; synthetic seed data; anonymised staging snapshots only via an approved masking job; dev/demo is local Docker only with fake providers (R24) (SEC-185) | L | DO/SEC | V1 |
 
 ---
 
@@ -406,23 +407,23 @@ Content-Security-Policy:
 
 ### 6.3 Server-authoritative pricing and quotes (T-31, T-32)
 
-1. `POST /api/v1/quotes` with `{restaurant_id, items:[{item_id, variant_id, addon_ids, qty}], address_id, coupon_code?, payment_method}`. The client sends **no amounts**.
+1. `POST /api/v1/cart/quote` (R12) with `{restaurantId, items:[{itemId, variantId, addonIds, qty}], addressId, couponCode?, paymentMethod}`. The client sends **no amounts**.
 2. The server computes everything from DB data:
    - line prices, packaging;
    - delivery fee from the **stored address pin** and restaurant location (never client-provided distance);
    - platform fee, small-cart fee, GST, coupon.
 
    It stores `quotes(id, user_id, cart_hash, breakdown jsonb, total_paise, currency, menu_version, pricing_version, coupon_id, expires_at = now()+10 min)`.
-3. `POST /api/v1/orders {quote_id, idempotency_key}` checks:
+3. `POST /api/v1/orders {quoteId}` + `Idempotency-Key` header checks:
    - the quote belongs to the principal, is unexpired and unused (unique `orders.quote_id`);
    - restaurant open and serviceable;
    - items available;
    - versions unchanged;
    - coupon redeemable atomically.
 
-   Any mismatch returns `409 quote_stale`. The PA order is created server-side for `total_paise`.
+   Any mismatch returns `409 QUOTE_CHANGED` (with a diff) or `409 QUOTE_EXPIRED` (R12). The PA order is created server-side for the whole-rupee payable (R8).
 
-**Decision: no client-held signed quote token.** A server-side row with an unguessable id bound to the user is simpler, auditable and revocable. `quote_sig = HMAC(K_quote, …)` can be added later for offline native carts without changing the API.
+**Decision (aligned with R12):** the quote is a **stored server-side row**; the `quoteId` returned to the client is signed (`HMAC(K_quote, id)`) so tampered ids are rejected before a DB lookup. The client never holds amounts that the server trusts.
 
 ### 6.4 Coupon abuse (T-33, T-34)
 
@@ -441,14 +442,14 @@ Content-Security-Policy:
 sequenceDiagram
     autonumber
     participant PA as Payment aggregator
-    participant EDGE as CDN + WAF (api.rovo.in)
-    participant API as rovo API /webhooks/pa
+    participant EDGE as CloudFront + WAF (api.rovo.in)
+    participant API as rovo API /webhooks/payments/{provider}
     participant DB as Postgres
     participant W as Worker
     PA->>EDGE: POST webhook (raw JSON, signature header, event id)
     EDGE->>API: forwarded (WAF: no CAPTCHA/challenge on this path; size ≤ 256 KB; optional PA source-IP set)
     API->>API: HMAC-SHA256(raw_body, webhook_secret) == signature (hmac.Equal) else 401 + audit
-    API->>DB: INSERT provider_events(provider, event_id, payload_hash) ON CONFLICT DO NOTHING
+    API->>DB: INSERT payment_events(provider, event_id, payload_hash) ON CONFLICT DO NOTHING
     alt duplicate
       API-->>PA: 200 (idempotent no-op)
     else new
@@ -463,6 +464,7 @@ sequenceDiagram
 ```
 
 - The webhook secret is held in the secrets manager, with dual secrets supported during rotation.
+- **Minimisation (RV-030):** customer contact/email fields are redacted from the stored payload at ingest; the raw body is kept 180 days for disputes, the normalised fields 8 years (doc 10/14 own the retention).
 - Refund calls carry idempotency keys.
 
 ### 6.6 Refund fraud (T-39, T-40)
@@ -472,19 +474,19 @@ sequenceDiagram
   - photo required for quality, spill and wrong-item claims;
   - "not delivered" is only accepted where there was no PIN or geofence success.
 - **Auto-approval** only if: claim ≤ ₹150, claim ratio < 10% of last 20 orders, ≤ 2 claims in 30 days, and account age > 7 days `[ASSUMPTION — PRD to tune]`. Everything else goes to the support queue.
-- **Destination:** original instrument (prepaid) or platform credit (COD) `[PRD]`. **Never** a new account typed by support.
+- **Destination:** original instrument (prepaid). For COD, the **customer chooses** a manual UPI refund (finance records the UTR, `refunds.provider='MANUAL'`) or a single-user coupon — never coupon-only (R29) `[LEGAL]`. The UPI ID is the customer's own, captured in-app from the customer's session, never typed by support from a phone call.
 - **Insider controls:**
-  - thresholds, daily caps and maker-checker;
+  - thresholds, daily caps and maker-checker above ₹500 (goodwill above ₹150) (R31);
   - mandatory reason + ticket;
   - weekly per-agent report;
   - DB check that total refunds ≤ captured amount.
 
 ### 6.7 COD cash controls (T-42, T-43)
 
-- **Append-only rider cash ledger** with entries `COD_COLLECTED`, `DEPOSIT_DECLARED`, `DEPOSIT_CONFIRMED` (with UTR), and `ADJUSTMENT` (maker-checker).
-- **Cash limit:** ₹2,000 blocks new COD offers.
+- **Append-only rider cash ledger** with entries `COD_COLLECTED`, `DEPOSIT_DECLARED`, `DEPOSIT_CONFIRMED` (with UTR), and `ADJUSTMENT` (maker-checker above threshold, R31).
+- **Cash limit (R6):** a rider is offered a COD order only if cash-in-hand + order payable ≤ ₹2,000.
 - **Deposits** preferably by UPI to the collection account, matched by UTR.
-- **Ageing alerts** at 24 h and 48 h; suspension at 72 h `[PRD]`.
+- **Ageing (R53):** `app_config` keys owned by doc 10; defaults: alert at 24 h, block new COD offers at 48 h.
 - **Payout netting** of unremitted cash is subject to the rider agreement `[LEGAL]`.
 
 ### 6.8 Rider location and delivery proof (T-44, T-45)
@@ -498,13 +500,13 @@ sequenceDiagram
   - fixes must fall inside the city polygon.
 - **Status proofs:**
   - `AT_RESTAURANT` and `PICKED_UP` need a fix within 150 m of the restaurant, plus restaurant handover confirmation.
-  - `DELIVERED` needs the PIN (for COD and high-value orders) **or** a fix within 250 m plus no dispute within 2 h.
+  - `DELIVERED` needs the delivery code for **prepaid orders ≥ ₹300** (R39; off for COD), otherwise a fix within 250 m plus no dispute within 2 h.
 - Flags go to the ops review queue and the rider risk score.
 - **Native later:** Play Integrity plus `Location.isMock()`.
 
 ### 6.9 Restaurant gaming and fake partners (T-46, T-47)
 
-- **Rejections:** reasons are mandatory, and `ITEM_UNAVAILABLE` toggles the named items off. More than 3 rejections or timeouts in 60 min auto-pauses the restaurant for 30 min.
+- **Rejections:** reasons are mandatory, and `ITEM_UNAVAILABLE` toggles the named items off. More than 3 rejections in 60 min auto-pauses the restaurant for 30 min. **Accept timeouts follow R1:** each miss (`CANCELLED`/`RESTAURANT_UNRESPONSIVE` at 180 s) pauses the outlet 30 min; 2 consecutive misses pause it until the owner resumes.
 - **Onboarding checks:**
   - FSSAI licence verified on the government portal;
   - GSTIN check;
@@ -513,27 +515,25 @@ sequenceDiagram
   - owner video verification.
 - **Probation** for the first 14 days: delayed payouts and order caps.
 
-### 6.10 Upload pipeline and malware scanning (T-54..T-58) — decision
+### 6.10 Upload pipeline (T-54..T-58) — decision (v1.1, R38)
 
-**Decision: ClamAV (`clamd`) for KYC uploads in V1**, run as an **internal service** in the private subnets (its own small container service with ~2 GB memory, signatures updated by `freshclam` through the egress allowlist), reachable only from the worker.
+**Decision: KYC uploads are images only; no ClamAV and no PDF handling in V1** (R38, C5, RV-029). The v1 ClamAV service, PDF parsing and app-layer envelope encryption of files are **withdrawn**.
 
-Rationale: KYC PDFs are opened by admins, which is the most plausible malware path to staff machines. Menu and media images are re-encoded instead of scanned.
-
-**AWS alternative:** Amazon GuardDuty Malware Protection for S3 can scan new objects in a bucket and tag results `[ASSUMPTION — verify availability in the chosen India region and price]`. If used, the worker waits for the scan tag before promoting the object. Keeping ClamAV preserves cloud portability (00 §4a rule 1).
+Rationale: admins opening KYC PDFs was the most plausible malware path to staff machines. Accepting only images and re-encoding them on the server removes that path without running a 2 GB scanner service that also needs internet egress for signature updates. If PDFs ever have to be accepted, the option is GuardDuty Malware Protection for S3 `[ASSUMPTION — verify availability and price in ap-south-1]` (Lead D12 option c).
 
 **Pipeline:**
-- Presigned PUT to a `staging/` prefix (content-type and size enforced in the signature).
+- The client converts PDFs and photos to JPEG/WebP before upload (12 §6.2).
+- Presigned PUT to a `staging/` prefix: content-type ∈ {JPEG, PNG, WebP} and size ≤ 5 MB enforced in the signature.
 - Worker job:
-  1. size and magic-byte check;
-  2. images: decode with a max pixel count (e.g. 40 MP), re-encode, strip metadata;
-  3. PDFs: parse in a time/memory-limited subprocess, reject `/JavaScript`, `/JS`, `/OpenAction`, `/Launch`, `/EmbeddedFile`, `/RichMedia`, and encryption;
-  4. clamd INSTREAM scan;
-  5. KYC: app-level KMS envelope encryption (12 §6.2) then move to the final prefix; media: publish to the media bucket;
-  6. delete staging.
+  1. size and magic-byte check (anything not JPEG/PNG/WebP, including PDF, is rejected);
+  2. decode with a max pixel count (e.g. 40 MP), re-encode, strip metadata;
+  3. KYC: write to the final prefix of the KYC bucket (SSE-KMS, `kms-kyc`); media: publish to the media bucket;
+  4. delete staging.
 
   Failures are quarantined.
 - **Staging lifecycle rule:** objects older than 24 h are deleted.
-- **Admin viewing:** KYC is viewed via the API stream with `Content-Security-Policy: sandbox`.
+- **Admin viewing:** KYC is viewed via the audited API stream or a ≤ 60 s signed URL, with `nosniff` and `Cache-Control: no-store`.
+- Bank account numbers and TOTP secrets keep **field-level encryption** (§7.3).
 
 ### 6.11 DoS, scraping and edge configuration (T-59..T-63)
 
@@ -553,19 +553,19 @@ Proposed rule set (expressed generically; DevOps encodes in IaC):
 | W1 | Provider managed baseline rules (AWS: Core rule set, Known bad inputs, SQLi, Amazon IP reputation; GCP: preconfigured OWASP CRS sqli/xss/lfi/rce at a tuned sensitivity) | Block (start in Count for 1 week in staging) |
 | W2 | Rate: `/api/v1/auth/otp/` per IP > 30 / 5 min | CAPTCHA/Challenge → Block on repeat |
 | W3 | Rate: `/api/v1/auth/admin/` per IP > 20 / 5 min | Block |
-| W4 | Rate: any `/api/` per IP > 3,000 / 5 min (CGNAT-tolerant) | Block 5 min |
-| W5 | `admin.` host: IP-set allowlist and/or geo = IN (if IAP not used); plus deny all `/internal/`, `/metrics`, `/debug/` paths everywhere | Block |
-| W6 | `api.` host `/webhooks/`: exclude from challenge actions; body-size constraint ≤ 256 KB; optional PA source-IP set | Allow-after-checks |
+| W4 | Rate: any `/api/` per IP > 3,000 / 5 min (CGNAT-tolerant; validated by the doc 20 CGNAT load scenario, RV-064) | Block 5 min |
+| W5 | `admin.` host: **geo ≠ IN → block** (R37); optional IP-set allowlist for fixed-IP finance staff; plus deny all `/internal/`, `/metrics`, `/debug/` paths everywhere | Block |
+| W6 | `api.` host: only `/webhooks/*` routed (everything else 404); exclude from challenge actions; body-size constraint ≤ 256 KB; optional PA source-IP set | Allow-after-checks |
 | W7 | Body size > 64 KB on JSON API paths (except upload-init) | Block |
 | W8 | Emergency rule slot (ASN/country/UA/IP set), toggled by IaC variable | Block/Challenge |
 
-- **Bot control** (AWS WAF Bot Control / reCAPTCHA Enterprise) is `[OPEN — cost]`. Turnstile already covers OTP.
+- **Bot control** (AWS WAF Bot Control / reCAPTCHA Enterprise) is `[OPEN — cost]`. Risk-based Turnstile already covers OTP.
 - **App-level limits:**
   - per principal + IP token buckets for writes, search, quote, coupon validation and upload-init;
   - Postgres (or managed Redis) for auth;
   - body ≤ 64 KB; read-header 5 s; read 15 s; write 30 s (SSE exempt);
   - `statement_timeout` 3 s (API role) / 60 s (worker).
-- **Autoscaling:** min 2 API replicas across AZs, **max cap** set (denial-of-wallet guard, T-64). The worker runs with a fixed count.
+- **Autoscaling:** min 2 API replicas (across AZs from Gate B), **max cap** set (denial-of-wallet guard, T-64). The worker runs with a fixed count.
 - **If Cloudflare is placed in front** (P7 allows it): its Free plan offers only the Free Managed Ruleset, 5 custom rules and **1** rate-limiting rule (10 s period, IP-only) (Cloudflare docs, accessed 2026-10-04). It is useful for DNS/TLS/CDN, but **the cloud WAF stays authoritative**.
 
 ---
@@ -585,14 +585,14 @@ Settings and protections:
 - **Network:** isolated subnets, publicly-accessible flag off (guardrail), security group allows only API/worker/migration tasks.
 - **TLS required** (`rds.force_ssl=1` / Cloud SQL "require SSL"); clients use `sslmode=verify-full` with the provider CA bundle.
 - **Credentials:** in the secrets manager with automatic rotation (or IAM database authentication `[OPEN — pgx support/latency trade-off]`).
-- **Encryption at rest** with CMK `kms-db`. Multi-AZ (or documented single-AZ pilot with upgrade trigger per 00 §4a).
+- **Encryption at rest** with CMK `kms-db`. Single-AZ db.t4g.small with PITR and cross-region automated backups for the closed pilot; **Multi-AZ mandatory before Gate B or > 100 orders/day**, whichever first (R32).
 - **Backups:** automated + PITR (§7.4).
 - **Logging:** `log_connections`, failed auth, and DDL logs exported to the India-region log store. `pgaudit` (supported on RDS and Cloud SQL) for role/DDL changes and reads of C1 tables `[ASSUMPTION — verify extension availability per engine version]`.
 - **PostGIS** extension enabled by the owner role in migrations only.
 
 ### 7.2 Accounts, network and operator access
 
-- **Account/project layout:** `management` (org only), `security` (audit logs, findings, WORM archive), `backup` (locked vault, 2nd India region), `prod`, `staging`, `sandbox`.
+- **Account layout (C18): four AWS accounts** — `mgmt` (org only), `prod`, `nonprod` (staging + sandbox), `audit/backup` (CloudTrail org trail, CERT-In log archive, findings, locked backup vault in ap-south-2).
 - **Guardrails (SCPs / Org Policies)**, applied org-wide:
   - deny regions outside India (exceptions for global services);
   - deny disabling audit logs / threat detection;
@@ -600,12 +600,11 @@ Settings and protections:
   - deny KMS key deletion except the break-glass role;
   - require IMDSv2 where VMs exist;
   - deny creation of long-lived IAM user access keys.
-- **VPC:**
-  - public subnets hold only the LB and NAT;
-  - workloads in private subnets without public IPs;
-  - DB/cache in isolated subnets with no internet route;
-  - private endpoints for object storage, secrets, KMS, registry and logs;
-  - VPC flow logs to the log store (rejects at minimum).
+- **VPC (R28):**
+  - **Closed pilot (no NAT):** API/worker tasks in public subnets with public IPv4, compensating controls per SEC-187: SG ingress only from the ALB SG, SG egress 443 + 5432 (DB SG) only, app-level outbound host allow-list, VPC endpoints for S3, ECR, Secrets Manager, KMS and CloudWatch Logs, GuardDuty Runtime Monitoring on ECS.
+  - **Before Gate B** (or earlier if a provider requires IP allow-listing): one NAT Gateway (single AZ); workloads move to private subnets without public IPs; public subnets hold only the ALB and NAT.
+  - DB/cache in isolated subnets with no internet route (always);
+  - VPC flow logs **ALL** (not rejects only) to the log store and the CERT-In archive (R36).
 - **Operator access:**
   - SSO with FIDO2 MFA;
   - default read-only permission set in prod;
@@ -620,10 +619,10 @@ Settings and protections:
 - **Key policies separate roles:** key **administrators** (security account roles; cannot use the key) and key **users** (workload roles; can use the key, not manage it). Automatic rotation is enabled (yearly).
 - **Envelope encryption:**
   - The app calls KMS `GenerateDataKey` (AWS) / uses Tink with a Cloud KMS KEK URI (GCP) to obtain DEKs, and encrypts with AES-256-GCM.
-  - The wrapped DEK is stored alongside: in `encryption_keys` for column-key versions, or in object metadata per KYC file.
+  - The wrapped DEK is stored alongside, in `encryption_keys` for column-key versions.
   - Plaintext DEKs are cached in memory for ≤ 15 min / ≤ 10k uses to bound KMS calls and cost.
   - **Recommended library:** Google Tink (Go) with KMS-backed AEAD (supports AWS KMS and GCP KMS), behind a `crypto/envelope` interface (portability rule).
-- **Encrypted fields (V1):** payee bank account number, payee UPI VPA, PAN, DL and RC numbers, TOTP secrets, KYC files, and rider location history beyond 24 h `[OPEN — or delete after 30 days]`.
+- **Encrypted fields (V1, field-level):** payee bank account number, payee UPI VPA, PAN, DL and RC numbers, TOTP secrets, and rider location history beyond 24 h `[OPEN — or delete after 30 days]`. **KYC files are not app-encrypted** (R38): they rely on bucket SSE-KMS (`kms-kyc`), a principal-restricted bucket policy and S3 data-event logging.
 - **AAD** = `table|column|row_id|key_version` (prevents ciphertext swapping).
 - **Blind index** `HMAC-SHA-256(K_bidx, normalised)` for dedupe/fraud lookups. `K_bidx` is held in the secrets manager, or as a KMS HMAC key `[OPEN]`.
 - **Not column-encrypted:** phone, name, address (operational need). These are protected by access control, CMK storage encryption and audit.
@@ -633,9 +632,9 @@ Settings and protections:
 ### 7.4 Backups (summary; owned by 23)
 
 - Managed automated backups + **PITR** (retention target 14–35 days).
-- Snapshots encrypted with `kms-db`, **copied cross-account and cross-region within India** to a **locked backup vault** (AWS Backup Vault Lock compliance mode / GCP backup vault with enforced retention). Prod operators cannot delete these copies.
-- Weekly logical dump (`pg_dump`, for engine-portability and long-term restore tests) written to an **Object Lock / Bucket Lock** bucket in the backup account.
-- **Monthly restore drill:** restore into an isolated staging-like account, verify row counts, and verify that C1 fields decrypt via the KMS key grant for the drill role.
+- Snapshots encrypted with `kms-db`, **copied to the audit/backup account (C18) and cross-region within India** to a **locked backup vault** (AWS Backup Vault Lock compliance mode / GCP backup vault with enforced retention). Prod operators cannot delete these copies.
+- Weekly logical dump (`pg_dump`, for engine-portability and long-term restore tests) written to an **Object Lock / Bucket Lock** bucket in the audit/backup account.
+- **Restore verification (R50):** automated **weekly** restore-and-verify into an ephemeral instance; **monthly** timed manual DR drill against the runbook, verifying row counts and that C1 fields decrypt via the KMS key grant for the drill role; the drill **replays the erasure ledger** so erased subjects do not reappear (SEC-192); quarterly cross-region restore after Gate B.
 - **Erasure vs backups:** erased data ages out of backups within the retention window. This is stated in the privacy notice.
 
 ### 7.5 Secrets management
@@ -660,12 +659,12 @@ Settings and protections:
   - regexes for Indian mobile numbers, PAN and 12-digit Aadhaar-like numbers;
   - no request/response bodies;
   - CI log-capture test with PII fixtures.
-- **Residency and retention:**
-  - Logs live in an **India-region** log store (CloudWatch Logs in `ap-south-1`/`ap-south-2`, or a **regional** Cloud Logging bucket in `asia-south1`/`asia-south2` with the `_Default` sink redirected).
-  - Note that GCP's `_Required` bucket is global and cannot be regionalised (GCP docs, accessed 2026-10-04). Only Google-managed admin-activity audit logs land there, so keep application data out of it.
-  - Retention: security/access logs **≥ 180 days** (CERT-In); auth/audit events **≥ 1 year** (DPDP Rules).
-  - Cloud audit logs are archived to WORM storage in the security account for ≥ 1 year.
-- **Error tracking SaaS:** `sendDefaultPii=false`, scrubbing, no session replay, IP collection off. It is a cross-border processor `[LEGAL]`; self-hosting or using the cloud-native error reporting is the residency-preserving alternative `[OPEN — 24]`.
+- **Residency and retention (R36, M1, RV-085):**
+  - Operational logs live in **CloudWatch Logs in `ap-south-1`** (short hot retention per doc 22/24) and are queried/visualised through Grafana Cloud. Grafana Cloud/Loki retention (e.g. 14 days) is **not** the compliance store.
+  - **CERT-In log archive (P0, Gate A item):** app JSON logs, ALB/CloudFront/WAF logs, VPC flow logs (ALL), RDS logs and CloudTrail are exported to an **S3 bucket in `ap-south-1` in the audit/backup account**, with lifecycle **≥ 180 days for all logs** (400 days recommended so one CERT-In window always overlaps a year-old incident) and **≥ 1 year for the security-event subset** (auth, admin, authz denials, WAF blocks, CloudTrail) under **Object Lock**. CloudWatch Logs Infrequent Access with ≥ 180-day retention is an acceptable alternative. Doc 22 builds it; doc 25 costs it (≈ 25–40 GB/month at month 3 `[ASSUMPTION]`).
+  - The archive must be producible to CERT-In on request: a documented Athena (or `aws s3 cp` + `jq`) query runbook, tested once before Gate A.
+  - On GCP (alternative cloud only): use a regional Cloud Logging bucket; note that the `_Required` bucket is global and cannot be regionalised (GCP docs, accessed 2026-10-04), so keep application data out of it.
+- **Frontend error tracking / RUM:** Grafana Faro only (R36); **no Sentry in V1**. Faro is configured with IP collection off, no session replay, and URL paths with IDs scrubbed. Grafana Cloud is recorded in the processor register with its data region `[ASSUMPTION — India stack availability, doc 24]`.
 - **Threat detection:** GuardDuty / Security Command Center (standard tier) enabled in all accounts, with findings to the security account and paging for high severity `[ASSUMPTION — cost acceptable; 25 to price]`.
 
 ### 7.7 Supply chain and CI/CD (for 21)
@@ -726,9 +725,9 @@ Settings and protections:
 | **Notice** (s.5, Rule 3): standalone, clear; itemised data, purposes, specific services; links to withdraw consent / exercise rights / complain to Board | Versioned notice per app (en + te), generated from the data inventory; links in profile | SEC-151 |
 | **Consent** (s.6): free, specific, informed, unambiguous, affirmative; withdrawal as easy as giving | `consents` table with notice version and purposes; marketing separate opt-in, off by default; withdrawal toggles | SEC-152 |
 | **Legitimate uses** (s.7) | Order fulfilment mapping `[LEGAL]` | — |
-| **Security safeguards** (s.8(5), Rule 6): encryption/obfuscation/masking/tokens, access control, monitoring/logging, continuity, **logs ≥ 1 year**, processor contracts | §7 (KMS envelope encryption, IAM least privilege, audit logs, backups/PITR, Multi-AZ); DPAs with cloud, PA, SMS, email, error tracking `[LEGAL]` | SEC-112..124, SEC-126..135, SEC-163, SEC-171..183 |
+| **Security safeguards** (s.8(5), Rule 6): encryption/obfuscation/masking/tokens, access control, monitoring/logging, continuity, **logs ≥ 1 year**, processor contracts | §7 (field-level KMS encryption, IAM least privilege, audit logs, CERT-In archive, backups/PITR, Multi-AZ by Gate B); DPAs with cloud, PA, SMS, email, Grafana Cloud `[LEGAL]` | SEC-112..124, SEC-126..135, SEC-163, SEC-171..183 |
 | **Breach intimation** (s.8(6), Rule 7): principals without delay; Board without delay + detailed report within 72 h | §10 | SEC-166..170 |
-| **Retention/erasure** (s.8(7), Rule 8): erase when purpose ends; Third-Schedule 3-year inactivity rule applies to e-commerce entities with ≥ 2 crore users (not rovo at launch); 48 h notice; **≥ 1 year minimum retention** of personal data, traffic data and logs for Seventh-Schedule purposes | §8.5; voluntary 3-year inactivity erasure with 48 h notice | SEC-154..156 |
+| **Retention/erasure** (s.8(7), Rule 8): erase when purpose ends; Third-Schedule 3-year inactivity rule applies to e-commerce entities with ≥ 2 crore users (not rovo at launch); 48 h notice; **≥ 1 year minimum retention** of personal data, traffic data and logs for Seventh-Schedule purposes | §8.5; voluntary 3-year inactivity erasure with 48 h notice; **erasure map per table/bucket** (M15) | SEC-154..156, SEC-192 |
 | **Grievance redressal**: ≤ 90 days | Privacy ticket category; internal SLA 30 days | SEC-159, SEC-160 |
 | **Contact person** (s.8(9)) | Grievance/Privacy Officer published `[LEGAL]` | SEC-160 |
 | **Rights** (ss.11–14) | Export, correction, deletion, grievance; nominee V1.1 | SEC-157, SEC-158 |
@@ -754,15 +753,17 @@ Settings and protections:
 | Grievance | Privacy ticket → Grievance Officer | ≤ 30 days (legal max 90) |
 | Nomination | V1.1 | — |
 
-The admin `privacy_requests` queue has SLA timers. Erasure is maker-checker, and everything is audited.
+The admin `privacy_requests` queue has SLA timers. Erasure is executed by support or super with step-up, is audited and appears in the next-day review report (not maker-checker, R31). Each request is recorded in `erasure_requests` (M4).
+
+**Erasure map (M15, RV-031) `[LEGAL]`:** Backend + Security maintain one row per table and bucket holding personal data, with action = **delete**, **anonymise** or **retain (legal basis + period)**. It explicitly covers free-text PII (`ticket_messages`, `customer_note`, `delivery_instructions`), River job args, audit `changes` diffs (already redacted), the exports bucket, `notification_deliveries`, the CERT-In log archive (retained, legal obligation) and backups (age out). A CI check fails if a migration adds a table that is not in the map (SEC-192).
 
 ### 8.5 Retention and deletion schedule (proposal) `[LEGAL — confirm each row]`
 
 | Data | Retention | Basis / note |
 |---|---|---|
 | OTP challenges | 24 h | Security |
-| Auth/security/audit logs | ≥ 1 year; CERT-In 180 days rolling in India; money-related audit 8 years | `[LEGAL]` |
-| Edge/LB/WAF/VPC flow logs | 180 days (India), then delete | CERT-In |
+| Auth/security/audit logs | ≥ 1 year (Object Lock subset of the CERT-In archive); money-related audit 8 years | DPDP Rule 6, CERT-In `[LEGAL]` |
+| App, edge/LB/WAF, VPC flow (ALL), RDS logs | ≥ 180 days in the India archive (400 days recommended), then delete | CERT-In (R36) |
 | Cloud audit logs | ≥ 1 year WORM | Security, CERT-In |
 | Orders, invoices, payments, ledger, payouts | 8 years; PII minimised after 3 years | GST/Companies Act/IT `[LEGAL — 6 vs 8 years]` |
 | Customer addresses | Until deleted; 3-year inactivity erasure with 48 h notice | DPDP |
@@ -800,7 +801,7 @@ Name a Grievance Officer (who also handles DPDP grievances). The Consumer Protec
 - **Unavoidably global or outside India:**
   - CDN edge caches (only public static assets and public catalog responses are cached; never personalised `/api/*`, T-30);
   - global control-plane services (IAM, DNS, WAF-for-CDN configuration);
-  - possibly error-tracking SaaS, email and push providers (Web Push necessarily traverses browser vendors' push services).
+  - email and push providers (Web Push necessarily traverses browser vendors' push services) and Grafana Cloud if its India stack is unavailable. **Sentry is not used** (R36), which resolves the v1 error-tracking cross-border item (RV-032).
 - DPDP s.16 permits transfers except to restricted countries (none notified as of access date `[LEGAL — re-check]`).
 - **Mitigations:** minimise and redact what leaves; DPAs; processor register (SEC-161).
 - **RBI's 2018 payment-data storage directive** binds payment system operators (the PA), not rovo as merchant. rovo stores only PA references, amounts and status, in India `[LEGAL — confirm]`.
@@ -814,7 +815,7 @@ They apply to service providers, intermediaries, data centres, **body corporate*
 | (i) Clock sync to NIC/NPL NTP or traceable; multi-geography infra may use other accurate standard sources that don't deviate from NIC/NPL | Managed runtimes use the provider's time service (Amazon Time Sync / Google internal NTP). Record a compliance note that these are accurate standard sources; if counsel requires NIC/NPL traceability explicitly, any VM-based components sync to `time.nic.in` / `samay1.nic.in` `[LEGAL/verify]` | SEC-133 |
 | (ii) Report Annexure-I incidents within 6 h | §10 | SEC-166 |
 | (iii) Point of Contact; comply with information directions | PoC registered (Annexure II) before launch | SEC-167 |
-| (iv) Logs of all ICT systems, 180 days rolling, within Indian jurisdiction | India-region log store and WORM archive ≥ 180 days, covering app, LB/edge, WAF, VPC flow, DB and cloud audit logs. (The CERT-In FAQ of May 2022 indicates logs may be kept abroad if producible in reasonable time; we keep them in India regardless.) | SEC-134 |
+| (iv) Logs of all ICT systems, 180 days rolling, within Indian jurisdiction | **CERT-In log archive** (§7.6, R36, M1): S3 in `ap-south-1`, ≥ 180 days for app, ALB/CloudFront/WAF, VPC flow (ALL), RDS and CloudTrail logs; security events ≥ 1 year under Object Lock. Gate A item. (The CERT-In FAQ of May 2022 indicates logs may be kept abroad if producible in reasonable time; we keep them in India regardless.) | SEC-134 |
 | (v) VPS/cloud/VPN provider KYC | Not applicable to rovo | — |
 
 ### 8.11 RBI Payment Aggregator directions and card data

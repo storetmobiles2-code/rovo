@@ -1767,7 +1767,17 @@ CREATE TABLE riders (
   pii_key_id               text,
   emergency_contact_name   text,
   emergency_contact_phone  text CHECK (emergency_contact_phone ~ '^\+[1-9][0-9]{7,14}$'),
-  cash_limit_paise         bigint CHECK (cash_limit_paise >= 0),   -- per-rider override (maker-checker); NULL = fee_configs
+  cash_limit_paise         bigint CHECK (cash_limit_paise >= 0),   -- per-rider override (audited, not maker-checker, R31); NULL = fee_configs
+  -- gig/platform-worker registration (Code on Social Security 2020; 01 LEG-GIG-001; M5) [LEGAL — final field list per portal spec]
+  legal_name               text,                     -- as on the ID document
+  date_of_birth            date,                     -- needed by the portal; NOT collected from customers (minimisation)
+  gender                   text CHECK (gender IN ('FEMALE','MALE','TRANSGENDER','UNDISCLOSED')),
+  residential_state        text,
+  residential_district     text,
+  ss_portal_id_enc         bytea,                    -- worker id issued by the designated portal (e.g. e-Shram UAN); never Aadhaar
+  ss_portal_id_last4       text,
+  ss_registration_status   text NOT NULL DEFAULT 'PENDING' CHECK (ss_registration_status IN ('NOT_REQUIRED','PENDING','EXPORTED','REGISTERED','FAILED')),
+  ss_last_exported_at      timestamptz,              -- set by the GIG_WORKER_REGISTRATION export (report_exports)
   approved_at              timestamptz,
   approved_by              uuid REFERENCES users(id),
   version                  int NOT NULL DEFAULT 1,
@@ -1780,19 +1790,21 @@ CREATE INDEX ix_riders__city_status ON riders (city_id, status);
 CREATE TABLE rider_availability (                 -- rider availability state machine (ruling 11; 13 §4.3)
   rider_id                    uuid PRIMARY KEY REFERENCES riders(id),
   city_id                     uuid NOT NULL REFERENCES cities(id),
-  state                       text NOT NULL DEFAULT 'OFFLINE' CHECK (state IN ('OFFLINE','AVAILABLE','ON_BREAK','ON_DELIVERY')),
+  state                       text NOT NULL DEFAULT 'OFFLINE' CHECK (state IN ('OFFLINE','AVAILABLE','ON_DELIVERY')),   -- no ON_BREAK (C12)
   state_changed_at            timestamptz NOT NULL DEFAULT now(),
   offline_reason              text CHECK (offline_reason IN ('RIDER','STALE_LOCATION','MISSED_OFFERS','ADMIN_FORCED',
-                                                             'SUSPENDED','LOGOUT','SHIFT_MAX_HOURS')),
-  current_shift_id            uuid,                 -- rider_shifts row while online
+                                                             'SUSPENDED','LOGOUT')),
+  online_since                timestamptz,          -- replaces rider_shifts (C12); session history lives in audit/events
   last_location               geography(Point,4326),
-  last_location_at            timestamptz,
+  last_location_at            timestamptz,          -- tier 1 if ≤ dispatch.location_fresh_s, tier 2 if ≤ rider.auto_offline_after_s (R34, 13 §5.1)
+  last_seen_at                timestamptz,          -- any ping, batched upload or SSE presence; 15 min silence → auto-offline (R34)
   last_location_accuracy_m    int,
   active_delivery_count       smallint NOT NULL DEFAULT 0 CHECK (active_delivery_count BETWEEN 0 AND 1),  -- V1: 1 (P11)
   consecutive_missed_offers   smallint NOT NULL DEFAULT 0,      -- 3 → auto-offline (08 §5.4)
   cash_in_hand_paise          bigint NOT NULL DEFAULT 0,        -- CACHED projection of ledger RIDER_CASH_IN_HAND (§9);
                                                                 -- refreshed by ledger event; authoritative check reads ledger_account_balances
-  cod_blocked                 boolean NOT NULL DEFAULT false,   -- cash_in_hand ≥ limit (ruling 6)
+  cod_blocked                 boolean NOT NULL DEFAULT false,   -- prefilter: cash_in_hand ≥ limit (zero headroom). Eligibility per order is
+                                                                -- cash_in_hand + cod_amount ≤ limit (R6), checked under lock
   updated_at                  timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ck_rider_availability__delivery CHECK ((state = 'ON_DELIVERY') = (active_delivery_count > 0))
 ) WITH (fillfactor = 70);                         -- room for HOT updates on non-indexed columns
@@ -1821,24 +1833,8 @@ CREATE TABLE rider_kyc_documents (
 CREATE UNIQUE INDEX ux_rider_kyc__current ON rider_kyc_documents (rider_id, doc_type) WHERE status IN ('PENDING','APPROVED');
 CREATE INDEX ix_rider_kyc__expiry ON rider_kyc_documents (valid_until) WHERE status = 'APPROVED';
 
-CREATE TABLE rider_shifts (                        -- one row per online session (availability log)
-  id                   uuid PRIMARY KEY,
-  rider_id             uuid NOT NULL REFERENCES riders(id),
-  city_id              uuid NOT NULL REFERENCES cities(id),
-  started_at           timestamptz NOT NULL,
-  ended_at             timestamptz,
-  start_location       geography(Point,4326),
-  end_reason           text CHECK (end_reason IN ('RIDER','STALE_LOCATION','MISSED_OFFERS','ADMIN_FORCED','SUSPENDED','LOGOUT','SHIFT_MAX_HOURS')),
-  break_seconds        int NOT NULL DEFAULT 0,
-  deliveries_completed int NOT NULL DEFAULT 0,
-  created_at           timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT ck_rider_shifts__range CHECK (ended_at IS NULL OR ended_at >= started_at)
-);
-CREATE UNIQUE INDEX ux_rider_shifts__open ON rider_shifts (rider_id) WHERE ended_at IS NULL;
-CREATE INDEX ix_rider_shifts__rider ON rider_shifts (rider_id, started_at DESC);
-
-CREATE TABLE rider_location_pings (                -- PARTITIONED daily; 30-day retention (§13, §14)
-  rider_id        uuid NOT NULL,                   -- no FK: partitioned, high volume
+CREATE TABLE rider_location_pings (                -- plain table (C8); 30-day retention by batched delete (§13, §14)
+  rider_id        uuid NOT NULL,                   -- no FK: high-volume telemetry
   recorded_at     timestamptz NOT NULL,            -- device time (clamped to received_at ± 5 min)
   received_at     timestamptz NOT NULL DEFAULT now(),
   location        geography(Point,4326) NOT NULL,
@@ -1847,18 +1843,19 @@ CREATE TABLE rider_location_pings (                -- PARTITIONED daily; 30-day 
   heading_deg     smallint,
   delivery_id     uuid,                            -- set while on an active delivery
   PRIMARY KEY (rider_id, recorded_at)
-) PARTITION BY RANGE (recorded_at);
+);
+CREATE INDEX ix_rider_location_pings__recorded ON rider_location_pings USING brin (recorded_at);   -- retention sweep
 CREATE INDEX ix_rider_location_pings__delivery ON rider_location_pings (delivery_id, recorded_at) WHERE delivery_id IS NOT NULL;
 ```
 
-Ping storage policy (extends 08 §6.3): **every** ping during an active delivery is stored (evidence for "rider never came" disputes and road-factor calibration, 16 §4.3). While idle, **at most 1 per 5 min** is stored. The live position is always upserted into `rider_availability`.
+Ping storage policy (extends 08 §6.3; RV-040): the rider PWA uploads **batched** pings (1–10 points, every `rider.ping_interval_s`, R27). PWAs stop reporting while the rider is in a navigation app, so pings are **not** evidence of a full route. Dispute evidence is the location captured at each milestone tap (`delivery_status_history.location`). Stored: at most 1 point per 60 s during an active delivery and 1 per 5 min while idle. The live position is always upserted into `rider_availability`.
 
 ### 8.2 Deliveries and offers
 
 ```sql
 CREATE TABLE deliveries (
   id                          uuid PRIMARY KEY,
-  order_id                    uuid NOT NULL UNIQUE,          -- ref: ordering.orders (one delivery per order in V1)
+  order_id                    uuid NOT NULL UNIQUE REFERENCES orders(id),   -- money-path FK (R41); one delivery per order in V1
   city_id                     uuid NOT NULL REFERENCES cities(id),
   zone_id                     uuid NOT NULL,                 -- ref: drop zone
   restaurant_id               uuid NOT NULL,                 -- ref (denormalised for rider screens & queries)
@@ -1875,17 +1872,18 @@ CREATE TABLE deliveries (
   dispatch_exhausted_at       timestamptz,                   -- ops alert raised
   cod_amount_paise            bigint NOT NULL DEFAULT 0 CHECK (cod_amount_paise >= 0),
   cod_collected_paise         bigint CHECK (cod_collected_paise >= 0),
-  requires_delivery_code      boolean NOT NULL DEFAULT false,
+  requires_delivery_code      boolean NOT NULL DEFAULT false,   -- copied from orders (R39)
+  delivery_code_attempts      smallint NOT NULL DEFAULT 0 CHECK (delivery_code_attempts <= 5),
   restaurant_skipped_ready    boolean NOT NULL DEFAULT false, -- ruling 4: picked up while order PREPARING
   -- undeliverable flow (ruling 5): rider REQUESTS, support CONFIRMS
   undeliverable_requested_at  timestamptz,
   undeliverable_reason_code   text,                          -- reason_codes (category DELIVERY_FAIL)
   undeliverable_ticket_id     uuid,                          -- ref: support.support_tickets
-  call_attempts               smallint NOT NULL DEFAULT 0,   -- rider "call customer" taps logged
+  call_attempts               smallint NOT NULL DEFAULT 0,   -- counter; each tap is a contact_tap_log row (§8.3)
   -- pay
   waiting_seconds             int,
   rider_pay_paise             bigint,
-  rider_pay_breakdown         jsonb,                         -- {"basePaise":2500,"distancePaise":1200,"waitPaise":0,"surgePaise":0}
+  rider_pay_breakdown         jsonb,                         -- {"basePaise":2500,"distancePaise":1200,"waitPaise":0} (no surge, R30)
   -- milestones
   assigned_at                 timestamptz,
   at_restaurant_at            timestamptz,
@@ -1913,7 +1911,7 @@ CREATE TABLE delivery_offers (
   delivery_id          uuid NOT NULL REFERENCES deliveries(id),
   rider_id             uuid NOT NULL REFERENCES riders(id),
   round                smallint NOT NULL,
-  status               text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','ACCEPTED','DECLINED','EXPIRED')),
+  status               text NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','ACCEPTED','DECLINED','EXPIRED','REVOKED')),   -- R16
   close_reason         text CHECK (close_reason IN ('RIDER_ACCEPTED','RIDER_DECLINED','TIMEOUT','REVOKED_MANUAL_ASSIGN',
                                                     'REVOKED_ORDER_CANCELLED','RIDER_WENT_OFFLINE')),
   decline_reason_code  text,                         -- reason_codes (category OFFER_DECLINE)
@@ -1924,7 +1922,14 @@ CREATE TABLE delivery_offers (
   rider_distance_m     int,
   score                numeric(10,3),
   est_earnings_paise   bigint NOT NULL,              -- shown on the offer card
-  CONSTRAINT ck_delivery_offers__closed CHECK ((status = 'PENDING') = (close_reason IS NULL))
+  tier                 smallint NOT NULL DEFAULT 1 CHECK (tier IN (1, 2)),   -- R34: 1 = fresh location, 2 = stale (push)
+  CONSTRAINT ck_delivery_offers__closed CHECK ((status = 'PENDING') = (close_reason IS NULL)),
+  CONSTRAINT ck_delivery_offers__reason CHECK (
+       status = 'PENDING'
+    OR (status = 'ACCEPTED' AND close_reason = 'RIDER_ACCEPTED')
+    OR (status = 'DECLINED' AND close_reason = 'RIDER_DECLINED')
+    OR (status = 'EXPIRED'  AND close_reason = 'TIMEOUT')
+    OR (status = 'REVOKED'  AND close_reason IN ('REVOKED_MANUAL_ASSIGN','REVOKED_ORDER_CANCELLED','RIDER_WENT_OFFLINE')))
 );
 CREATE UNIQUE INDEX ux_delivery_offers__pending_delivery ON delivery_offers (delivery_id) WHERE status = 'PENDING';
 CREATE UNIQUE INDEX ux_delivery_offers__pending_rider    ON delivery_offers (rider_id)    WHERE status = 'PENDING';
@@ -1953,6 +1958,46 @@ CREATE TABLE delivery_status_history (            -- append-only (same shape as 
 CREATE UNIQUE INDEX ux_delivery_status_history__command ON delivery_status_history (delivery_id, command_id) WHERE command_id IS NOT NULL;
 ```
 
+### 8.3 Safety and contact logs (M4)
+
+```sql
+CREATE TABLE sos_events (                         -- rider SOS (06 §11; 01 RDR-FLOW-013, P1)
+  id                 uuid PRIMARY KEY,
+  rider_id           uuid NOT NULL REFERENCES riders(id),
+  city_id            uuid NOT NULL REFERENCES cities(id),
+  delivery_id        uuid REFERENCES deliveries(id),          -- active delivery, if any
+  kind               text NOT NULL CHECK (kind IN ('ACCIDENT','UNSAFE','HARASSMENT','MEDICAL','OTHER')),
+  location           geography(Point,4326),                   -- fresh fix attempted; else last known
+  location_at        timestamptz,
+  note               text CHECK (char_length(note) <= 500),
+  status             text NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','ACKNOWLEDGED','RESOLVED','FALSE_ALARM')),
+  acknowledged_by    uuid REFERENCES users(id),
+  acknowledged_at    timestamptz,
+  resolved_by        uuid REFERENCES users(id),
+  resolved_at        timestamptz,
+  resolution_note    text,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_sos_events__open ON sos_events (city_id, created_at) WHERE status IN ('OPEN','ACKNOWLEDGED');
+CREATE INDEX ix_sos_events__rider ON sos_events (rider_id, created_at DESC);
+
+CREATE TABLE contact_tap_log (                    -- every call/contact tap (01 BR-CONT-001, ADM-ORD-002 "call-tap log")
+  id                 uuid PRIMARY KEY,
+  delivery_id        uuid NOT NULL REFERENCES deliveries(id),
+  order_id           uuid NOT NULL,                           -- ref (for the admin order timeline)
+  actor_type         text NOT NULL CHECK (actor_type IN ('RIDER','CUSTOMER','RESTAURANT','ADMIN')),
+  actor_user_id      uuid REFERENCES users(id),
+  target_type        text NOT NULL CHECK (target_type IN ('CUSTOMER','RIDER','RESTAURANT','SUPPORT')),
+  channel            text NOT NULL DEFAULT 'TEL_LINK' CHECK (channel IN ('TEL_LINK','MASKED_CALL')),   -- masked calling V1.1
+  location           geography(Point,4326),
+  tapped_at          timestamptz NOT NULL,                    -- client time clamped ±5 min (as milestones)
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_contact_tap_log__delivery ON contact_tap_log (delivery_id, tapped_at);
+```
+
+`deliveries.call_attempts` is a cached count of `contact_tap_log` rows with `actor_type='RIDER' AND target_type='CUSTOMER'`, maintained in the same transaction. The undeliverable precondition (13 D-11) reads it.
+
 ---
 
 ## 9. DDL — ledger, commissions, payouts, invoices
@@ -1963,17 +2008,21 @@ Posting templates (which accounts each business event debits and credits) are ow
 CREATE TABLE ledger_accounts (
   id             uuid PRIMARY KEY,
   city_id        uuid NOT NULL REFERENCES cities(id),     -- per-city books (city P&L, GST by state)
-  code           text NOT NULL,     -- 'PG_CLEARING','CUSTOMER_ADVANCES','REVENUE_COMMISSION','REVENUE_DELIVERY_FEE',
-                                    -- 'REVENUE_PLATFORM_FEE','GST_OUTPUT_PAYABLE','TDS_PAYABLE','EXPENSE_RIDER_PAY',
-                                    -- 'EXPENSE_PLATFORM_DISCOUNT','EXPENSE_GOODWILL','GOODWILL_LIABILITY','EXPENSE_PG_FEES',
-                                    -- 'BANK','RESTAURANT_PAYABLE','RIDER_PAYABLE','RIDER_CASH_IN_HAND', 'SUSPENSE'
-  account_type   text NOT NULL CHECK (account_type IN ('ASSET','LIABILITY','REVENUE','EXPENSE','EQUITY')),
+  code           text NOT NULL CHECK (code IN (       -- chart of accounts = 14 §10.2 (RV-045, register row 66)
+                   'PA_CLEARING','BANK','RIDER_CASH_IN_HAND','CUSTOMER_ADVANCES','REFUNDS_PAYABLE','RESTAURANT_PAYABLE',
+                   'RIDER_PAYABLE','GST_OUTPUT_9_5_RESTAURANT','GST_OUTPUT_9_5_DELIVERY','GST_OUTPUT_OWN','GST_INPUT_CREDIT',
+                   'TDS_194O_PAYABLE','REVENUE_COMMISSION','REVENUE_DELIVERY_FEE','REVENUE_PLATFORM_FEE','EXPENSE_RIDER_PAY',
+                   'EXPENSE_PA_FEES','EXPENSE_PROMOTIONS','EXPENSE_GOODWILL','SUSPENSE')),
+  account_type   text NOT NULL CHECK (account_type IN ('ASSET','LIABILITY','REVENUE','EXPENSE','EQUITY')),   -- 14 "Income" = REVENUE
+  normal_side    char(1) NOT NULL CHECK (normal_side IN ('D','C')),          -- 14 §10.1
   owner_type     text NOT NULL CHECK (owner_type IN ('PLATFORM','RESTAURANT','RIDER')),
   owner_id       uuid,                                     -- restaurant id / rider id (logical ref); NULL for PLATFORM
+  gstin_state    char(2) CHECK (gstin_state ~ '^[0-9]{2}$'),   -- GST_* accounts: state of the GSTIN (GSTR-3B by §9(5) category, 14 §12.1)
   currency       char(3) NOT NULL DEFAULT 'INR',
   is_active      boolean NOT NULL DEFAULT true,
   created_at     timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT ux_ledger_accounts__key UNIQUE NULLS NOT DISTINCT (city_id, code, owner_type, owner_id, currency),
+  CONSTRAINT ux_ledger_accounts__key UNIQUE NULLS NOT DISTINCT (city_id, code, owner_type, owner_id, gstin_state, currency),
+  CONSTRAINT ck_ledger_accounts__gst CHECK ((code LIKE 'GST\_%') = (gstin_state IS NOT NULL)),
   CONSTRAINT ck_ledger_accounts__owner CHECK ((owner_type = 'PLATFORM') = (owner_id IS NULL))
 );
 
@@ -1981,19 +2030,22 @@ CREATE TABLE ledger_journals (                    -- append-only
   id                 uuid PRIMARY KEY,
   city_id            uuid NOT NULL REFERENCES cities(id),
   entry_type         text NOT NULL CHECK (entry_type IN ('PAYMENT_CAPTURED','ORDER_SETTLED','COD_COLLECTED','RIDER_EARNING',
-                       'REFUND','PG_FEE','PAYOUT','COD_DEPOSIT','GOODWILL_ISSUED','GOODWILL_REDEEMED','CANCELLATION_COMPENSATION',
-                       'ADJUSTMENT','REVERSAL')),
+                       'REFUND','PA_FEE','PA_SETTLEMENT','TRANSFER','PAYOUT','COD_DEPOSIT','GOODWILL_REDEEMED',
+                       'CANCELLATION_COMPENSATION','ADJUSTMENT','REVERSAL')),
+  adjustment_type    text CHECK (adjustment_type IN ('MG_TOPUP','PEAK_BONUS','RECOVERY','CASH_CORRECTION','WRITE_OFF','OTHER')),
+                                                 -- M6: MG_TOPUP = pilot rider minimum guarantee (R47); PEAK_BONUS replaces surge (R30)
   source_type        text NOT NULL,              -- 'order','refund','payout','cod_deposit','approval'
   source_id          uuid NOT NULL,
   rule               text NOT NULL,              -- posting rule name/version, e.g. 'order_settled.v1'
   idempotency_key    text NOT NULL UNIQUE,       -- '<source_type>:<source_id>:<rule>' (08 §7.1)
   reverses_journal_id uuid REFERENCES ledger_journals(id),
-  approval_id        uuid,                       -- ADJUSTMENT requires maker-checker
+  approval_id        uuid,                       -- ADJUSTMENT above approvals.adjustment_threshold_paise needs maker-checker (R31 family 1)
   description        text,
-  occurred_at        timestamptz NOT NULL,
-  accounting_date    date NOT NULL,              -- in city timezone
+  occurred_at        timestamptz NOT NULL,       -- business time from the app clock (R19); payout cut-offs use this
+  accounting_date    date NOT NULL,              -- occurred_at in city timezone
   created_by_user_id uuid REFERENCES users(id),
-  created_at         timestamptz NOT NULL DEFAULT now()
+  created_at         timestamptz NOT NULL DEFAULT now(),   -- technical insert time only
+  CONSTRAINT ck_ledger_journals__adjustment CHECK ((entry_type = 'ADJUSTMENT') = (adjustment_type IS NOT NULL))
 );
 CREATE INDEX ix_ledger_journals__source ON ledger_journals (source_type, source_id);
 CREATE INDEX ix_ledger_journals__date   ON ledger_journals (city_id, accounting_date);
@@ -2004,7 +2056,7 @@ CREATE TABLE ledger_postings (                    -- append-only
   account_id     uuid NOT NULL REFERENCES ledger_accounts(id),
   amount_paise   bigint NOT NULL CHECK (amount_paise <> 0),   -- + debit, − credit
   currency       char(3) NOT NULL DEFAULT 'INR',
-  order_id       uuid,                                         -- ref, denormalised for statements
+  order_id       uuid REFERENCES orders(id),                   -- money-path FK (R41), denormalised for statements
   memo           text,
   created_at     timestamptz NOT NULL DEFAULT now()
 );
@@ -2039,13 +2091,13 @@ CREATE TABLE commission_plans (
   id               uuid PRIMARY KEY,
   restaurant_id    uuid NOT NULL,                  -- ref: catalog.restaurants
   city_id          uuid NOT NULL REFERENCES cities(id),
-  commission_bps   int NOT NULL CHECK (commission_bps BETWEEN 0 AND 5000),   -- default 1500 (00 §5)
+  commission_bps   int NOT NULL CHECK (commission_bps BETWEEN 0 AND 3000),   -- default per 16 §6.5; 0–30% (register row 56)
   basis            text NOT NULL DEFAULT 'ITEM_TOTAL_NET_OF_RESTAURANT_DISCOUNT'
                      CHECK (basis IN ('ITEM_TOTAL_NET_OF_RESTAURANT_DISCOUNT','ITEM_TOTAL_PLUS_PACKAGING_NET')),  -- [OPEN] packaging in basis?
   effective_from   timestamptz NOT NULL,
   effective_to     timestamptz,
   contract_ref     text,
-  approval_id      uuid,                           -- maker-checker (ruling 11)
+  approval_id      uuid,                           -- maker-checker (R31 family 3)
   created_by       uuid REFERENCES users(id),
   created_at       timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ck_commission_plans__range CHECK (effective_to IS NULL OR effective_to > effective_from),
@@ -2067,7 +2119,7 @@ CREATE TABLE payout_accounts (                    -- bank / UPI destination for 
   verification_status    text NOT NULL DEFAULT 'UNVERIFIED' CHECK (verification_status IN ('UNVERIFIED','PENNY_DROP_OK','MANUAL_OK','FAILED')),
   is_primary             boolean NOT NULL DEFAULT false,
   status                 text NOT NULL DEFAULT 'PENDING_APPROVAL' CHECK (status IN ('PENDING_APPROVAL','ACTIVE','RETIRED')),
-  approval_id            uuid,                    -- bank-detail change is maker-checker (ruling 11)
+  approval_id            uuid,                    -- bank/UPI detail change is maker-checker (R31 family 4)
   cooling_off_until      timestamptz,             -- no payout to a new destination for 24 h [ASSUMPTION] (12 §2.5)
   created_at             timestamptz NOT NULL DEFAULT now(),
   updated_at             timestamptz NOT NULL DEFAULT now(),
@@ -2085,7 +2137,7 @@ CREATE TABLE payouts (
   payee_id                 uuid NOT NULL,          -- ref
   ledger_account_id        uuid NOT NULL REFERENCES ledger_accounts(id),   -- payee's PAYABLE account
   period_start             timestamptz NOT NULL,
-  period_end               timestamptz NOT NULL,   -- cut-off: postings created_at < period_end
+  period_end               timestamptz NOT NULL,   -- cut-off: journals with occurred_at < period_end (app clock, R19; register row 41)
   gross_paise              bigint NOT NULL,
   deductions_paise         bigint NOT NULL DEFAULT 0,   -- TDS, COD netting, recoveries
   net_paise                bigint NOT NULL CHECK (net_paise > 0),
@@ -2093,8 +2145,8 @@ CREATE TABLE payouts (
   payout_account_id        uuid REFERENCES payout_accounts(id),
   payout_account_snapshot  jsonb,                  -- masked: {"method":"BANK_ACCOUNT","last4":"4321","ifsc":"SBIN0001234"}
   status                   text NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','APPROVED','PAID','FAILED','CANCELLED')),
-  approval_id              uuid,
-  method                   text CHECK (method IN ('NEFT','IMPS','UPI','RTGS','PA_PAYOUT')),
+  approval_id              uuid,                   -- batch release is maker-checker (R31 family 2)
+  method                   text CHECK (method IN ('NEFT','IMPS','UPI','RTGS','PA_PAYOUT','PA_TRANSFER_RELEASE')),
   utr_reference            text,
   paid_at                  timestamptz,
   paid_by_user_id          uuid REFERENCES users(id),
@@ -2112,9 +2164,10 @@ CREATE TABLE payout_items (
   id                 uuid PRIMARY KEY,
   payout_id          uuid NOT NULL REFERENCES payouts(id) ON DELETE CASCADE,   -- items deletable only while DRAFT (app rule)
   ledger_posting_id  uuid NOT NULL REFERENCES ledger_postings(id),
-  order_id           uuid,
+  order_id           uuid REFERENCES orders(id),   -- money-path FK (R41)
   item_type          text NOT NULL CHECK (item_type IN ('ORDER_EARNING','COMMISSION','COMMISSION_GST','TDS','REFUND_RECOVERY',
-                                                        'COD_NETTING','CANCELLATION_COMPENSATION','ADJUSTMENT','PENALTY','DELIVERY_EARNING')),
+                                                        'COD_NETTING','CANCELLATION_COMPENSATION','ADJUSTMENT','PENALTY','DELIVERY_EARNING',
+                                                        'MG_TOPUP','PEAK_BONUS')),
   amount_paise       bigint NOT NULL,
   created_at         timestamptz NOT NULL DEFAULT now()
 );
@@ -2155,7 +2208,7 @@ CREATE TABLE invoices (                           -- issued documents; format an
   financial_year   text NOT NULL,
   number           text NOT NULL,                 -- ≤ 16 chars [LEGAL — GST invoice rules]
   kind             text NOT NULL CHECK (kind IN ('CUSTOMER_FOOD','CUSTOMER_SERVICES','RESTAURANT_COMMISSION','CREDIT_NOTE')),
-  order_id         uuid,                          -- ref
+  order_id         uuid REFERENCES orders(id),    -- money-path FK (R41)
   payee_type       text, payee_id uuid,           -- for commission invoices
   total_paise      bigint NOT NULL,
   tax_paise        bigint NOT NULL,
@@ -2200,13 +2253,16 @@ CREATE TABLE reviews (                            -- public text for restaurant 
   restaurant_id       uuid NOT NULL,              -- ref
   body                text NOT NULL CHECK (char_length(body) BETWEEN 1 AND 500),
   language            text,
-  moderation_status   text NOT NULL DEFAULT 'PENDING' CHECK (moderation_status IN ('PENDING','PUBLISHED','HIDDEN','REJECTED')),
-  moderated_by        uuid REFERENCES users(id),
-  moderated_at        timestamptz,
+  -- C14: no moderation queue and no replies in V1. A profanity/PII filter runs at write; admins can hide.
+  profanity_flagged   boolean NOT NULL DEFAULT false,   -- filter hit → stored but not shown
+  is_hidden           boolean NOT NULL DEFAULT false,
+  hidden_by           uuid REFERENCES users(id),
+  hidden_at           timestamptz,
+  hidden_reason       text,
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX ix_reviews__restaurant_public ON reviews (restaurant_id, created_at DESC) WHERE moderation_status = 'PUBLISHED';
+CREATE INDEX ix_reviews__restaurant_public ON reviews (restaurant_id, created_at DESC) WHERE NOT is_hidden AND NOT profanity_flagged;
 
 CREATE TABLE rating_aggregates (                  -- read by catalog through the ratings interface (08)
   target_type     text NOT NULL CHECK (target_type IN ('RESTAURANT','RIDER')),
@@ -2271,7 +2327,7 @@ CREATE INDEX ix_ticket_messages__ticket ON ticket_messages (ticket_id, created_a
 CREATE TABLE notification_templates (
   id                uuid PRIMARY KEY,
   key               text NOT NULL,                 -- 'order.accepted.customer'
-  channel           text NOT NULL CHECK (channel IN ('IN_APP','WEB_PUSH','SMS','WHATSAPP','EMAIL')),
+  channel           text NOT NULL CHECK (channel IN ('IN_APP','WEB_PUSH','SMS','EMAIL','VOICE')),   -- WhatsApp V1.1 (C2); VOICE = R43 P1
   locale            text NOT NULL,
   version           int NOT NULL,
   title             text,
@@ -2279,7 +2335,7 @@ CREATE TABLE notification_templates (
   variables         text[] NOT NULL DEFAULT '{}',
   dlt_template_id   text,                          -- TRAI DLT (SMS) [LEGAL]
   dlt_sender_id     text,
-  provider_template_name text,                     -- WhatsApp approved template
+  provider_template_name text,                     -- provider-side template name (voice/IVR, P1)
   status            text NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('DRAFT','ACTIVE','RETIRED')),
   created_at        timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ux_notification_templates__key UNIQUE (key, channel, locale, version)
@@ -2288,7 +2344,7 @@ CREATE TABLE notification_templates (
 CREATE TABLE notifications (                      -- in-app inbox (one per user per logical message)
   id                uuid PRIMARY KEY,
   user_id           uuid NOT NULL REFERENCES users(id),
-  audience          text NOT NULL CHECK (audience IN ('customer','partner','admin')),
+  audience          text NOT NULL CHECK (audience IN ('customer','restaurant','rider','admin')),   -- R14
   city_id           uuid REFERENCES cities(id),
   category          text NOT NULL CHECK (category IN ('ORDER','DELIVERY','PAYMENT','PROMO','ACCOUNT','SUPPORT','OPS_ALERT','PAYOUT')),
   template_key      text NOT NULL,
@@ -2299,7 +2355,7 @@ CREATE TABLE notifications (                      -- in-app inbox (one per user 
   deep_link         text,                          -- app-relative path, never an absolute URL
   priority          text NOT NULL DEFAULT 'NORMAL' CHECK (priority IN ('HIGH','NORMAL','LOW')),
   dedupe_key        text,                          -- 'order:<id>:accepted'
-  source_event_id   uuid,                          -- outbox event id
+  source_event_id   uuid,                          -- domain event id from the River job args (R42)
   read_at           timestamptz,
   expires_at        timestamptz,
   created_at        timestamptz NOT NULL DEFAULT now()
@@ -2311,7 +2367,7 @@ CREATE INDEX ix_notifications__unread ON notifications (user_id, audience) WHERE
 CREATE TABLE notification_deliveries (
   id                     uuid PRIMARY KEY,
   notification_id        uuid NOT NULL REFERENCES notifications(id),
-  channel                text NOT NULL CHECK (channel IN ('SSE','WEB_PUSH','SMS','WHATSAPP','EMAIL','VOICE')),
+  channel                text NOT NULL CHECK (channel IN ('SSE','WEB_PUSH','SMS','EMAIL','VOICE')),
   push_subscription_id   uuid,
   to_masked              text,                     -- '+91 98XXXXXX12'
   provider               text,
@@ -2319,7 +2375,7 @@ CREATE TABLE notification_deliveries (
   status                 text NOT NULL DEFAULT 'QUEUED' CHECK (status IN ('QUEUED','SENT','DELIVERED','FAILED','SKIPPED','EXPIRED')),
   attempts               smallint NOT NULL DEFAULT 0,
   last_error             text,
-  cost_micro_inr         bigint,                   -- SMS/WhatsApp cost tracking (budget breaker, 12 AUTH-D07)
+  cost_micro_inr         bigint,                   -- SMS/voice cost tracking (budget breaker, 12 AUTH-D07)
   queued_at              timestamptz NOT NULL DEFAULT now(),
   sent_at                timestamptz,
   delivered_at           timestamptz,
@@ -2333,7 +2389,7 @@ CREATE TABLE push_subscriptions (
   id                 uuid PRIMARY KEY,
   user_id            uuid NOT NULL REFERENCES users(id),
   device_id          uuid,                       -- ref: identity.devices
-  audience           text NOT NULL CHECK (audience IN ('customer','partner','admin')),
+  audience           text NOT NULL CHECK (audience IN ('customer','restaurant','rider','admin')),   -- R14
   kind               text NOT NULL DEFAULT 'WEB_PUSH' CHECK (kind IN ('WEB_PUSH','FCM','APNS')),
   endpoint           text NOT NULL,
   p256dh             text,
@@ -2353,13 +2409,15 @@ CREATE INDEX ix_push_subscriptions__user ON push_subscriptions (user_id, audienc
 ## 11. DDL — admin, platform
 
 ```sql
-CREATE TABLE approval_requests (                  -- generic maker-checker (12 §5.5, ruling 11)
+CREATE TABLE approval_requests (                  -- maker-checker, limited to the five R31 action families
   id                 uuid PRIMARY KEY,
   city_id            uuid REFERENCES cities(id),
-  action_type        text NOT NULL CHECK (action_type IN ('REFUND','GOODWILL_COUPON','COMMISSION_CHANGE','FEE_CONFIG_CHANGE',
-                        'TAX_RULE_CHANGE','PAYOUT_BATCH','PAYOUT_ACCOUNT_CHANGE','LEDGER_ADJUSTMENT','RIDER_CASH_ADJUSTMENT',
-                        'RIDER_CASH_LIMIT_OVERRIDE','COUPON_BUDGET','ROLE_GRANT','ROLE_REVOKE','UNBLOCK_FRAUD_FLAG',
-                        'PII_BULK_EXPORT','DPDP_ERASURE','TOTP_RESET','EMERGENCY_OVERRIDE')),
+  action_type        text NOT NULL CHECK (action_type IN (
+                        'REFUND','GOODWILL_COUPON','LEDGER_ADJUSTMENT','RIDER_CASH_ADJUSTMENT',   -- (1) money above threshold
+                        'PAYOUT_BATCH',                                                         -- (2) payout batch release
+                        'COMMISSION_CHANGE','FEE_CONFIG_CHANGE',                                -- (3) commission / fee config
+                        'PAYOUT_ACCOUNT_CHANGE',                                                -- (4) payout bank/UPI details
+                        'ROLE_GRANT')),                                                         -- (5) admin role grants
   target_type        text,                       -- 'order','payout_batch','restaurant',…
   target_id          uuid,
   payload            jsonb NOT NULL,             -- the exact command to execute
@@ -2373,21 +2431,35 @@ CREATE TABLE approval_requests (                  -- generic maker-checker (12 �
   decided_at         timestamptz,
   executed_at        timestamptz,
   execution_error    text,
-  expires_at         timestamptz NOT NULL,       -- created_at + 24 h
+  expires_at         timestamptz NOT NULL,       -- created_at + approvals.request_ttl_s (13 §5.1)
+  -- break-glass (R31): maker self-approves when no checker is reachable; mandatory post-review within 24 h
+  is_break_glass     boolean NOT NULL DEFAULT false,
+  post_review_due_at timestamptz,
+  post_reviewed_by   uuid REFERENCES users(id),
+  post_reviewed_at   timestamptz,
+  post_review_note   text,
   created_at         timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT ck_approval_requests__four_eyes CHECK (checker_id IS NULL OR checker_id <> maker_id)
+  CONSTRAINT ck_approval_requests__four_eyes CHECK (checker_id IS NULL OR checker_id <> maker_id OR is_break_glass),
+  CONSTRAINT ck_approval_requests__break_glass CHECK (NOT is_break_glass OR post_review_due_at IS NOT NULL),
+  CONSTRAINT ck_approval_requests__post_review CHECK (post_reviewed_by IS NULL OR post_reviewed_by <> maker_id)
 );
 CREATE INDEX ix_approval_requests__queue ON approval_requests (city_id, action_type, created_at) WHERE status = 'PENDING';
+CREATE INDEX ix_approval_requests__post_review ON approval_requests (post_review_due_at) WHERE is_break_glass AND post_reviewed_at IS NULL;
 ```
 
-Default thresholds (`app_config` key `approvals.thresholds`, ruling 11; amounts configurable):
+When approval is needed (threshold **values** are 13 §5.1 keys, R48):
 
-| Action | Needs approval when |
-|---|---|
-| `REFUND` | amount > ₹500, or the admin's daily refund total > cap |
-| `GOODWILL_COUPON` | value > ₹150 |
-| `COMMISSION_CHANGE`, `FEE_CONFIG_CHANGE`, `TAX_RULE_CHANGE`, `PAYOUT_BATCH`, `PAYOUT_ACCOUNT_CHANGE`, `LEDGER_ADJUSTMENT`, `RIDER_CASH_ADJUSTMENT`, `RIDER_CASH_LIMIT_OVERRIDE`, `ROLE_GRANT`, `ROLE_REVOKE`, `DPDP_ERASURE`, `PII_BULK_EXPORT`, `TOTP_RESET` | always |
-| `COUPON_BUDGET` | platform-funded budget > ₹5,000 |
+| Family (R31) | Action types | Needs approval when |
+|---|---|---|
+| 1 | `REFUND` | amount > `approvals.refund_threshold_paise` (₹500) |
+| 1 | `GOODWILL_COUPON` | value > `approvals.goodwill_threshold_paise` (₹150) |
+| 1 | `LEDGER_ADJUSTMENT` (incl. `MG_TOPUP`, `PEAK_BONUS`), `RIDER_CASH_ADJUSTMENT` | amount > `approvals.adjustment_threshold_paise` |
+| 2 | `PAYOUT_BATCH` | always |
+| 3 | `COMMISSION_CHANGE`, `FEE_CONFIG_CHANGE` | always |
+| 4 | `PAYOUT_ACCOUNT_CHANGE` | always |
+| 5 | `ROLE_GRANT` | always |
+
+Everything else (role revoke, TOTP reset, rider cash-limit override, coupon budgets, fraud unblock, PII export, DPDP erasure, tax rules) is **audit + step-up where applicable + the next-day review report** (C7). Go-live gate: ≥ 2 named people able to approve money actions (R31). An overdue break-glass post-review raises an ops alert.
 
 ```sql
 CREATE TABLE reason_codes (                       -- single reason catalogue (ruling 11); referenced by *_reason_code columns
@@ -2406,7 +2478,7 @@ CREATE TABLE reason_codes (                       -- single reason catalogue (ru
 -- Seeded from code (13 §6.3 is the source list); app validates (category, actor) on every write.
 
 CREATE TABLE feature_flags (
-  key            text PRIMARY KEY,                -- 'dispatch.delivery_code_required'
+  key            text PRIMARY KEY,                -- e.g. 'ops_assisted_orders' (M8, P1)
   description    text NOT NULL,
   enabled        boolean NOT NULL DEFAULT false,
   rules          jsonb NOT NULL DEFAULT '{}',     -- {"cityIds":[…],"audiences":["partner"],"percent":10}
@@ -2432,13 +2504,13 @@ CREATE TABLE app_config (                         -- typed (Go schema per key) r
 CREATE TABLE report_exports (
   id             uuid PRIMARY KEY,
   city_id        uuid REFERENCES cities(id),
-  report_type    text NOT NULL,                   -- 'ORDERS','SETTLEMENT_STATEMENT','GST_SUMMARY','RIDER_EARNINGS','COD_CASH'
+  report_type    text NOT NULL,                   -- 'ORDERS','SETTLEMENT_STATEMENT','GST_SUMMARY','RIDER_EARNINGS','COD_CASH','REFUNDS',
+                                                  -- 'GIG_WORKER_REGISTRATION' (M5: portal fields from riders, CSV) [LEGAL]
   params         jsonb NOT NULL,
   status         text NOT NULL DEFAULT 'QUEUED' CHECK (status IN ('QUEUED','RUNNING','SUCCEEDED','FAILED','EXPIRED')),
   file_id        uuid,                            -- ref: platform.file_objects
   row_count      int,
-  contains_pii   boolean NOT NULL DEFAULT false,  -- PII exports need approval (PII_BULK_EXPORT)
-  approval_id    uuid,
+  contains_pii   boolean NOT NULL DEFAULT false,  -- PII exports need step-up + audit (no maker-checker, R31)
   requested_by   uuid NOT NULL REFERENCES users(id),
   error          text,
   created_at     timestamptz NOT NULL DEFAULT now(),
@@ -2446,9 +2518,9 @@ CREATE TABLE report_exports (
   expires_at     timestamptz                      -- file deleted after 7 days
 );
 
-CREATE TABLE audit_logs (                         -- append-only, PARTITIONED monthly (12 §5.7 columns)
-  id               uuid NOT NULL,
-  occurred_at      timestamptz NOT NULL DEFAULT now(),
+CREATE TABLE audit_logs (                         -- append-only (12 §5.7 columns); plain table (C8), no hash chain (C6)
+  id               uuid PRIMARY KEY,
+  occurred_at      timestamptz NOT NULL,          -- app clock
   actor_type       text NOT NULL CHECK (actor_type IN ('USER','ADMIN','SYSTEM','PROVIDER_WEBHOOK','CLI')),
   actor_id         uuid,
   actor_roles      text[] NOT NULL DEFAULT '{}',
@@ -2458,7 +2530,7 @@ CREATE TABLE audit_logs (                         -- append-only, PARTITIONED mo
   ip               inet,
   user_agent_hash  bytea,
   city_id          uuid,
-  action           text NOT NULL,                 -- 'restaurant.approve', 'order.cancel', 'kyc.view', 'auth.otp.failed'
+  action           text NOT NULL,                 -- 'restaurant.approve', 'order.cancel', 'kyc.view', 'approval.break_glass'
   resource_type    text NOT NULL,
   resource_id      uuid,
   outcome          text NOT NULL CHECK (outcome IN ('SUCCESS','DENIED','ERROR')),
@@ -2466,37 +2538,20 @@ CREATE TABLE audit_logs (                         -- append-only, PARTITIONED mo
   approval_id      uuid,
   changes          jsonb,                         -- {"before":{…},"after":{…}} PII redacted to "[redacted]"/last-4
   retention_class  text NOT NULL DEFAULT 'SECURITY_1Y' CHECK (retention_class IN ('SECURITY_1Y','MONEY_8Y','OPS_2Y')),
-  prev_hash        bytea,
-  hash             bytea,
-  PRIMARY KEY (id, occurred_at)
-) PARTITION BY RANGE (occurred_at);
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
 CREATE INDEX ix_audit_logs__resource ON audit_logs (resource_type, resource_id, occurred_at DESC);
 CREATE INDEX ix_audit_logs__actor    ON audit_logs (actor_id, occurred_at DESC);
 CREATE INDEX ix_audit_logs__action   ON audit_logs (action, occurred_at DESC);
+CREATE INDEX ix_audit_logs__retention ON audit_logs (retention_class, occurred_at);   -- retention sweep
+-- + trg_audit_logs_immutable (forbid_mutation); rovo_app has INSERT/SELECT only.
 ```
 
-The hash chain (12 §5.7) is computed by a **single River worker** (`audit.chain`, unique job, leader-only). It walks rows in `(occurred_at, id)` order and fills `prev_hash` and `hash` within seconds. That is the one sanctioned `UPDATE` on `audit_logs`: it runs as a dedicated `rovo_audit_chain` role that may only set NULL hash columns, enforced by the trigger. This avoids serialising every business transaction on a chain lock.
+**Integrity (C6, RV-028):** append-only grants plus the trigger are the V1 control. Tamper evidence (an hourly job that seals new rows in a chain/Merkle hash written to the WORM bucket) is V1.1. High-volume auth telemetry (`auth.otp.requested/verified`) goes to the 180-day log archive (R36, M1), not to `audit_logs`. Only security-relevant auth outcomes (lockouts, step-up, admin login) are audited. The retention sweep deletes expired rows by class; it runs as `rovo_owner` through a `SECURITY DEFINER` function. That is the only sanctioned delete.
+
+**Domain events (R42):** there is **no `outbox_events` table**. The emitting transaction calls River `InsertManyTx` with one job per subscriber; the job args carry the 13 §8 envelope and the `traceparent`. There is no relay, poller or fan-out job.
 
 ```sql
-CREATE TABLE outbox_events (                      -- = 08's event_log; PARTITIONED monthly; 90-day hot retention
-  id                 uuid NOT NULL,               -- event id (UUIDv7)
-  occurred_at        timestamptz NOT NULL DEFAULT now(),
-  type               text NOT NULL,               -- 'ordering.order_accepted.v1' (08 §3.3)
-  name               text NOT NULL,               -- 'OrderAccepted'
-  version            smallint NOT NULL DEFAULT 1,
-  city_id            uuid,
-  aggregate_type     text NOT NULL,
-  aggregate_id       uuid NOT NULL,
-  aggregate_version  int,
-  actor              jsonb NOT NULL,              -- {"type":"RESTAURANT","id":"…"}
-  trace_id           text,
-  payload            jsonb NOT NULL,
-  PRIMARY KEY (id, occurred_at)
-) PARTITION BY RANGE (occurred_at);
-CREATE INDEX ix_outbox_events__aggregate ON outbox_events (aggregate_type, aggregate_id, occurred_at);
-CREATE INDEX ix_outbox_events__type      ON outbox_events (type, occurred_at);
--- Delivery: the same tx calls River InsertTx(event.fanout{event_id}) (08 §7.3). No relay/poller.
-
 CREATE TABLE processed_events (                   -- handler idempotency (08 §4.1 rule 3)
   handler        text NOT NULL,
   event_id       uuid NOT NULL,
@@ -2529,7 +2584,8 @@ CREATE TABLE file_objects (                       -- provider-neutral object sto
   bucket             text NOT NULL,               -- logical bucket name from config: 'media' | 'kyc' | 'exports' | 'invoices' | 'tickets'
   object_key         text NOT NULL,               -- random key, e.g. 'kyc/2026/10/0192…/3f9a…' — never contains PII
   purpose            text NOT NULL CHECK (purpose IN ('MENU_IMAGE','RESTAURANT_LOGO','RESTAURANT_COVER','KYC_DOC',
-                                                     'TICKET_ATTACHMENT','COD_DEPOSIT_PROOF','INVOICE_PDF','REPORT_EXPORT')),
+                                                     'TICKET_ATTACHMENT','COD_DEPOSIT_PROOF','INVOICE_PDF','REPORT_EXPORT',
+                                                     'MENU_IMPORT_CSV','SETTLEMENT_FILE')),   -- M7 menu CSV; PA/bank files (§7.1)
   visibility         text NOT NULL CHECK (visibility IN ('PUBLIC_CDN','PRIVATE')),
   content_type       text NOT NULL CHECK (content_type IN ('image/jpeg','image/png','image/webp','application/pdf','text/csv')),
   size_bytes         bigint NOT NULL CHECK (size_bytes BETWEEN 1 AND 10485760),
@@ -2539,7 +2595,9 @@ CREATE TABLE file_objects (                       -- provider-neutral object sto
   dominant_color     text CHECK (dominant_color ~ '^#[0-9a-f]{6}$'),   -- image placeholder (17)
   variants           jsonb NOT NULL DEFAULT '[]', -- [{"w":320,"key":"…_320.webp"},{"w":800,"key":"…_800.webp"}]
   encryption         text NOT NULL DEFAULT 'PROVIDER_SSE' CHECK (encryption IN ('PROVIDER_SSE','APP_ENVELOPE')),
-  dek_wrapped        bytea,                       -- APP_ENVELOPE: per-object DEK wrapped by KMS KEK (12 AUTH-D12)
+                                                  -- PROVIDER_SSE = SSE-KMS; V1 uses it for every file incl. KYC (R38).
+                                                  -- APP_ENVELOPE kept for a later decision; unused in V1
+  dek_wrapped        bytea,                       -- APP_ENVELOPE only
   kek_id             text,
   owner_user_id      uuid REFERENCES users(id),
   status             text NOT NULL DEFAULT 'PENDING_UPLOAD' CHECK (status IN ('PENDING_UPLOAD','QUARANTINE','READY','REJECTED','DELETED')),
@@ -2549,7 +2607,8 @@ CREATE TABLE file_objects (                       -- provider-neutral object sto
   deleted_at         timestamptz,
   CONSTRAINT ux_file_objects__key UNIQUE (bucket, object_key),
   CONSTRAINT ck_file_objects__envelope CHECK ((encryption = 'APP_ENVELOPE') = (dek_wrapped IS NOT NULL AND kek_id IS NOT NULL)),
-  CONSTRAINT ck_file_objects__kyc_private CHECK (purpose <> 'KYC_DOC' OR (visibility = 'PRIVATE' AND encryption = 'APP_ENVELOPE'))
+  CONSTRAINT ck_file_objects__kyc_private CHECK (purpose <> 'KYC_DOC'
+    OR (visibility = 'PRIVATE' AND content_type IN ('image/jpeg','image/png','image/webp')))   -- R38: images only, server re-encoded
 );
 CREATE INDEX ix_file_objects__pending ON file_objects (created_at) WHERE status IN ('PENDING_UPLOAD','QUARANTINE');
 ```

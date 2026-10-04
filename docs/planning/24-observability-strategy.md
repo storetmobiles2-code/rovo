@@ -15,7 +15,7 @@
 - **No outbox table (R22/R42):** the outbox metrics and relay span are replaced by **River queue latency** and trace context carried in River job metadata. Alert A8 has been redefined accordingly.
 - Added the **NOTIFY queue-usage alert and LISTEN watchdog (M12)**, the **missed-settlement / periodic catch-up alert (M11)** and the CERT-In archive delivery alert.
 - `closed-pilot` exports OTLP **directly** from the SDKs (no Alloy gateway, R32). DB metrics come from a worker `db-stats` job plus CloudWatch.
-- Accept-timeout values are referenced by doc 13 keys, not restated (R48). Volumes follow R45/doc 20. On-call aligned with RV-067.
+- Accept-timeout values are referenced by doc 13 keys, not restated (R48). Volumes follow R45/doc 20. On-call aligned with RV-067. **Availability SLO per R49:** 99.5% monthly in the closed pilot, 99.9% monthly from Gate B.
 
 ---
 
@@ -149,7 +149,7 @@ Observability logs in Grafana are **operational, sampled, short-retention (14 da
 |---|---|---|
 | `http.server.request.duration` | histogram (buckets 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000 ms) | `http.route` (≤ 60 templated routes), `http.request.method`, `status_class` (2xx/3xx/4xx/5xx) |
 | `http.server.active_requests` | up-down counter | `http.route` group |
-| `rovo_sse_connections` | gauge | `channel` (customer_order, partner_inbox, rider_offers) |
+| `rovo_sse_connections` | gauge | `channel` (customer_order, restaurant_inbox, rider_offers, admin) |
 | `rovo_sse_messages_sent_total` | counter | `channel` |
 
 ### 4.2 USE (resources)
@@ -244,7 +244,7 @@ Guardrails: Alloy `relabel` drops unknown labels; CI lint for metric definitions
 
 | SLO | SLI | Target (28-day) |
 |---|---|---|
-| API availability | Non-5xx ratio of `api` requests excluding health, **measured during service hours** (RV-067); raise to 99.9% after 3 months of data | **99.5%** |
+| API availability (R49) | Non-5xx ratio of ordering-API requests excluding health, **monthly** | **99.5%** in `closed-pilot` (Single-AZ); **99.9%** from Gate B (`public-launch`, Multi-AZ) |
 | API latency | p95 of core routes (menu, cart, place order, order status) < 400 ms | 99% of 5-min windows |
 | Order placement success | `PLACED` ÷ (place-order attempts with valid cart, excl. payment declines) | **99%** |
 | Restaurant acceptance flow | Orders resolved (accepted, rejected, or auto-cancelled `RESTAURANT_UNRESPONSIVE` by `SYSTEM`, R1) within doc 13's `accept_timeout` + 30 s | 99% (system honours the timer) |

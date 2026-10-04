@@ -14,7 +14,7 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. All prices and rules were checked on 
 - PA selection per **R25/R46**: Cashfree vs Razorpay on written rates; the effective rate is a go/no-go criterion (target ≤ 1% blended). Money flow per **R35**: both models supported, legal opinion before Phase-2 week 4 (§0, §3, §4, §21).
 - Table names per doc 10 (`payments`, `payment_events`, `ledger_account_balances`; register row 66); ledger account codes stay as defined here. Added `transfers`, `pa_settlements`, `pa_settlement_lines`, `recon_exceptions` designs (**M4**) and money-path FKs to `orders` (**R41**) (§5, §10.1).
 - Worked example and quote engine redone with GST-inclusive fees and a `ROUND_OFF` line (**R8**, RV-046) (§10.3, §12.4, §13).
-- COD: first-order cap ₹600, headroom rule (**R6**); compensation by customer choice, manual UPI refund or coupon (**R29**); static-QR COD-UPI deferred (**C19**) (§10.4, §11.3, §14, §15).
+- COD: first-order cap ₹600, headroom rule (**R6**); cash-ageing and payout days are `app_config` keys owned by doc 10 (**R53**: riders Monday, restaurants Tuesday, ageing alert 24 h / COD block 48 h); compensation by customer choice, manual UPI refund or coupon (**R29**); static-QR COD-UPI deferred (**C19**) (§10.4, §11.3, §14, §15).
 - Accept timeout is `CANCELLED`/`RESTAURANT_UNRESPONSIVE` (**R1**); maker-checker scope and thresholds per **R31** (§15, §17, §19).
 - Periodic jobs use catch-up semantics with a missed-settlement alert (**M11**); app clock, not DB time (**R19**) (§16, §17, §18).
 - CA-signed golden invoices and PA sample settlement files (**M14**) (§12.5, §20). Raw webhook bodies redacted, 180 days; normalised fields 8 years (register row 68). Webhook path `/api/v1/webhooks/payments/{provider}`. No WhatsApp in V1 (**C2**).
@@ -545,11 +545,11 @@ rider_pay           = 2500 + max(0, distance_km − 2) × 600 + waiting_pay   (c
 | COD strikes | Order `UNDELIVERABLE` (support-approved, R5) with customer fault (`CUSTOMER_UNREACHABLE` / `CUSTOMER_REFUSED`) = 1 strike. **2 customer-fault COD failures → COD disabled** for the customer (prepaid only), with notification and support appeal (R5). | checkout + support |
 | Phone/device velocity | > 3 COD orders/hour per phone/device → block | checkout |
 | Rider cash limit | ₹2,000 (baseline §5) | dispatch filter: COD offered only if `cash_in_hand + order_payable ≤ limit` (R6) |
-| Deposit SLA | reminder at 48 h, block from going online at 72 h *(proposal, register row 72; doc 01 values)* | periodic job + ops alert |
+| Deposit SLA / cash ageing | `app_config` keys owned by doc 10 (R53): `cod.cash_ageing_alert_h` (default **24 h**: alert rider + ops) and `cod.cash_ageing_block_h` (default **48 h**: no new COD offers) *(key names to be fixed in doc 10)* | periodic job + ops alert |
 | Cash mismatch | delivered with `cod_collected ≠ due` → ops review; persistent shortfall → rider payable deduction (with consent and policy) | admin |
 | Payment-provider outage | COD-only mode (doc 08 §11) with tighter caps (₹600) to limit risk exposure | circuit breaker |
 
-Values are seeded in `app_config` and owned by docs 10/13 (R48); this table explains the controls.
+Values are seeded in `app_config` and owned by docs 10/13 (R48, R53); this table explains the controls.
 
 ---
 
@@ -647,7 +647,7 @@ Controls: `SUSPENSE` balance and the open exception count are dashboard KPIs. Mo
 | Hold / dispute window | Orders delivered in the period, plus 48 h complaint window `[ASSUMPTION]`; later-period carry-over | — |
 | Minimum payout | ₹100 (else carried forward) | ₹100 |
 | Execution (V1) | **Split model:** release holds for the statement's transfers via `ReleaseHold`, then the PA settles to the restaurant's bank. **COD net amounts and model B:** bank transfer from rovo's account. | Bank transfer/UPI from rovo's account, **net of cash-in-hand** (with rider consent in the contract) |
-| Target date | Wednesday | Tuesday *(proposal, register row 72; doc 01 value)* |
+| Payout day | `app_config` key `payout.restaurant_settlement_day` (default **Tuesday**, R53) | `app_config` key `payout.rider_payout_day` (default **Monday**, for the previous Mon–Sun, R53) |
 | Proof | PA transfer settlement UTR / bank UTR recorded in `payouts` | UTR |
 
 **Manual payout procedure V1 (maker-checker, R31 family 2):**

@@ -15,7 +15,7 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. Prices were researched on **2026-10-0
 - **WhatsApp OTP and WhatsApp notifications cut to V1.1 (C2)**: V1 OTP = SMS primary + secondary SMS aggregator; partner fallbacks use SMS (§0, §1, §2, §5, §9, §10, §12). WhatsApp text kept as V1.1 reference.
 - Pipeline per **R22/R42**: subscriber jobs inserted with `InsertManyTx`; no `event_log`/fan-out hop (§0, §3).
 - WebOTP line for **four** app hosts (R14); OTP counters Postgres-backed (R21); egress IP allow-listing per R28 (§5). Webhook paths under `/api/v1` (R15). Ack endpoint path aligned with doc 11 (register row 64).
-- Finance alert for a missed settlement run (**M11**) (§2.4).
+- Finance alert for a missed settlement run (**M11**) (§2.4). Cash-ageing thresholds via `app_config` (**R53**). SSE heartbeat 20 s (**R52**, §4).
 
 ---
 
@@ -115,7 +115,7 @@ Template keys are the same across channels and locales (`en`, `te`). Each channe
 | Offer expired/revoked (`EXPIRED`/`REVOKED`, R16) | `rider.offer_expired` | ✔ | – | – | – | – | P2 | silent update |
 | Order cancelled while assigned | `rider.delivery_cancelled` | ✔ | ✔ | – | – | – | P1 | return-to-restaurant instructions |
 | `RiderCashLimitReached` | `rider.cash_limit` | ✔ | ✔ | – | – | – | P1 | deposit instructions |
-| Deposit overdue (reminder / block; thresholds per doc 13/14, proposal 48 h / 72 h) | `rider.deposit_overdue` | ✔ | ✔ | ✔ at block | – | – | P1 | |
+| COD cash ageing (`app_config` per R53: alert 24 h, COD offers blocked 48 h) | `rider.deposit_overdue` | ✔ | ✔ | ✔ at block | – | – | P1 | |
 | Auto-offline after missed offers | `rider.auto_offline` | ✔ | ✔ | – | – | – | P2 | |
 | `PayoutRecorded` | `rider.payout_paid` | ✔ | ✔ | ✔ | V1.1 | – | P2 | |
 | Onboarding approved/rejected | `rider.onboarding_status` | ✔ | – | ✔ | – | – | P2 | |
@@ -199,6 +199,7 @@ flowchart LR
 - **iOS:** requires the PWA on the Home Screen, iOS/iPadOS 16.4+. The app shows "Add to Home Screen" guidance before offering push on iOS (doc 18). For riders and restaurants on iPhone, in-app SSE plus the SMS fallback covers the gaps.
 - **Headers:** `TTL` (offers 45 s; restaurant new order 180 s, the R1 accept window; customer status 1 h; digests 24 h), `Urgency: high` for P0/P1, `Topic` header to collapse superseded messages (e.g. `order-{id}-status`).
 - **Payload:** ≤ 2 KB JSON `{type, title, body, url, entity_id, version, tag, require_interaction}`, encrypted per RFC 8291 by the library. The service worker shows a notification with `tag` (replaces the previous one for the same order), `renotify: true` for P0, and `requireInteraction: true` for restaurant new orders (supported on desktop/Android Chrome).
+- **SSE heartbeat:** 20 s everywhere (R52, doc 08 §6.2).
 - **Sound:** web notifications can't play custom looping audio when the app is closed. Hence the restaurant alarm loop runs **in-app** (foreground tab, Screen Wake Lock, user-unlocked audio on "Start shift"), with push plus owner SMS and the ops call as the backstop (§7, doc 05/18).
 - **Cleanup:** 404/410 → delete the subscription. Three consecutive failures → mark stale. A periodic job prunes subscriptions unused for 60 days.
 
@@ -294,45 +295,43 @@ sequenceDiagram
 
 ---
 
-## 7. Restaurant new-order alert loop (with escalation)
+## 7. Restaurant new-order alert loop (with escalation) — amended 2026-10-04 per R1/R43
 
-Goal: no order sits unseen. The loop is **server-driven** (River scheduled jobs), so it works even if the restaurant's browser is closed. It **stops immediately on acknowledgement** (`POST /api/v1/restaurant/orders/{id}/ack`, sent automatically when the order card is displayed in the foreground app, or on accept/reject).
+Goal: no order sits unseen. The loop is **server-driven** (River scheduled jobs from doc 13's `T-ACC-*` timers, computed from the app clock, R19), so it works even if the restaurant's browser is closed. Push repeats **stop on acknowledgement** (`POST /api/v1/partner/restaurants/{rid}/orders/{id}/ack`, sent automatically when the order card is displayed in the foreground app; to be added to doc 11, register row 64). The owner-SMS, ops and timeout steps stop only on accept, reject or cancel.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant W as worker (notifications)
+    participant W as worker (notifications + ordering timers)
     participant API as rovo api
     actor R as Restaurant app/device
     actor O as Ops (city)
-    Note over W: OrderPlaced → schedule alert steps (unique per order)
-    W->>API: t=0 SSE restaurant.order_new (in-app looping alarm + wake lock)
-    W->>R: t=0 Web Push (urgency high, requireInteraction, tag=order)
-    alt acknowledged (ack/accept/reject)
-        R->>API: POST /orders/{id}/ack
+    actor C as Customer
+    Note over W: OrderPlaced → schedule T-ACC-RING, T-ACC-OWNER, T-ACC-OPS, T-ACC-TIMEOUT (unique per order)
+    W->>API: t=0 SSE order.placed on inbox:{rid} (in-app looping alarm + wake lock)
+    W->>R: t=0 Web Push (urgency high, requireInteraction, tag=order, TTL 180 s)
+    loop every 30 s while PLACED and not acknowledged
+        W->>R: Web Push repeat (renotify) + SSE re-ring
+    end
+    alt accepted or rejected
+        R->>API: POST accept / reject
         API->>W: cancel remaining steps (CAS on alert_state)
-    else no ack at t=30 s
-        W->>R: Web Push repeat (renotify)
     end
-    alt still no ack at t=60 s
-        W->>R: WhatsApp utility template "New order RV-7K3P9Q waiting — open rovo Partner" (or SMS per config) to the owner + on-duty staff
-    end
-    alt still no ack at t=120 s
-        W->>O: ops board alert + push (ops.restaurant_unresponsive)
-        O->>R: phone call (manual), may accept on behalf (audit-logged) [OPEN]
-    end
-    alt not accepted at t=240 s (accept timeout)
-        W->>API: ordering: PLACED → REJECTED (RESTAURANT_TIMEOUT) → refund (doc 14 §15)
-        W->>R: push + SMS "Order auto-rejected"
-        W->>W: timeout_count++ → if 2 in a day → auto-pause restaurant (restaurant.auto_paused), ops notified
-    end
+    W->>R: t=60 s still PLACED: SMS + push to the owner ("New order RV-7K3P9Q waiting")
+    W->>O: t=90 s still PLACED: ops board flag + sound (ops.alert ACCEPT_SLA) + push
+    W->>C: t=90 s: "Taking a little longer…"
+    O->>R: manual phone call, may accept on behalf (audited)
+    W->>API: t=180 s still PLACED: ordering PLACED → CANCELLED<br/>cancelled_by SYSTEM, reason RESTAURANT_UNRESPONSIVE → full refund if prepaid (doc 14 §15)
+    W->>R: push + SMS "Order cancelled: not accepted in time. Outlet paused"
+    W->>W: auto-pause 30 min (2 consecutive misses → paused until the owner resumes), ops notified
 ```
 
-- **Timings** are configurable per city: `alert.repeat_push_s=30`, `alert.sms_s=60`, `alert.ops_s=120`, `ordering.accept_timeout_s=240` `[ASSUMPTION; Product/UX to confirm in doc 05]`.
+- **Timings** are owned by doc 13 (R48): `T-ACC-RING` 30 s, `T-ACC-OWNER` 60 s, `T-ACC-OPS` 90 s, `T-ACC-TIMEOUT` 180 s (R1). The v1 keys `alert.ops_s=120` and `ordering.accept_timeout_s=240` are superseded.
 - **Recipients:** the owner plus members with an active "on duty" toggle. Messages are deduped per phone number.
 - **In-app alarm loop** (foreground, doc 05/18): repeating audio until ack, unlocked by a "Start shift" tap. Screen Wake Lock. A visible flashing banner. A heartbeat check warns "Alerts paused — tap to resume" if audio is blocked.
-- **Cost:** with ~250 orders/day and an assumed 10% reaching the t+60 s step, that is ≈ 750 WhatsApp/SMS per month ≈ ₹100–150/month.
-- **Restaurant device health:** if no SSE connection from a restaurant that is "open" for > 5 min during operating hours, warn the owner (push) and ops. Optionally auto-pause after 15 min `[OPEN: ops policy]`.
+- **Voice-call escalation (R43):** **P1**. V1 relies on the repeated push/SSE alarm, the owner SMS at 60 s and the ops manual call at 90 s (ops desk staffed during service hours). Automated voice calls (SMS aggregator voice API, ≈ ₹0.3–0.6/call `[unverified]`) are switched on if the pilot shows > 5% of orders reaching the 90 s mark.
+- **Cost:** with ~250 orders/day and an assumed 10% reaching the t+60 s step, that is ≈ 750 SMS per month ≈ ₹100–150/month.
+- **Restaurant device health (R1):** an open outlet with **no order-receiver heartbeat for 3 min** (an open SSE stream counts as heartbeat; otherwise the device heartbeats every 60 s, R27) is **auto-paused** (`DEVICE_OFFLINE`); owner (push + SMS) and ops (`ops.alert DEVICE_OFFLINE`) are notified. The v1 "warn at 5 min, auto-pause at 15 min `[OPEN]`" is superseded.
 
 **Rider offers** use SSE + push (TTL 45 s, urgency high) with in-app sound. There is **no** SMS/WhatsApp step: the offer expires faster than those channels are useful. Dispatch moves on to the next rider (doc 08 §5.4).
 
@@ -340,7 +339,7 @@ sequenceDiagram
 
 ## 8. Templating and localisation
 
-- **Source of truth:** `backend/internal/modules/notifications/templates/<channel>/<template_key>.<locale>.tmpl` (push, in-app, email; Go `text/template` / `html/template`, `missingkey=error`). SMS/WhatsApp **text lives with the provider registration**. The repo holds a mirror (`templates/sms/*.yaml`, `templates/whatsapp/*.yaml`) with `dlt_template_id`/WhatsApp template name, language code and the ordered variable list. CI checks that every template key in `notification_policies` has variants for each channel and locale (falling back to `en` with a warning).
+- **Source of truth:** `backend/internal/modules/notifications/templates/<channel>/<template_key>.<locale>.tmpl` (push, in-app, email; Go `text/template` / `html/template`, `missingkey=error`). SMS **text lives with the provider registration**. The repo holds a mirror (`templates/sms/*.yaml`; `templates/whatsapp/*.yaml` only from V1.1) with `dlt_template_id`/WhatsApp template name, language code and the ordered variable list. CI checks that every template key in `notification_policies` has variants for each channel and locale (falling back to `en` with a warning).
 - **Locale resolution:** user preference → `Accept-Language` at the last session → city default (`te` or `en` `[OPEN: default for Mahabubnagar]`).
 - **Formatting:** amounts are formatted server-side for messages using `en-IN`/`te-IN` rules (₹, lakh grouping), and dates and times in the city timezone. The server uses a small Go formatter with tests mirroring `Intl` output.
 - **Constraints per channel:** push title ≤ 50 characters and body ≤ 120 (truncate safely at grapheme boundaries for Telugu). SMS ≤ 1 segment where possible (GSM-7). WhatsApp utility templates must be non-promotional, or Meta re-categorises them as marketing (higher price).
@@ -351,17 +350,17 @@ sequenceDiagram
 
 ## 9. Monthly cost model (messaging only)
 
-`[ASSUMPTION]` inputs for month 3 (doc 01 M-50: ≈ 250 orders/day; ≈ 7,500 orders/month): 4,000 customer logins with OTP/month (30-day sessions), 300 partner logins, 10% of orders hitting the restaurant SMS/WA step, 5% of customer orders needing an SMS fallback, 300 payout notifications via WhatsApp utility, emails 2,000/month.
+`[ASSUMPTION]` inputs for month 3 (load model R45, doc 20: ≈ 250 orders/day; ≈ 7,500 orders/month): 4,000 customer logins with OTP/month (30-day sessions), 300 partner logins, 10% of orders hitting the restaurant SMS step, 5% of customer orders needing an SMS fallback, 300 payout notifications via SMS, emails 2,000/month. Doc 25 §15 is the single cost source (R46); this table feeds it.
 
 | Item | Volume/month | Unit (≈) | Cost/month |
 |---|---|---|---|
 | OTP (SMS primary, 1.2 sends per login) | ~5,200 | ₹0.17 + 18% GST | ≈ ₹1,050 |
-| Restaurant escalation (WA/SMS) | ~750 | ₹0.15 | ≈ ₹115 |
+| Restaurant escalation (owner SMS at 60 s) | ~750 | ₹0.17 | ≈ ₹130 |
 | Customer SMS fallbacks | ~375 | ₹0.20 | ≈ ₹75 |
-| WhatsApp utility (payouts, refunds) | ~500 | ₹0.145 | ≈ ₹75 |
+| SMS payout notifications | ~300 | ₹0.17 | ≈ ₹50 |
 | Email | ~2,000 | free tier or SES ~$0.10/1k | ≈ ₹0–20 |
 | Web Push | ~150,000 | ₹0 | ₹0 |
-| **Total** | | | **≈ ₹1,300–1,500 (budget ₹3,000 with headroom)** |
+| **Total** | | | **≈ ₹1,300–1,500 (budget ₹3,000/month with headroom; DLT scrubbing fees and Telugu Unicode SMS unverified)** |
 | One-time | DLT PE registration | | ₹5,900 |
 
 Email options (accessed 2026-10-04): **Resend** free 3,000/month with a 100/day cap (https://resend.com/blog/new-free-tier.md ; https://automationatlas.io/answers/resend-free-tier-explained-2026/). **Brevo** free 300/day (https://www.brevo.com/features/email-marketing/newsletter-software ; https://dreamlit.ai/blog/brevo-review). **Amazon SES** a-la-carte $0.10 per 1,000, with a 3,000/month free allowance for the first 12 months for new customers, and bundled plans introduced in 2026 (https://dev.to/mr_manushukla/amazon-ses-pricing-plans-in-2026-essentials-vs-pro-vs-enterprise-and-when-a-la-carte-still-wins-1ohg ; https://www.costbench.com/software/email-api/amazon-ses/free-plan/; third-party, verify on the AWS pricing page). **Decision:** use the cloud's email service in production if the chosen cloud is AWS (SES), otherwise Resend. Weekly restaurant statements sent as one email each can hit Resend's 100/day cap at ~100 restaurants, so stagger them or use a paid tier. Mailpit locally.
@@ -413,8 +412,8 @@ type Registry interface {
 
 Adapters planned:
 - `push/webpush` (VAPID).
-- `sms/msg91`, `sms/gupshup`, `sms/fake` (logs + dev endpoint `GET /dev/otp/{phone}` only in `env=local|ci`).
-- `whatsapp/metacloud`, `whatsapp/fake`.
+- `sms/msg91`, `sms/gupshup` (primary + secondary), `sms/fake` (logs + dev endpoint `GET /dev/otp/{phone}` only in `env=local|ci`).
+- `whatsapp/metacloud`, `whatsapp/fake` — **V1.1** (C2), not built in V1.
 - `email/smtp` (works with SES SMTP, Mailpit, Brevo), `email/resend`.
 
 Each adapter has a contract test with recorded fixtures. A **circuit breaker per provider** (error rate > 30% over 2 min → open → secondary provider) emits `ops.provider_degraded`.
@@ -427,11 +426,11 @@ Each adapter has a contract test with recorded fixtures. A **circuit breaker per
 |---|---|---|
 | Web Push | HTTP response from the push service (201 accepted). No delivery receipt. Optional client "displayed" ping from the service worker (`POST /api/v1/notifications/{id}/displayed`, sampled) | SENT, FAILED, (DISPLAYED) |
 | SMS | Aggregator DLR webhook | SENT, DELIVERED, FAILED (+ operator error code) |
-| WhatsApp | Cloud API status webhooks (`sent`, `delivered`, `read`, `failed`). Signature `X-Hub-Signature-256` = HMAC-SHA256(app secret, raw body). | SENT, DELIVERED, READ, FAILED |
+| WhatsApp (V1.1) | Cloud API status webhooks (`sent`, `delivered`, `read`, `failed`). Signature `X-Hub-Signature-256` = HMAC-SHA256(app secret, raw body). | SENT, DELIVERED, READ, FAILED |
 | Email | Provider webhooks (delivered, bounce, complaint) → suppression list | SENT, DELIVERED, BOUNCED, COMPLAINED |
 | In-app | `read_at` when opened | READ |
 
-Metrics (doc 24): sends by channel/provider/template/status, time from event to send, DLR latency p50/p95, OTP conversion rate, restaurant alert ack time p50/p95, escalations per day, spend per day (from `cost_micro_inr`), and push subscription churn. Alerts: OTP conversion < 60%, SMS DLR failure rate > 10%, provider circuit open, alert-loop escalations > X/hour.
+Metrics (doc 24): sends by channel/provider/template/status, time from event to send, DLR latency p50/p95, OTP conversion rate, restaurant alert ack time p50/p95, escalations per day, spend per day (from `cost_micro_inr`), and push subscription churn. Alerts: OTP conversion < 60%, SMS DLR failure rate > 10%, provider circuit open, alert-loop escalations > X/hour, share of orders reaching the 90 s mark > 5% over a week (R43 trigger for voice escalation), missed settlement run (M11).
 
 ---
 
@@ -440,10 +439,10 @@ Metrics (doc 24): sends by channel/provider/template/status, time from event to 
 | Failure | Behaviour |
 |---|---|
 | Worker down | Notifications queue durably and are sent on recovery. The staleness guard drops outdated ones (expired offers, already-accepted orders). SSE updates from API-side transitions still flow. |
-| Primary SMS provider down | Circuit → secondary aggregator. OTP resend offers WhatsApp. |
-| WhatsApp template paused/rejected by Meta (quality rating) | Fall back to SMS for that template. Alert ops to fix the template. |
-| Push service outage (a browser vendor) | SSE in-app still works. P0 restaurant chain continues to SMS/WA. |
-| User has no push and no WhatsApp | SMS for P0/P1 where the policy allows. Otherwise in-app only. |
+| Primary SMS provider down | Circuit → secondary aggregator. |
+| WhatsApp template paused/rejected by Meta (V1.1 only) | Fall back to SMS for that template. Alert ops to fix the template. |
+| Push service outage (a browser vendor) | SSE in-app still works. P0 restaurant ladder continues to owner SMS (60 s) and ops call (90 s). |
+| User has no push subscription | SMS for P0/P1 where the policy allows. Otherwise in-app only. |
 | Notification storm (bug loops) | Per-recipient rate cap (e.g. ≤ 20 push/10 min, ≤ 5 SMS/hour excluding OTP) plus the global spend alarm. Breach → drop and alert. |
 | Wrong-locale template missing | Fall back to `en` and log a warning metric |
 
@@ -455,12 +454,13 @@ Metrics (doc 24): sends by channel/provider/template/status, time from event to 
 |---|---|---|
 | N-1 | SMS aggregator choice (MSG91 vs Gupshup vs other) after written quotes incl. DLT scrubbing fees and DLR quality; secondary provider | Lead + DevOps |
 | N-2 | Default locale for Mahabubnagar customers (`te` vs `en`); which customer SMS need Telugu variants | Product/UX |
-| N-3 | WhatsApp: Cloud API direct vs BSP; business verification timeline; customer opt-in UX | Product + Legal |
-| N-4 | Exact alert-loop timings and whether ops may accept on a restaurant's behalf | Product/Ops (doc 05/07) |
+| N-3 | WhatsApp (V1.1, C2): Cloud API direct vs BSP; business verification timeline; customer opt-in UX | Product + Legal |
+| N-4 | ~~Exact alert-loop timings; ops accept on behalf~~ Decided by R1 (timers in doc 13; ops may accept on behalf, audited). | — |
 | N-5 | CAPTCHA provider for OTP abuse (Turnstile vs cloud WAF bot control) | Security (doc 12/19) |
-| N-6 | WebOTP origin-bound line per app host within DLT template constraints | Security + Frontend |
+| N-6 | WebOTP origin-bound line for **four** app hosts within DLT template constraints (week 1) | Security + Frontend |
 | N-7 | Voice OTP as last-resort fallback: needed? | Product |
 | N-8 | Content of lock-screen notifications (privacy) | UX + Security |
+| N-9 | Voice-call escalation provider and IVR script, ready to enable if the R43 trigger fires (P1) | Solution + Ops |
 
 ---
 

@@ -4,9 +4,18 @@
 |---|---|
 | **Purpose** | Define GitHub Actions pipelines: PR checks (Go, web, contract, DB), security scanning, multi-arch image builds, OIDC to AWS, ECR push, OpenTofu plan/apply with approvals, staging deploys on `main`, production deploys on approved release tags, migration gating, rollback, dependency updates, branch protection and the CI time budget. |
 | **Owner** | DevOps Architect |
-| **Status** | Draft v1 (aligned with baseline §4a, 2026-10-04) |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R54, 2026-10-04 |
 | **Depends on** | `00-planning-baseline.md` (P2, P5, P14, P16, §4a); `22-deployment-architecture.md` (targets, accounts, IaC layout); `20-testing-strategy.md` (test pyramid, E2E scope); `26-repository-structure.md` (paths); `11-api-specification.md` (OpenAPI location); `19-security-threat-model.md` |
 | **Feeds** | `27-implementation-backlog.md`, `29-production-readiness-checklist.md` |
+
+**Changes in v1.1**
+- **CI runs entirely on standard GitHub-hosted runners** (amd64 and arm64, free for this public Apache-2.0 repo), with **no card-requiring service** (R24). All AWS jobs (ECR push, staging/prod deploy, OpenTofu, restore drills) are gated by the repository variable `AWS_ENABLED`, which stays `false` until staging is created for go-live (§1, §2). Until then, `main` builds and publishes to GHCR only.
+- **Multi-arch PostGIS image** (`rovo-postgres:17-3.5`, amd64 + arm64) is built on native runners and published to GHCR for CI and local Compose (§5.3; RV-023: PG 17 everywhere).
+- Removed the Oracle `preview.yml` workflow and the `preview` environment (R24, RV-019). Demos use the local Compose stack plus a quick tunnel.
+- **No `pull_request_target` workflows**. Cosign signature + provenance verification is **mandatory** for production deploys (RV-033).
+- Paths follow doc 26: `openapi/**`, `backend/migrations/**`, `deploy/terraform/**` (R23). There are **four web apps** (customer, restaurant, rider, admin; R14), built with a same-origin `VITE_API_BASE=/api/v1` (R27, no CORS).
+- OIDC roles map onto the **4 AWS accounts** (C18), and ECR lives in `rovo-prod`. OpenTofu plans/applies take a profile (`closed-pilot` / `public-launch`, R32).
+- E2E runs fully offline with fakes (OTP, PA, push, SMS, bot challenge, map tiles). Integration tests cover River-as-outbox (R22/R42; no outbox table). Restore cadence per R50.
 
 > Workflow YAML below is **illustrative design**, not files to create in Phase 1. Action versions are indicative and get pinned **by commit SHA** at implementation time.
 
@@ -20,6 +29,7 @@
 4. **Everything as code**: app, infra (OpenTofu), dashboards/alerts (`24`), pipeline.
 5. **Fast feedback**: PR checks ≤ 12 min wall-clock (p50); path filters skip irrelevant jobs.
 6. **Production changes need a human**: GitHub Environments with required reviewers for app deploys and infra applies.
+7. **Free and card-free by construction (R24):** every PR and `main` job runs on standard GitHub-hosted runners (`ubuntu-24.04`, `ubuntu-24.04-arm`; free for public repos [S67, S68]) and uses only GitHub-native services (Actions cache, GHCR, CodeQL, Dependabot, secret scanning) plus open-source tools. No SaaS that asks for a card, and no self-hosted runner. Cloud jobs exist but are skipped while `vars.AWS_ENABLED != 'true'`.
 
 ---
 
@@ -27,21 +37,23 @@
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
-| `pr.yml` | `pull_request` | All quality + security checks; image build (no push to ECR; GHCR `pr-<n>` optional) |
-| `main.yml` | `push` to `main` | Re-run checks, build + push multi-arch image to **ECR** (and GHCR), deploy **staging**, smoke + synthetic order |
+| `pr.yml` | `pull_request` | All quality + security checks; image build (no push) |
+| `main.yml` | `push` to `main` | Re-run checks, build + push the multi-arch image to **GHCR** (always) and **ECR** (when `AWS_ENABLED`), deploy **staging** (when `AWS_ENABLED`), smoke + synthetic order |
 | `release-please.yml` | `push` to `main` | Maintains the release PR (version + CHANGELOG); merging it creates tag `vX.Y.Z` |
 | `deploy-prod.yml` | `push` tag `v*` | Promote the tagged commit's **digest** to **production** behind the `production` environment approval |
-| `infra-plan.yml` | `pull_request` touching `infra/**` | fmt/validate/lint/policy + `tofu plan` (staging, prod) and plan comment |
-| `infra-apply.yml` | `push` to `main` touching `infra/**`; manual | Apply staging automatically; apply prod with the saved plan behind `production-infra` approval |
-| `frontend-deploy.yml` | called by `main.yml` / `deploy-prod.yml` | Build SPAs → S3 sync → CloudFront invalidation |
-| `preview.yml` | manual / label `deploy-preview` | Deploy to the free Oracle preview VM (`22` §11) |
-| `scheduled.yml` | cron | Nightly security scans, IaC drift, monthly restore drill (`23`), quarterly free-tier/pricing diff (`25` §9.3) |
+| `infra-plan.yml` | `pull_request` touching `deploy/terraform/**` (same-repo branches only) | fmt/validate/lint/policy always; `tofu plan` (staging, prod, with the env's profile tfvars) and plan comment when `AWS_ENABLED` |
+| `infra-apply.yml` | `push` to `main` touching `deploy/terraform/**`; manual | Apply staging automatically; apply prod with the saved plan behind `production-infra` approval |
+| `frontend-deploy.yml` | called by `main.yml` / `deploy-prod.yml` | Build the 4 SPAs → S3 sync to their prefixes → CloudFront invalidation |
+| `postgres-image.yml` | weekly + `deploy/docker/postgres-postgis.Dockerfile` change | Build and publish the multi-arch PostGIS image to GHCR (§5.3) |
+| `scheduled.yml` | cron | Nightly security scans; when `AWS_ENABLED`: IaC drift, weekly automated restore-and-verify (R50, `23` §7); quarterly pricing diff (`25` §11/§17) |
+
+There is **no preview workflow** (R24). A demo is the local Compose stack plus a card-free quick tunnel (`22` §11).
 
 ---
 
 ## 3. PR checks
 
-### 3.1 Go backend (`backend/**`, `api/openapi/**`, `db/**`)
+### 3.1 Go backend (`backend/**`, `openapi/**`)
 
 | Job | Tools / command | Gate |
 |---|---|---|
@@ -49,15 +61,15 @@
 | lint | `golangci-lint run` (govet, staticcheck, errcheck, gosec, revive, bodyclose, sqlclosecheck, depguard **module-boundary rules**: a module may not import another module's `internal/`) | required |
 | vet | `go vet ./...` | required |
 | unit | `go test -race -shuffle=on -coverprofile` (coverage reported; threshold per `20`) | required |
-| integration | `go test -tags=integration` against a **PostGIS service container** (`ghcr.io/<org>/rovo-postgres:17-3.5`, multi-arch, §5.3) or **testcontainers-go**; River + outbox + geo queries | required |
+| integration | `go test -tags=integration` against a **PostGIS service container** (`ghcr.io/<org>/rovo-postgres:17-3.5`, multi-arch, §5.3) or **testcontainers-go**; River (transactional `InsertManyTx` = the outbox, no outbox table, R22/R42), LISTEN/NOTIFY, geo queries | required |
 | sqlc verify | `sqlc generate` then `git diff --exit-code` (and `sqlc vet`) | required |
 | codegen drift | Regenerate OpenAPI server stubs (oapi-codegen) and TS client (openapi-typescript); `git diff --exit-code` | required |
-| migrations lint | **squawk** on new `db/migrations/*.sql` (blocking: non-concurrent index on existing tables, `NOT NULL` without default, column type changes, `DROP` in expand migrations) | required |
+| migrations lint | **squawk** on new `backend/migrations/*.sql` (blocking: non-concurrent index on existing tables, `NOT NULL` without default, column type changes, `DROP` in expand migrations) | required |
 | migrations up/down | Fresh DB: `goose up` → `goose down-to 0` → `goose up`; plus **upgrade test**: restore previous release's schema snapshot → `goose up` | required |
-| compat (N-1) | Run previous release's integration tests against the **new** schema (guarantees app rollback safety) | required on `db/migrations/**` changes |
+| compat (N-1) | Run previous release's integration tests against the **new** schema (guarantees app rollback safety) | required on `backend/migrations/**` changes |
 | build | `go build ./...` for `linux/amd64` + `linux/arm64` (cross-compile, `CGO_ENABLED=0`) | required |
 
-### 3.2 API contract (`api/openapi/**`)
+### 3.2 API contract (`openapi/**`)
 
 | Job | Tool | Gate |
 |---|---|---|
@@ -73,11 +85,11 @@
 | typecheck | `pnpm -r typecheck` (tsc --noEmit) | required |
 | lint/format | `pnpm -r lint` (ESLint), `prettier --check` | required |
 | unit | `pnpm -r test` (Vitest, coverage) | required |
-| build | `pnpm -r build` (Vite) for customer/partner/admin | required |
-| bundle budget | size-limit (or `vite-bundle-visualizer` + script): customer initial JS ≤ **170 KB gzip**, partner ≤ 200 KB, admin ≤ 300 KB [ASSUMPTION; Frontend Architect owns numbers in `17`] | required |
+| build | `pnpm -r build` (Vite) for **customer, restaurant, rider, admin** (R14) with `VITE_API_BASE=/api/v1` | required |
+| bundle budget | size-limit per app; budgets are owned by doc `17` (indicative: customer ≤ 170 KB gzip, restaurant/rider ≤ 200 KB, admin ≤ 300 KB) | required |
 | i18n | Key parity check `en` ↔ `te` | required |
-| E2E | **Playwright** against the **Compose stack** (postgres, migrate, api, worker, minio, mailpit, fakes) on `ubuntu-latest`; golden flow: customer order → restaurant accept → rider offer/accept → pickup → deliver → COD settle → rating; mobile viewport (Android Chrome emulation) | required on `main`; on PRs when `backend/**` or `web/**` changed |
-| Lighthouse CI | `lhci autorun` on built customer + partner apps served statically: PWA installable, Performance ≥ 85 (Moto G-class throttling), Accessibility ≥ 95 [ASSUMPTION] | required for `web/**` changes |
+| E2E | **Playwright** against the **Compose stack** (postgres, migrate, api, worker, minio, mailpit) on a GitHub-hosted `ubuntu-24.04` runner, **fully offline from third parties**: fake OTP, fake PA, push/SMS log sinks, `BotChallenge=fake`, local map-tile stub (RV-020/021); golden flow: customer order → restaurant accept → rider offer/accept → pickup → deliver → COD settle → rating; mobile viewport (Android Chrome emulation) | required on `main`; on PRs when `backend/**` or `web/**` changed |
+| Lighthouse CI | `lhci autorun` (results stored as workflow artifacts; no external upload server) on the built customer, restaurant and rider apps served statically: PWA installable, Performance ≥ 85 (Moto G-class throttling), Accessibility ≥ 95 [ASSUMPTION] | required for `web/**` changes |
 
 ### 3.4 Required status checks (ruleset on `main`)
 
@@ -96,10 +108,10 @@ Path-filtered jobs report "skipped = success" through a small aggregator job (`c
 | Secrets | **gitleaks** (full history nightly, diff on PR); GitHub secret scanning + push protection (free for public repos [ASSUMPTION]) | PR + push | Any finding blocks |
 | Dependency review | `actions/dependency-review-action` (licence deny-list: AGPL/SSPL for runtime deps; vulnerable versions) | PR | Blocks |
 | Image scan | **Trivy** image (OS + Go binary) and config (Dockerfile) | PR build + nightly on deployed digests | Critical (fixable) blocks |
-| IaC scan | **Trivy config** / Checkov on `infra/**`; `tflint` | PR | High blocks |
+| IaC scan | **Trivy config** / Checkov on `deploy/terraform/**`; `tflint` | PR | High blocks |
 | SBOM | **syft** → SPDX JSON attached to the image as an attestation and as a release asset | main + release | — |
-| Signing (optional → recommended before prod) | **cosign** keyless (Sigstore, GitHub OIDC); `actions/attest-build-provenance` | main + release | Prod deploy verifies signature/provenance before `update-service` |
-| Workflow hardening | `permissions: {}` by default, per-job least privilege; actions pinned by SHA; `step-security/harden-runner` (egress audit) | all | — |
+| Signing (**mandatory**, RV-033) | **cosign** keyless (Sigstore, GitHub OIDC; free, no account); `actions/attest-build-provenance` | main + release | A prod deploy **fails** unless the signature and provenance verify before `update-service` |
+| Workflow hardening | `permissions: {}` by default, per-job least privilege; third-party actions pinned by commit SHA (Dependabot updates them); **no `pull_request_target` workflows** (RV-033); `step-security/harden-runner` community tier (egress audit) | all | — |
 
 ---
 
@@ -110,7 +122,7 @@ Path-filtered jobs report "skipped = success" through a small aggregator job (`c
 | Image | Base | Contents |
 |---|---|---|
 | `rovo` | `gcr.io/distroless/static-debian12:nonroot` (multi-arch) [ASSUMPTION: current tag] | Single static Go binary (`api`/`worker`/`migrate`/`healthcheck` subcommands), embedded migrations, CA certs, tzdata |
-| `rovo-postgres` (local/CI/preview only) | `postgres:17-bookworm` + PGDG `postgresql-17-postgis-3` | Needed because `postgis/postgis` is amd64-only [S83]; production uses RDS |
+| `rovo-postgres` (local/CI only) | `postgres:17-bookworm` + PGDG `postgresql-17-postgis-3` (PostGIS 3.5), built from `deploy/docker/postgres-postgis.Dockerfile` | Needed because `postgis/postgis` is amd64-only [S83]. Same PG major (17) as RDS (R22); production uses RDS |
 
 ### 5.2 Multi-arch build on native runners (no QEMU)
 

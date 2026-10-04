@@ -15,6 +15,7 @@
 - Load (**R45** → doc 20), cost (**R46** → doc 25 §15) and other tunables (**R48**) now referenced, not restated (NFR-PERF-006, BR-COST-002, ADM-CFG-001).
 - Scope cuts applied: RES-ANLY-002 → P2 (C13), ADM-COUP-004 → P2 (C16), review moderation queue removed (C14), hash-chained audit → V1.1 (C6), KYC uploads images-only (R38/C5).
 - New requirements for accepted missing items: RES-ONB-008 counter-device provisioning (M3), RDR-ONB-007 gig-worker fields + ADM-RPT-005 export (M5), RDR-EARN-007 / BR-RPAY-006 minimum guarantee (M6), RES-MENU-009 ops bulk CSV import → P0 for Gate B (M7), ADM-ORD-011 ops-assisted phone ordering P1 (M8), CUS-SUPP-003 staffed support phone line (M9), X-006 device sessions (M10/R44), NOT-016 voice escalation (R43), ADM-AUTH-004 passkeys P1 (R37).
+- Additional rulings §9.1: NFR-AVAIL-001 per **R49**; M-02 redefined per **R54**; payout days and cash-ageing thresholds are doc 10 `app_config` keys (**R53**: riders Monday, restaurants Tuesday, cash alert 24 h / COD block 48 h).
 - Register fixes (31 §14): rows 1–5, 21, 23, 30, 31, 35, 36, 48, 49, 52, 55–57, 59–62, 69–72; M-41 → thumbs-up share; reject reason `ITEMS_OUT_OF_STOCK`; coupon codes globally unique; commission bounds 0–3000 bps; rider cancel pay per doc 13 §6.2.
 
 **Conventions used in this document**
@@ -113,7 +114,7 @@ Definitions are normative: Analytics/Backend must compute them exactly as define
 | ID | Metric | Definition | Pilot gate | V1 target |
 |---|---|---|---|---|
 | M-01 | **Restaurant acceptance rate** | `ACCEPTED / (orders that reached PLACED − orders cancelled by customer while PLACED)` | ≥ 90% | **≥ 95%** |
-| M-02 | **Restaurant-unresponsive cancel rate** | Orders `CANCELLED` with `cancelled_by=SYSTEM`, reason `RESTAURANT_UNRESPONSIVE` (R1, 180 s accept window) / orders reaching `PLACED` | ≤ 4% | **≤ 2%** |
+| M-02 | **Accepted within the window (R54)** | Share of orders reaching `PLACED` that the restaurant (or ops on its behalf) accepts within 180 s; system cancellations with `RESTAURANT_UNRESPONSIVE` (R1) count as misses. Miss share (`RESTAURANT_UNRESPONSIVE` / `PLACED`) reported alongside. | ≥ 90% (misses ≤ 4%) | **≥ 95% (misses ≤ 2%)** [ASSUMPTION] |
 | M-03 | **Time-to-accept** | `ACCEPTED.at − PLACED.at` | p50 ≤ 90 s | **p50 ≤ 60 s, p90 ≤ 150 s** |
 | M-04 | **Rider assignment time** | first `OFFERED` → `ASSIGNED` for the delivery | p90 ≤ 8 min | **p50 ≤ 90 s, p90 ≤ 5 min** |
 | M-05 | **Offer acceptance rate** | `ACCEPTED offers / (ACCEPTED+DECLINED+EXPIRED offers)` | ≥ 60% | **≥ 70%** |
@@ -131,7 +132,7 @@ Definitions are normative: Analytics/Backend must compute them exactly as define
 |---|---|---|---|
 | M-20 | **COD reconciliation accuracy** | % of `DELIVERED` COD orders with a matching rider cash-collected ledger entry equal to the order's `total_payable` | **100%, same day** |
 | M-21 | COD variance | Sum of unexplained (no reason-coded adjustment) differences between expected and deposited/netted rider cash at weekly close | **₹0** |
-| M-22 | Rider cash ageing | % of riders with cash-in-hand older than 48 h | **≤ 5%** |
+| M-22 | Rider cash ageing | % of riders with cash-in-hand older than the ageing-alert threshold (`app_config`, doc 10; default 24 h, R53) | **≤ 5%** |
 | M-23 | **Online payment success rate** | `payments captured / payment attempts initiated` (excludes attempts the user closed before choosing a method) | **≥ 92%** |
 | M-24 | Orphan payments | Captured payments with no `PLACED` order (late webhook, failed order) auto-refunded within 24 h | **100%** |
 | M-25 | Refund turnaround | Refund decision → refund initiated with PA | **p95 ≤ 24 h** |
@@ -710,7 +711,7 @@ Targets apply to the **production** environment (standard hyperscaler, India reg
 
 | ID | Pri | Requirement |
 |---|---|---|
-| NFR-AVAIL-001 | P0 | **Ordering critical path ≥ 99.9% monthly availability** (from 3 months after Gate B; until then the pilot SLO is **99.5% measured over service hours**, with ops as first responders using runbooks — RV-067) measured by synthetic checks every 1 min from outside the cloud: browse/menu, quote, place order, payment confirmation (webhook ingest), order status/SSE, restaurant accept, rider offer accept/status updates. (Error budget ≈ 43 min/month.) |
+| NFR-AVAIL-001 | P0 | **Ordering critical path availability (R49): 99.5% monthly during the closed pilot (Single-AZ); 99.9% monthly from Gate B (Multi-AZ)**, with ops as first responders using runbooks (pause zone, COD-only, accept on behalf) — measured by synthetic checks every 1 min from outside the cloud: browse/menu, quote, place order, payment confirmation (webhook ingest), order status/SSE, restaurant accept, rider offer accept/status updates. (Error budget ≈ 43 min/month.) |
 | NFR-AVAIL-002 | P0 | **Other surfaces ≥ 99.5% monthly**: admin app, reports/exports, partner analytics, onboarding/KYC uploads, statements. |
 | NFR-AVAIL-003 | P0 | **Pilot exception (R32):** during the closed pilot only, a Single-AZ database (`closed-pilot` IaC profile) with PITR + cross-region automated backups is acceptable with target ≥ 99.5% for the critical path; **Multi-AZ is mandatory before Gate B (public launch) or when orders exceed 100/day, whichever first**. |
 | NFR-AVAIL-004 | P0 | **Data protection — targets owned by doc 23 §1** (adopted here, register row 70): logical corruption RPO ≤ 5 min / RTO ≤ 2 h (PITR); AZ failure RPO 0 / RTO minutes once Multi-AZ (R32); region outage RPO ≤ 30 min / RTO ≤ 4 h via cross-region backups into `ap-south-2` + IaC rebuild (no DR pre-provisioning or region game days before Gate B, C10). PA webhooks are replayable and reconciliation (ADM-PAYO-003) detects gaps. |
@@ -867,8 +868,8 @@ All amounts configurable per city (and per zone/restaurant where stated) via ADM
 - **BR-COD-005** Rider collects exactly **To pay** (rounded to rupee, BR-FEE-009); partial payment or changing to online at the door is not supported in V1 (dynamic UPI QR is V1.1, CUS-PAY-007). A customer paying the rider via the rider's personal UPI is **prohibited** in rider terms (cash-equivalent mismatch risk) [product decision].
 - **BR-COD-006** Rider cash limit (default ₹2,000): a rider is offered a COD order only if `cash_in_hand + order_to_pay ≤ cash_limit`; at or above the limit the rider can still take prepaid orders. (Refinement of baseline §5 "blocked after limit" — prevents overshoot.)
 - **BR-COD-007** Cash-collected ledger entry written atomically with `DELIVERED` (RDR-FLOW-008).
-- **BR-COD-008** Settlement netting: at each rider payout cycle, `net = earnings − confirmed cash_in_hand`; if negative, the rider must deposit the difference within 48 h; deposits confirmed by finance (ADM-PAYO-005).
-- **BR-COD-009** Cash ageing: cash-in-hand older than 48 h → reminder; older than 72 h → rider blocked from going online until deposit confirmed [ASSUMPTION].
+- **BR-COD-008** Settlement netting: at each rider payout cycle, `net = earnings − confirmed cash_in_hand`; if negative, the rider must deposit the difference within the cash-ageing window (BR-COD-009); deposits confirmed by finance (ADM-PAYO-005).
+- **BR-COD-009 (R53)** Cash ageing: thresholds are `app_config` keys owned by doc 10 — defaults: cash-in-hand older than **24 h → alert/reminder**; older than **48 h → no new COD offers** (prepaid offers continue) until the deposit is confirmed.
 - **BR-COD-010** Daily COD reconciliation: every delivered COD order must have a cash entry (M-20); exceptions (rider claims customer paid less, counterfeit notes, theft) recorded as reason-coded adjustments with approval.
 
 ### 11.6 BR-TIME — Timeouts and time rules
@@ -938,8 +939,8 @@ All amounts configurable per city (and per zone/restaurant where stated) via ADM
 
 ### 11.14 BR-PAYOUT — Payout cycles
 
-- **BR-PAYOUT-001** Restaurants: weekly cycle Mon 00:00 – Sun 23:59 IST of `DELIVERED` orders (plus adjustments); statement available Monday; payout by **Wednesday** (manual transfer, V1).
-- **BR-PAYOUT-002** Riders: weekly cycle same window; payout by **Tuesday**; on-demand P1 (RDR-EARN-005).
+- **BR-PAYOUT-001 (R53)** Restaurants: weekly cycle Mon 00:00 – Sun 23:59 IST of `DELIVERED` orders (plus adjustments); settlement day is an `app_config` key owned by doc 10 (default **Tuesday**; manual transfer, V1).
+- **BR-PAYOUT-002 (R53)** Riders: weekly cycle same window; payout day is an `app_config` key owned by doc 10 (default **Monday** for the previous Mon–Sun); on-demand P1 (RDR-EARN-005).
 - **BR-PAYOUT-003** Payouts are made only to verified accounts in the payee's own name (or registered entity name); account changes trigger a 1-cycle hold unless verified by penny-drop [ASSUMPTION – fraud control].
 - **BR-PAYOUT-004** Minimum payout ₹100; below carries forward.
 

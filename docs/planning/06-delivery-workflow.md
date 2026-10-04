@@ -2,10 +2,18 @@
 
 | Field | Value |
 |---|---|
-| **Purpose** | Defines how delivery partners (`RIDER`) register, complete KYC and training, go online, and receive and accept order requests (`delivery_offer`). It covers pickup and drop, cash on delivery, delivery failures, earnings, cash deposits, history and safety, all in the rider mode of the `partner` PWA. |
+| **Purpose** | Defines how delivery partners (`RIDER`) register, complete KYC and training, go online, and receive and accept order requests (`delivery_offer`). It covers pickup and drop, cash on delivery, delivery failures, earnings, cash deposits, history and safety, all in the `rider` app (PWA at the `rider.` host, R14). |
 | **Owner** | UX Architect |
-| **Status** | Draft v1 |
+| **Status** | Draft v1.1 — reconciled with review (31) and rulings R1–R48, 2026-10-04 |
 | **Depends on** | `00-planning-baseline.md` (P11 dispatch, P12 foreground location, commercial defaults) · `04-customer-journey.md` §1 (UX principles) · `05-restaurant-workflow.md` (handover) · `07-admin-workflow.md` (approval, manual assign, deposits) · `13-order-state-machine.md` · `14-payment-architecture.md` (COD, ledger, payouts) · `15-notification-architecture.md` · `16-delivery-zone-architecture.md` · `18-mobile-pwa-strategy.md` (geolocation, wake lock, push) · `12-auth-rbac.md` / `19-security-threat-model.md` (privacy of phone numbers) |
+
+**Changes in v1.1**
+- Rider availability adopts the doc 10/13 states (`OFFLINE`, `AVAILABLE`, `ON_DELIVERY`; **R11**) with location-freshness and `cod_blocked` as flags; `ONLINE_STALE`/`BLOCKED_COD`/90 s staleness replaced by **R34** tiers (tier 1 ≤ 3 min, tier 2 stale ≤ 15 min reached by push + SSE, auto-offline at 15 min); `ON_BREAK` cut (C12).
+- COD offers only if cash-in-hand + order payable ≤ limit (**R6**); "Mark undeliverable" needs support approval — no rider self-mark after 5 min, escalation instead (**R5**); pickup from `PREPARING` flagged `restaurant_skipped_ready` (**R4**); delivery created at `ACCEPTED`, offer timing per **R7**; offer status `REVOKED` (**R16**); delivery OTP for prepaid ≥ ₹300 (**R39**).
+- Contact window aligned with 01 BR-CONT-001 (customer from `PICKED_UP` to +15 min) and the number disclosure stated plainly (RV-035).
+- UPI at the door removed from V1 (C19; dynamic QR stays V1.1); no "pin approximate" path (**R13**).
+- Separate `rider` app (**R14**); 30-day sliding rider session (**R44**); SSE single stream, 20 s heartbeat (**R10/R52**); batched pings (**R27**).
+- Added: gig-worker registration fields [LEGAL] (M5), accident-insurance decision (**R47**), pilot minimum guarantee `MG_TOPUP` (M6) and manual peak bonus (**R30**) in earnings; on-demand payout minimum per 01 RDR-EARN-005; payout day and cash-ageing thresholds referenced as `app_config` keys (**R53**); rider pay defaults per doc 16 (**R48**).
 
 Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. Canonical statuses as defined in the baseline. In UI copy, "Delivery Partner" is the user-facing term and "Order request" is the UI name for a `delivery_offer`.
 
@@ -18,8 +26,8 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. Canonical statuses as defined in the 
 | Rider on a two-wheeler with a low-end Android phone, often in a phone mount, in sunlight, with gloves or wet hands | **High-contrast "outdoor" theme** for the active-delivery screens. Primary buttons are ≥ 64 px tall and full width. A **tap-then-confirm** pattern for irreversible steps, so the rider never has to swipe precisely while riding (WCAG 2.5.7). |
 | PWA: **no background geolocation**, and Android may throttle or kill background tabs | **Foreground-only** location while online (baseline P12). Screen Wake Lock. Clear "keep rovo open" messaging. Rules for when the app goes to the background (§4). |
 | Navigation happens in the **Google Maps app**, not in rovo | One-tap deep link. rovo shows big "Arrived" buttons when the rider comes back. Location is captured at each status tap. |
-| Mixed literacy; Telugu / Hindi / Urdu speakers `[ASSUMPTION — Urdu & Hindi common in Mahabubnagar; V1 ships en + te only]` | Icons + short labels + numbers. Colour-coded steps. Telugu audio cues for offers are deferred `[OPEN]`. |
-| Cash handling risk | Exact COD amount shown in huge type. Change calculator. Cash-in-hand limit enforced (₹2,000 default). |
+| Mixed literacy; Telugu / Hindi / Urdu speakers `[ASSUMPTION — Urdu & Hindi common in Mahabubnagar; V1 ships en + te only]` | Icons + short labels + numbers. Colour-coded steps. The offer alarm includes a short pre-recorded Telugu voice line (RV-058) `[ASSUMPTION — native review]`. |
+| Cash handling risk | Exact COD amount shown in huge type. Change calculator. COD offered only if cash-in-hand + order payable ≤ the cash limit (R6; default ₹2,000, `app_config`, doc 10). |
 | Safety | An SOS control is always reachable during active deliveries. No in-app interaction is required while moving (status taps only when stopped). |
 
 ---
@@ -31,7 +39,7 @@ Tags: `[ASSUMPTION]`, `[OPEN]`, `[LEGAL]`. Canonical statuses as defined in the 
 ```mermaid
 flowchart TD
     A[Join as Delivery Partner page] --> B[Phone OTP + name + city + vehicle type]
-    B --> C[Profile: selfie photo, DOB 18+, emergency contact, languages]
+    B --> C[Profile: selfie photo, DOB 18+, emergency contact, languages, gig-worker registration fields]
     C --> D[Documents]
     D --> D1[Driving licence front/back + number + expiry]
     D --> D2[Vehicle RC + number]
@@ -60,9 +68,10 @@ flowchart TD
 | **Aadhaar** | ❌ **Not collected in V1** | Baseline forbids storing full Aadhaar. If address proof is later needed: masked Aadhaar (last 4 digits only) or DigiLocker-based verification `[LEGAL]` |
 | Police verification | `[OPEN]` | Common practice in Indian delivery; may be a requirement under state rules `[LEGAL]`. V1 proposal: self-declaration + ops discretion |
 | Emergency contact | ✅ | Name + phone. Used only for SOS (§10) |
-| Insurance | `[OPEN / LEGAL]` | Accident cover for gig workers — check the Code on Social Security 2020 gig-worker provisions and any Telangana state gig-worker legislation |
+| Insurance | `[LEGAL]` decision before Gate A (R47) | Accident cover for gig workers (group cover from day one recommended) — check the Code on Social Security 2020 gig-worker provisions and any Telangana state gig-worker legislation |
+| **Gig-worker registration fields** (M5) | ✅ `[LEGAL]` | Fields the Social Security Code aggregator portal requires (e.g. gender, permanent address with state, e-Shram/UAN if any — never full Aadhaar); exported by ops (01 RDR-ONB-007, ADM-RPT-005). Exact list confirmed by counsel. |
 
-**Privacy:** documents are stored encrypted in private object storage, viewable only by admin roles with KYC permission, and each view is audit-logged (doc 07) `[LEGAL — DPDP retention schedule]`.
+**Uploads** are **images only** (JPEG/PNG/WebP; PDFs converted on the device, server re-encodes — R38). **Privacy:** documents are stored encrypted (SSE-KMS) in private object storage, viewable only by admin roles with KYC permission, and each view is audit-logged (doc 07) `[LEGAL — DPDP retention schedule]`.
 
 ### 2.3 Training checklist (D-08)
 Every module must be completed before activation. Short videos (≤ 3 min, Telugu with English subtitles, ≤ 5 MB each, downloadable on Wi-Fi) + a 5-question quiz:
@@ -76,18 +85,18 @@ Every module must be completed before activation. Short videos (≤ 3 min, Telug
 
 ---
 
-## 3. Rider availability model (UX proposal for Backend)
+## 3. Rider availability model (R11, R34; authoritative in doc 13 §4.3 / doc 10 `rider_availability`)
 
-The baseline defines delivery and offer statuses, but not rider availability. UX needs these **rider availability states** (field name `[OPEN — doc 10]`):
-
-| State | Meaning | Gets offers? |
+| State / flag | Meaning | Gets offers? |
 |---|---|---|
-| `OFFLINE` | The rider is not working | No |
-| `ONLINE_IDLE` | Online, foreground, with a fresh location (≤ 90 s old) | ✅ |
-| `ONLINE_STALE` | Online, but no heartbeat or location for more than 90 s (app in background, no network, phone locked) | ❌ (excluded until fresh) |
-| `ON_DELIVERY` | Has an active delivery (one at a time, baseline P11) | ❌ (batching deferred) |
-| `BLOCKED_COD` | Cash in hand ≥ limit | Prepaid offers only |
-| `SUSPENDED` | Admin-suspended or documents expired | No (cannot go online) |
+| `OFFLINE` (state) | The rider is not working, or was auto-set offline after **15 min without any ping/heartbeat** or 3 consecutive expired offers | No |
+| `AVAILABLE` (state) — **tier 1** | Online, location ≤ 3 min old | ✅ ranked by distance |
+| `AVAILABLE` (state) — **tier 2** | Online, location stale (> 3 min, ≤ 15 min) — app backgrounded, phone locked, weak network | ✅ reached via Web Push (`Urgency: high`) + SSE, ranked after tier 1; location treated as approximate |
+| `ON_DELIVERY` (state) | Has an active delivery (one at a time, baseline P11) | ❌ (batching deferred) |
+| `cod_blocked` (flag) | Cash-in-hand + order payable would exceed the cash limit (R6) | Prepaid offers only |
+| Suspended (account status) | Admin-suspended or documents expired | No (cannot go online) |
+
+The freshness thresholds are `app_config` keys owned by doc 13 (R34, R48). There is no `ON_BREAK` state (C12).
 
 ---
 
@@ -110,10 +119,11 @@ A checklist sheet. All items must be green before the rider is online:
 ### 4.2 PWA constraints — what we tell riders, and why
 - **Browsers do not allow a web app to track location in the background.** rovo can only read the location while it is open and on screen. So, while **waiting for orders**, the rider must keep rovo **open with the screen on**. A **phone mount + charger** is strongly recommended (ops kit) `[ASSUMPTION]`.
 - **Background behaviour:**
-  - App hidden (`visibilitychange` → hidden) **while idle** → after 90 s with no heartbeat, the server marks the rider `ONLINE_STALE` (no offers). If push is allowed, a push says "You're not getting orders — open rovo." After **15 min** stale → automatic `OFFLINE`, with a push saying so.
+  - App hidden (`visibilitychange` → hidden) **while idle** → after 3 min without a ping the rider drops to **tier 2** (R34): still offered orders via push + SSE, but ranked after riders with a fresh location. If push is allowed, a push says "Open rovo to get nearby orders first." After **15 min** without any ping/heartbeat → automatic `OFFLINE`, with a push saying so.
   - **During an active delivery** the rider will spend most of the time in **Google Maps**, so rovo will be in the background. **This is expected and fine.** Customers see milestones, not a live map (P12), and the rider is `ON_DELIVERY` (not dispatchable). A location fix is captured whenever the rider returns to rovo and taps a status. No push nagging during active deliveries.
 - **Split-screen** (rovo + Maps) is suggested in training for phones that support it `[ASSUMPTION]`.
-- The **heartbeat** while foreground and online sends location every **30 s** if moved more than 50 m, otherwise every 60 s (baseline: 30–60 s). Battery tip: keep brightness low and the charger on.
+- The **heartbeat** while foreground and online sends location every **30 s** if moved more than 50 m, otherwise every 60 s (baseline: 30–60 s); pings are **batched** (1–10 points per request) to reduce CDN request volume (R27). Battery tip: keep brightness low and the charger on.
+- **Session:** riders stay signed in with a 30-day sliding session (R44), so they are not logged out between shifts.
 
 ### 4.3 Online home (D-11)
 - A big status pill: **"Online — waiting for orders"** (green pulse) or **"Offline"**. Below it: today's earnings, deliveries count, online time, cash in hand (with a progress bar to the limit).
@@ -124,11 +134,11 @@ A checklist sheet. All items must be green before the rider is online:
 
 ## 5. Order request (offer) screen (D-12)
 
-**Trigger:** SSE `offer.created` for this rider. A full-screen takeover with a loud, distinct sound (looping) and vibration. If the app is hidden, Web Push is sent: "New order request — ₹42 · open rovo". Tapping the push opens the offer if it is still valid; otherwise "This request expired."
+**Trigger:** an offer event on the rider's SSE stream (event names per doc 11 §4.2); tier-2 riders are woken by Web Push (`Urgency: high`, TTL = offer lifetime). A full-screen takeover with a loud, distinct sound (looping) and vibration. If the app is hidden, Web Push is sent: "New order request — ₹42 · open rovo". Tapping the push opens the offer if it is still valid; otherwise "This request expired."
 
 **Content (top → bottom):**
-1. **Countdown ring: 45 s** (baseline P11), with large numerals.
-2. **Estimated earnings: ₹42** (large). Below it: "Base ₹25 + distance ₹17". Waiting pay is extra if it applies.
+1. **Countdown ring: 45 s** (baseline P11; `dispatch.offer_ttl_s`, doc 13 §4.2), with large numerals.
+2. **Estimated earnings: ₹42** (large). Below it: "Base ₹25 + distance ₹17" (rider-pay defaults owned by doc 16 §6.4, R48). Waiting pay is extra if it applies.
 3. **Pickup:** restaurant name, locality, and **distance from you: 1.2 km**.
 4. **Drop:** **locality only** (e.g. "Drop: Shasabgutta · 3.1 km from restaurant"). The exact address and customer name are revealed **only after acceptance** (privacy).
 5. **Payment:** "**Cash order — collect ₹353**" (amber badge) or "**Paid online — don't collect cash**" (green badge).
@@ -136,7 +146,8 @@ A checklist sheet. All items must be green before the rider is online:
 7. Buttons: **ACCEPT** (huge, green, bottom) and **Decline** (secondary, top-left text button). Decline asks for an optional reason (one tap): Too far · Low pay · Taking a break · Vehicle issue · Other.
 
 **Rules:**
-- Expiry → offer `EXPIRED`; the screen closes with "Missed request". 3 consecutive expiries → the rider is automatically moved to `OFFLINE` with "Are you still working?" (avoids sending dead offers) `[OPEN — thresholds]`.
+- Expiry → offer `EXPIRED`; the screen closes with "Missed request". 3 consecutive expiries → the rider is automatically moved to `OFFLINE` with "Are you still working?" (01 BR-DISP-004).
+- Offer withdrawn by the system or ops (e.g. order cancelled, manual assignment) → offer `REVOKED` (R16); the screen closes with "This request was withdrawn". No penalty.
 - Declines are **not penalised in V1**, but the acceptance rate is shown to the rider for transparency and used in dispatch tie-breaks `[OPEN]`.
 - Accepting when the server says the offer was already cancelled or expired (a race) → "This order is no longer available". No penalty.
 - Accept → delivery `ASSIGNED`. The rider moves to `ON_DELIVERY` and the active delivery screen opens.
@@ -154,8 +165,8 @@ A persistent **stepper**: **Go to restaurant → At restaurant → Go to custome
 |---|---|---|---|
 | `ASSIGNED` | D-13 Go to restaurant | **"Navigate"** (opens Google Maps) and then **"Arrived at restaurant"** (tap → confirm) | Restaurant name, address, landmark, phone (call button), order code **3P9Q** big, item count, "Food ready in ~8 min". Cancel delivery (reason; before pickup only, §8.4). |
 | `AT_RESTAURANT` | D-14 At restaurant | **"Picked up"** (tap → confirm sheet: "Check: 3 items/packets, sealed?" with bag-count checkbox) | Big **order code + rider photo** to show the staff. Wait timer ("Waiting 6 min"; waiting pay starts at 10 min). "Food not ready" help (§8.3). |
-| `PICKED_UP` | D-15 Go to customer | **"Navigate"** then **"Arrived at customer"** | Customer first name, **full address with landmark**, delivery instructions, "Pin approximate — call customer" warning if flagged, **Call customer**, payment badge ("Collect ₹353 cash" / "Prepaid"). |
-| `AT_DROP` | D-16 At customer | COD: **"Collect ₹353"** flow (§7) → **"Delivered"**. Prepaid: **"Delivered"** (enter drop OTP if required) | Call customer, wait timer, "Can't reach customer" (§8.1), "Customer refused" |
+| `PICKED_UP` | D-15 Go to customer | **"Navigate"** then **"Arrived at customer"** | Customer first name, **full address with landmark**, delivery instructions, **Call customer**, payment badge ("Collect ₹353 cash" / "Prepaid"). Every address has a confirmed pin (R13). |
+| `AT_DROP` | D-16 At customer | COD: **"Collect ₹353"** flow (§7) → **"Delivered"**. Prepaid: **"Delivered"** (enter the drop OTP when required — prepaid To pay ≥ ₹300, R39) | Call customer, wait timer, "Can't reach customer" (§8.1), "Customer refused" |
 | `DELIVERED` | D-17 Done | **"Back to orders"** (auto-return to Online in 5 s) | Trip earnings breakdown, cash-in-hand update, "Rate this restaurant pickup" (optional 👍/👎: food ready on time? staff behaviour) `[OPEN]` |
 
 **Geofence sanity checks** (soft, not blocking): when "Arrived" is tapped more than 300 m from the restaurant or drop pin, show "You seem far from {place}. Arrived?" with **[Yes, I'm here]** / **[Not yet]**. The tap location is logged for disputes. Hard blocking is avoided because GPS in dense lanes is unreliable `[ASSUMPTION]`.
@@ -177,7 +188,7 @@ sequenceDiagram
     participant RS as Restaurant device
     participant C as Customer app
     D->>API: Select best rider, create delivery_offer PENDING
-    API->>RA: SSE offer.created (45 s)
+    API->>RA: SSE offer event (45 s)
     R->>RA: Accept
     RA->>API: POST offer accept
     API-->>RA: delivery ASSIGNED + restaurant details
@@ -189,7 +200,7 @@ sequenceDiagram
     R->>RS: Shows code 3P9Q + face
     R->>RA: Picked up, confirm bag count
     RA->>API: delivery PICKED_UP
-    API->>API: order PICKED_UP (implicit ready if needed)
+    API->>API: order PICKED_UP, flag restaurant_skipped_ready if it was PREPARING
     API->>C: On the way + ETA
 ```
 
@@ -229,11 +240,11 @@ sequenceDiagram
 
 ## 7. Cash on delivery (D-16a)
 
-- **Amount due** in huge numerals: **"Collect ₹353"**. If product adopts rupee rounding (doc 04 §17), it is always a whole rupee, which makes change easier.
+- **Amount due** in huge numerals: **"Collect ₹353"**. To pay is always a whole rupee (R8), which makes change easier.
 - **Change helper:** quick chips for the note the customer hands over: **₹353 (exact) · ₹400 · ₹500 · ₹2000 · Other**. The app shows "**Give back ₹147**". This is for convenience only; the ledger records **₹353 collected**.
 - **Confirm:** "I collected ₹353" → then **Delivered**.
 - **Customer has no change / partial cash:** not supported. The rider must collect the full amount. If the customer cannot pay → "Customer can't pay" → **support call** → support decides (wait for the customer to arrange cash, or mark undeliverable with reason "Refused / couldn't pay").
-- **UPI at the door:** riders **must never** accept money to a personal UPI ID (training + T&C). V1 option: an in-app **dynamic UPI QR generated through the PA** for the exact order amount, so the order flips to paid via webhook and the rider confirms "Paid by UPI" `[OPEN — depends on PA support, doc 14]`. If not available at launch: cash only.
+- **UPI at the door:** riders **must never** accept money to a personal UPI ID (training + T&C). **V1 is cash only at the door** — no static QR (C19). A PA-generated dynamic UPI QR for the exact amount is a V1.1 candidate (02 §2.2, 01 CUS-PAY-007).
 - **Cash-in-hand** updates immediately and is visible on the home screen (§9.2).
 
 ---
@@ -249,11 +260,11 @@ flowchart TD
     C --> D{Answered?}
     D -- Yes --> E[Follow directions; update landmark note] --> F[Deliver normally]
     D -- No --> G[Start 10 min wait timer; customer gets push + SMS + in-app countdown]
-    G --> H[Retry call - at least 3 attempts, 2 min apart]
+    G --> H[Retry call - at least 2 attempts, 2 min apart]
     H --> I{Reached within timer?}
     I -- Yes --> F
     I -- No --> J[Contact support button unlocks]
-    J --> K[Support tries customer, decides]
+    J --> K[Support tries customer, decides; escalates to ops lead after 5 min]
     K -- Customer reached --> F
     K -- Approve failure --> L[Mark undeliverable: reason chosen]
     L --> M[delivery FAILED + order UNDELIVERABLE]
@@ -261,15 +272,15 @@ flowchart TD
     N --> O[Rider paid for the trip; back online]
 ```
 
-- **Reasons (enum):** Customer unreachable · Wrong / incomplete address · Customer refused · Customer couldn't pay (COD) · Unsafe location · Other.
-- **"Mark undeliverable" needs support approval in V1.** The rider cannot do it alone, which prevents abuse such as riders keeping prepaid food. Support approves from the ops console (doc 07), or support grants an in-app override to the rider. If support does not respond within 5 min of the request, the rider can self-mark with a mandatory reason. This is auto-flagged for review `[OPEN]`.
+- **Reasons** (doc 13 §6.3 `DELIVERY_FAIL`): `CUSTOMER_UNREACHABLE` · `WRONG_OR_INCOMPLETE_ADDRESS` · `CUSTOMER_REFUSED` · `COD_PAYMENT_REFUSED` · `UNSAFE_LOCATION` · `RIDER_OTHER`. Minimum before requesting: ≥ 10 min waiting and ≥ 2 logged call attempts (01 RDR-FLOW-009).
+- **"Mark undeliverable" needs support approval (R5).** The rider cannot do it alone, which prevents abuse such as riders keeping prepaid food. Support approves from the ops console (doc 07). There is **no self-mark fallback**: if support has not acted within 5 min, the request escalates to the ops lead (doc 13 T-UNDELIV-SLA) and the rider sees "Escalated — stay nearby, we're calling you". COD customer-fault failures count as customer strikes (2 → COD disabled).
 - **Rider earnings:** paid in full for undeliverable trips not caused by the rider. **Prepaid refund** policy for the customer is per doc 04 §10.
 
 ### 8.2 Rider can't find the address
 "Can't find address" → **Call customer** + a push to the customer offering **Adjust pin** (≤ 300 m, doc 04 §15 E7). The updated pin and landmark arrive on the rider screen via SSE with a highlight: "Customer updated location". The **Navigate** button points to the new pin.
 
 ### 8.3 Restaurant not ready
-- The wait timer runs at `AT_RESTAURANT`. **Waiting pay accrues after 10 min** (baseline). The rider sees "Waiting pay: ₹4 so far" `[OPEN — rate per minute]`.
+- The wait timer runs at `AT_RESTAURANT`. **Waiting pay accrues after 10 min** (baseline; rate and cap per 01 BR-RPAY-003, defaults owned by doc 16 §6.4). The rider sees "Waiting pay: ₹4 so far".
 - After 10 min: a **"Remind restaurant"** button sends a nudge to the restaurant device ("Rider waiting for 3P9Q"). After 20 min: the **"Contact support"** button is highlighted. Ops may **unassign** the rider with compensation and re-dispatch later (§11).
 
 ### 8.4 Rider cancels an accepted delivery (before pickup only)
@@ -290,15 +301,15 @@ flowchart TD
 
 **Recommendation for V1: Option A, with mitigations. Masked calling (B) is the first post-launch privacy upgrade.**
 Justification: a single small city, low order volume at launch, zero budget for telephony, and the call is critical at the door (Indian addressing relies on landmarks and calls). Mitigations:
-1. **Purpose-limited reveal:** the call button is available only while the delivery is `ASSIGNED`…`AT_DROP`, and is removed **60 min after `DELIVERED`**, `FAILED` or `CANCELLED`. The number is **never displayed as text** in rovo (button only, plus a masked display like `+91 98••• ••210`). The API returns it only during that window.
-2. **Logging:** every call-button tap is logged (rider, order, timestamp) for abuse investigations.
+1. **Purpose-limited reveal (01 BR-CONT-001, RV-035):** the customer call button is available only from `PICKED_UP` until `DELIVERED`/`FAILED` + 15 min; the restaurant call button from `ASSIGNED` until `PICKED_UP` + 15 min. The number is **never displayed as text** in rovo (button only, plus a masked display like `+91 98••• ••210`), and the API returns it only during that window. **Disclosure is real:** a `tel:` link shows the number in the phone's dialler and call log, so this is a deterrent, not masking.
+2. **Logging:** every call-button tap is logged with a timestamp (rider, order) in `contact_tap_log` (M4) for abuse investigations.
 3. **Receiver override:** customers can set a different contact number at checkout (doc 04 §8.1).
 4. **Code of conduct + enforcement:** the T&C and training forbid saving or using customer numbers. A "contacted me after delivery" report from the customer leads to immediate suspension pending review.
 5. **Two-way:** the customer sees a call button for the rider under the same window rules, and riders (especially women riders) can choose **"Calls via rovo support only"** at the cost of slower contact `[OPEN]`.
 6. **Disclosure:** the privacy notice explicitly states that the phone number is shared with the assigned delivery partner for the purpose of delivery `[LEGAL — DPDP purpose limitation / notice]`.
 7. **Upgrade trigger:** move to masked calling when ≥ N orders/day `[OPEN]` **or** after the first verified misuse complaint, whichever comes first. The phone abstraction (`ContactChannel`) must be designed now so the switch is a config change.
 - **Restaurant contact:** the outlet's business phone (not personal), via `tel:`, always available during an active delivery.
-- **Support contact:** a fixed support line via `tel:` + in-app ticket.
+- **Support contact:** the staffed support phone line via `tel:` (M9) + in-app ticket.
 
 ---
 
@@ -306,19 +317,20 @@ Justification: a single small city, low order volume at launch, zero budget for 
 
 ### 10.1 Earnings (D-20, D-21)
 - **Today** card: deliveries, earnings, online hours, average per delivery.
-- **Per delivery** (in history detail): base ₹25 + distance pay (₹6/km beyond 2 km, restaurant→customer) + waiting pay (after 10 min at the restaurant) + adjustments (e.g. reassignment compensation) = **trip earnings**. Distance shown as the "estimated road distance" (haversine × road factor, baseline) with an ⓘ explaining how it is calculated (transparency builds trust).
-- **Weekly** view: Mon–Sun bars, totals, and the **payout statement**:
+- **Per delivery** (in history detail): base ₹25 + distance pay (₹6/km beyond 2 km, restaurant→customer) + waiting pay (after 10 min at the restaurant) + adjustments (e.g. reassignment compensation) = **trip earnings** (defaults owned by doc 16 §6.4). Slot-level adjustments appear as separate lines: **pilot minimum-guarantee top-up `MG_TOPUP`** (01 RDR-EARN-007, M6) and any **manual peak bonus** (R30). Distance shown as the "estimated road distance" (haversine × road factor, baseline) with an ⓘ explaining how it is calculated (transparency builds trust).
+- **Weekly** view: Mon–Sun bars, totals, and the **payout statement** (payout day is an `app_config` key, doc 10 — default Monday for the previous Mon–Sun, R53):
   `Earnings ₹4,320 − Cash not yet deposited ₹650 ± Adjustments = Payout ₹3,670`
   (netting of undeposited cash against payouts, §10.2) → status Upcoming / Processing / Paid (UTR).
-- **On-demand payout** (baseline allows weekly or on-demand): V1 = **request payout** button, processed manually by finance within 1 working day, with a minimum of ₹500 and a maximum of 1 request per day `[OPEN — finance capacity]`.
+- **On-demand payout** (baseline allows weekly or on-demand): V1 = **request payout** button, processed manually by finance within 1 working day, with the minimum and frequency of 01 RDR-EARN-005 (min ₹200, max 1 per day).
 
 ### 10.2 Cash-in-hand and deposit (D-22, D-23)
 - **Cash in hand** = COD collected − deposits recorded − amounts netted from payouts. Shown with a progress bar against the **limit (₹2,000 default)**.
   - At 80 %: amber banner, "Deposit soon to keep getting cash orders."
-  - At ≥ 100 %: rider becomes `BLOCKED_COD`. Only prepaid offers are sent, with the banner "Cash orders paused until you deposit."
+  - A COD offer is sent only if cash-in-hand + that order's payable ≤ the limit (R6); otherwise the rider gets prepaid offers only (`cod_blocked`), with the banner "Cash orders paused until you deposit."
+  - **Cash ageing** (R53; thresholds are doc 10 `app_config` keys): reminder when cash is older than the alert threshold (default 24 h); no new COD offers when older than the block threshold (default 48 h) until a deposit is confirmed.
 - **Deposit methods:**
   1. **UPI to rovo** (preferred): "Deposit ₹1,850" → PA payment link / QR for that amount → webhook confirms → cash-in-hand reduces automatically. No manual reconciliation.
-  2. **Cash at rovo office/hub:** the rider shows the "Deposit" screen with a reference code. Ops records amount + receipt number in the admin console (doc 07). The rider sees "Pending verification" until finance verifies (same day), then "Deposited".
+  2. **Cash at rovo office/hub:** the rider shows the "Deposit" screen with a reference code. Ops records amount + receipt number in the admin console (doc 07). The rider sees "Pending verification" until finance verifies (same day, matched against the bank statement CSV), then "Deposited".
   3. **Netting at payout** (automatic, shown in the statement).
 - Deposit history list with status: Pending / Verified / Rejected (with reason).
 
@@ -332,7 +344,7 @@ A list by day: time, restaurant → locality, status (Delivered / Undeliverable 
 - A **red shield SOS** button is visible on every active-delivery screen and in the online home. Tapping it opens a sheet (no long press needed — a long press is hard while panicking):
   1. **Call 112 (emergency)** — a `tel:112` link.
   2. **Call rovo support** — `tel:` support line.
-  3. **"I had an accident / I'm unsafe"** → sends an alert to ops with the last known location (a fresh fix is attempted), the active order, and the emergency contact. Ops board shows a red **SOS** banner with a sound. Ops calls the rider and the emergency contact if needed, and **reassigns the order** (doc 07).
+  3. **"I had an accident / I'm unsafe"** → records an `sos_events` row (M4) and sends an alert to ops with the last known location (a fresh fix is attempted), the active order, and the emergency contact. Ops board shows a red **SOS** banner with a sound. Ops calls the rider and the emergency contact if needed, and **reassigns the order** (doc 07).
   4. **Share with emergency contact** — an SMS (pre-filled via an `sms:` link) with location to the emergency contact.
 - After an SOS: the delivery is protected — the rider is not penalised, and the trip is paid if the pickup had happened `[OPEN — policy]`.
 
@@ -343,17 +355,17 @@ A list by day: time, restaurant → locality, status (Delivered / Undeliverable 
 | Delivery status | Typical order status(es) | Who/what triggers | Customer sees (doc 04 §9.2) | Restaurant sees (doc 05) |
 |---|---|---|---|---|
 | *(no delivery yet)* | `PENDING_PAYMENT`, `PLACED` | — | Payment / waiting for restaurant | New order alert (`PLACED`) |
-| `UNASSIGNED` | `ACCEPTED`, `PREPARING`, `READY_FOR_PICKUP` | Delivery created when the order is `ACCEPTED`; dispatch starts per timing rule (§13) | "We'll assign a partner soon" | "Finding rider…" |
+| `UNASSIGNED` | `ACCEPTED`, `PREPARING`, `READY_FOR_PICKUP` | Delivery created when the order is `ACCEPTED`; first offer at `max(0, prep_time − rider_approach_estimate − buffer)` (R7) | "We'll assign a partner soon" | "Finding rider…" |
 | `OFFERED` | same | Dispatcher creates a `delivery_offer` (`PENDING`) | Same as `UNASSIGNED` (not exposed) | "Finding rider…" |
 | `ASSIGNED` | `PREPARING`, `READY_FOR_PICKUP` | Rider accepts the offer, or admin manual assign | Partner card | "Rider X assigned · ~N min" |
 | `AT_RESTAURANT` | `PREPARING`, `READY_FOR_PICKUP` | Rider taps Arrived | "Partner at restaurant" | "Rider X is here" |
-| `PICKED_UP` | `PICKED_UP` | Rider taps Picked up (sets order `READY_FOR_PICKUP` implicitly if needed) | On the way + ETA | Moves to "Out" |
+| `PICKED_UP` | `PICKED_UP` | Rider taps Picked up (allowed from `PREPARING` with flag `restaurant_skipped_ready`, R4) | On the way + ETA | Moves to "Out" |
 | `AT_DROP` | `PICKED_UP` | Rider taps Arrived at customer | "Partner has arrived" | — |
 | `DELIVERED` | `DELIVERED` | Rider taps Delivered (+ COD amount / OTP) | Delivered + rating | History |
 | `FAILED` | `UNDELIVERABLE` | Rider + support approval (§8.1) | Couldn't deliver + reason | History |
 | `CANCELLED` | `CANCELLED` (order), or delivery replaced while order continues | Order cancelled by customer/admin/system; or delivery cancelled for reassignment (a new delivery row or a reset to `UNASSIGNED` — Backend decides) | Order cancelled / new partner | "Rider changed" / order cancelled alert |
 
-Offer statuses (`PENDING | ACCEPTED | DECLINED | EXPIRED`) are visible only to the rider (their own offers) and to admins (offer log per delivery).
+Offer statuses (`PENDING | ACCEPTED | DECLINED | EXPIRED | REVOKED`, R16) are visible only to the rider (their own offers) and to admins (offer log per delivery).
 
 ---
 
@@ -369,7 +381,7 @@ Offer statuses (`PENDING | ACCEPTED | DECLINED | EXPIRED`) are visible only to t
 | D6 | **Restaurant closed / refuses when the rider arrives** | "Restaurant problem" → support. Ops cancels the order (refund) and the rider gets base pay for the trip. |
 | D7 | **Wrong / damaged items noticed at pickup** | "Problem with food" → photo → restaurant asked to fix. If not fixable → support. |
 | D8 | **Food spilled in transit** | Help → "Food damaged" → photo → support decides (deliver anyway with the customer's consent, or cancel + refund). The rider may be liable per policy `[OPEN — avoid harsh penalties in V1]`. |
-| D9 | **COD: customer pays with a ₹2,000 note, rider lacks change** | The change helper shows the change due. Training: carry ₹200 float. If impossible: the customer arranges change or pays via UPI QR (if available, §7). Support as last resort. |
+| D9 | **COD: customer pays with a ₹2,000 note, rider lacks change** | The change helper shows the change due. Training: carry ₹200 float. If impossible: the customer arranges change (no UPI at the door in V1, §7). Support as last resort. |
 | D10 | **Offer arrives while the rider is mid-tap elsewhere / weak network on accept** | Accept is idempotent. If the response is lost, the app shows "Confirming…" and re-queries. The countdown is computed from server time (avoids clock skew). |
 | D11 | **Rider goes offline with a pending offer** | The offer is auto-declined, with the reason "went offline". |
 | D12 | **Rider over the cash limit while carrying a COD order** | The current delivery continues. The block applies to new offers only. |
@@ -378,7 +390,7 @@ Offer statuses (`PENDING | ACCEPTED | DECLINED | EXPIRED`) are visible only to t
 
 ---
 
-## 14. Screen inventory (rider mode of `partner` app)
+## 14. Screen inventory (`rider` app)
 
 | ID | Screen | Purpose | Key components | Loading | Empty | Error |
 |---|---|---|---|---|---|---|
@@ -389,15 +401,15 @@ Offer statuses (`PENDING | ACCEPTED | DECLINED | EXPIRED`) are visible only to t
 | D-05 | Application status | Review tracking | Stepper, per-doc comments | Skeleton | — | Retry |
 | D-08 | Training | Modules + quiz | Video list, quiz, progress | Video buffering; download for offline | — | Video load failure → retry / "Watch on Wi-Fi" |
 | D-10 | Go-online checklist | Pre-flight | Permission/GPS/wake lock/sound checks | GPS "Getting location…" | — | Permission denied guidance |
-| D-11 | Online home | Waiting state | Status pill, today stats, cash bar, busy areas, go offline | — | "Waiting for orders…" (animated, reduced-motion aware) | Stale/offline banner |
+| D-11 | Online home | Waiting state | Status pill, today stats, cash bar, busy areas, go offline | — | "Waiting for orders…" (animated, reduced-motion aware) | Tier-2 (stale location) / offline banner |
 | D-12 | Order request | Accept/decline | Countdown, earnings, pickup, drop locality, payment badge, Accept/Decline | — | — | Expired / already taken |
 | D-13 | Go to restaurant | Navigate + arrive | Address, landmark, call, navigate, Arrived | — | — | Far-from-geofence confirm |
 | D-14 | At restaurant | Pickup | Big code + photo, wait timer, bag-count confirm, Picked up, food-not-ready help | — | — | Not assigned (reassigned) |
 | D-15 | Go to customer | Navigate + arrive | Address, landmark, instructions, call, payment badge | — | — | Pin updated banner |
-| D-16 | At customer | Hand over | COD collect / prepaid, OTP entry, delivered, can't reach | — | — | OTP wrong (3 tries → support) |
+| D-16 | At customer | Hand over | COD collect / prepaid, OTP entry, delivered, can't reach | — | — | OTP wrong (5 tries → support, 01 RDR-FLOW-007) |
 | D-16a | COD collect | Cash | Amount due, note chips, change due, confirm | — | — | — |
 | D-17 | Trip done | Summary | Earnings, cash update, back to orders | — | — | — |
-| D-18 | Can't reach customer | Failure flow | Call log, wait timer, contact support, reason picker | — | — | Support unavailable → self-mark after 5 min |
+| D-18 | Can't reach customer | Failure flow | Call log, wait timer, contact support, reason picker | — | — | Support slow → escalated to ops lead after 5 min (no self-mark, R5) |
 | D-20 | Earnings | Today/week | Cards, bar chart, per-trip list | Skeleton | "No deliveries yet today" | Retry |
 | D-21 | Payout statement | Weekly payout | Earnings, netting, adjustments, status, UTR, request payout | Skeleton | "First payout after first week" | Retry |
 | D-22 | Cash in hand | Cash status | Amount, limit bar, deposit CTA, history | Skeleton | "No cash in hand" | Retry |
@@ -412,20 +424,23 @@ Offer statuses (`PENDING | ACCEPTED | DECLINED | EXPIRED`) are visible only to t
 ## 15. Requirements for Backend / Frontend; challenges
 
 **Requirements**
-1. **Rider SSE channel**: `offer.created` / `offer.cancelled` (with `expires_at` in server time), `delivery.updated` (drop pin change, reassignment), `cash.limit_reached`. Heartbeat ≤ 25 s.
-2. **Heartbeat/location endpoint** accepting `{lat, lng, accuracy, ts, battery?}` every 30–60 s. Server computes `ONLINE_STALE` after 90 s and `OFFLINE` after 15 min.
+1. **Rider events on the single SSE stream** `GET /api/v1/stream` (R10): offer created/revoked (with `expires_at` in server time), delivery updated (drop pin change, reassignment), cash limit reached — event names per doc 11 §4.2. Heartbeat **20 s** (R52); no replay, refetch on reconnect.
+2. **Heartbeat/location endpoint** accepting batched `{lat, lng, accuracy, ts, battery?}` points every 30–60 s (R27). Server applies the R34 tiers (tier 1 ≤ 3 min, tier 2 ≤ 15 min reached by push, `OFFLINE` at 15 min); thresholds are doc 13 `app_config` keys.
 3. **Location attached to every status transition** (stored for disputes and geofence checks).
 4. **Server-enforced** that only the assigned rider can transition the delivery. All transitions idempotent.
-5. **Delivery created at order `ACCEPTED`**. Dispatch **start time** = `max(now, ready_eta − rider_eta_estimate − buffer)` so riders don't wait long at the restaurant (aligns with waiting pay). Rider ETA = haversine × road factor ÷ assumed speed (≈ 18 km/h `[ASSUMPTION]`).
+5. **Delivery created at order `ACCEPTED`** (R7). First offer at `max(0, prep_time − rider_approach_estimate − buffer)` after acceptance, so riders don't wait long at the restaurant (aligns with waiting pay). Rider approach estimate uses the doc 16 §5 ETA model speeds (R48).
 6. **Offer payload** must include estimated earnings, payment type and COD amount, the pickup distance, and the drop **locality only**.
-7. **Undeliverable approval** workflow (rider request → support approve, with a timed fallback).
+7. **Undeliverable approval** workflow (rider request → support approve; 5-min escalation to the ops lead, no rider self-mark — R5).
 8. **Contact endpoint** returning phone numbers only within the allowed window, behind a `ContactChannel` abstraction (direct now, masked later).
 9. **Cash ledger** events per COD delivery and deposit, cash-limit evaluation at dispatch, and a PA payment-link deposit flow.
 10. **Admin act-on-behalf** transitions with a reason and audit.
+11. **Rider sessions**: 30-day sliding expiry (R44, doc 12).
+12. **Gig-worker registration fields** stored and exportable (M5) `[LEGAL]`.
 
 **Challenges / notes on the baseline**
 - **P12 + navigation hand-off:** riders will be in Google Maps (background) during most of a delivery, so "foreground-only location while online" effectively means *idle riders only*. This is acceptable because customers see milestones only, but it should be stated explicitly, and dispatch must rely on idle riders' fresh locations.
-- **Rider availability states** (§3) are not defined in the baseline. Proposed for doc 10/13.
+- **Rider availability states** (§3) are now ruled (R11, R34): doc 10/13 states plus freshness tiers and `cod_blocked` as flags.
+- **Backgrounded idle riders** stay dispatchable as tier 2 via push (R34), resolving the conflict between foreground-only location and Web Push reach (31 RV-055).
 - **Masked calling deferred** is a conscious DPDP risk; this needs Security/Legal sign-off.
 - **One active delivery per rider** is kept. The extra waiting at restaurants from it is mitigated by the dispatch-timing rule above.
 
