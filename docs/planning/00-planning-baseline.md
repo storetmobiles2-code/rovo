@@ -150,3 +150,34 @@ Rules that follow from this:
 5. Prefer the simplest design that satisfies V1 while not blocking multi-city expansion. Say what you are *not* doing and why.
 6. Every doc starts with: purpose, owner, status (`Draft v1`), dependencies on other docs.
 7. Do not commit to git. The Lead Architect commits.
+
+## 8. Lead Architect rulings after wave 1 (binding; supersede conflicting text in docs 01–26 until those docs are reconciled)
+
+| ID | Ruling | Resolves |
+|---|---|---|
+| R1 | Restaurant accept window **180 s**: alert repeats every 30 s; owner SMS at 60 s; ops flagged at 90 s (may accept on behalf, audited); at 180 s → `CANCELLED` by `SYSTEM`, reason `RESTAURANT_UNRESPONSIVE` (not `REJECTED`), prepaid fully refunded, outlet auto-paused 30 min; 2 consecutive misses → paused until owner resumes. No restaurant-device heartbeat for 3 min while open → auto-pause. | 01 vs 04/05 vs 08/14 (4 min) |
+| R2 | Customer cancel free while `PLACED` or within 60 s of placement (allows `ACCEPTED→CANCELLED` by customer inside grace); afterwards via support/admin with fault attribution. | 01 vs 04 |
+| R3 | `ACCEPTED → PREPARING` automatically after 60 s or on restaurant tap; prep time chosen at accept. | UX/Backend |
+| R4 | Rider "Picked up" allowed from `PREPARING` or `READY_FOR_PICKUP` (flag `restaurant_skipped_ready`). | UX |
+| R5 | `UNDELIVERABLE` requires support approval; COD failures count as customer strikes (2 → COD disabled). | UX/Product |
+| R6 | COD per-order cap ₹1,000 (₹600 first order); rider offered COD only if cash-in-hand + order ≤ ₹2,000. | Product challenge to §5 |
+| R7 | Delivery created at `ACCEPTED`; dispatch offer timed at `max(0, prep_time − rider_approach_estimate − buffer)`. | Backend |
+| R8 | Payable rounded to whole rupee with explicit `ROUND_OFF` bill line; menu prices exclusive of 5% GST (separate line); fee GST presentation configurable pending CA [LEGAL]. | §3 money OPEN |
+| R9 | Goodwill/COD compensation as single-user coupons; no wallet in V1. | UX |
+| R10 | SSE: single `GET /api/v1/stream`, heartbeat 20 s, `reauth` event, no server replay buffer — clients refetch snapshots on reconnect; REST is source of truth. LB/CDN idle timeout ≥ 120 s. | 04 vs 08/17 |
+| R11 | Add `approval_requests` (maker-checker), `reason_codes`, `restaurant_devices`, `rider_availability`, ticket statuses. | UX/Backend |
+| R12 | No server cart; `POST /api/v1/cart/quote` returns signed `quoteId` (10-min stored quote); order create needs `quoteId` + `Idempotency-Key`; stale → 409 with diff. | 10 vs 17 |
+| R13 | Address: landmark + map pin required; building/street optional. | 01 vs 04 |
+| R14 | **Four frontend apps / hosts**: `app.` (customer), `restaurant.`, `rider.`, `admin.`; each routes `/api/*` same-origin to the API via the CDN; no CORS on app hosts; `api.` host reserved for future native bearer clients. Workspace lives under `web/`. | 12 (`partner.`) vs 17/08 |
+| R15 | API base path is `/api/v1` on every host. | 11 vs 12 |
+| R16 | Delivery offers get a fifth status `REVOKED` (offer withdrawn by system/admin). | 13 |
+| R17 | Translatable fields stored as `*_i18n` JSONB; API exposes `nameI18n` + resolved `displayName` (per `Accept-Language`). | 10 vs 17 |
+| R18 | Fee slabs apply to **road-adjusted** distance (straight-line × 1.3). Max serviceable radius 7 km straight-line ⇒ slabs extend to 10 km road: 0–2 ₹20 · 2–4 ₹30 · 4–6 ₹40 · 6–8 ₹50 · 8–10 ₹60; lower bound inclusive, upper exclusive. | QA CH-3 |
+| R19 | Business deadlines use the injected app clock; no SQL `now()` in business logic. Testability hooks (fake clock, seedable IDs, provider fakes, `/_test/*` only in `testhooks` builds) are mandatory from sprint 1. | QA CH-2/CH-9 |
+| R20 | OpenAPI authored as 3.1 restricted to a subset validated against oapi-codegen, openapi-typescript and the mock generator; week-1 spike — fall back to 3.0.3 if tooling fails. | QA CH-1 / 09 |
+| R21 | Rate limits and OTP counters are Postgres-backed (shared across replicas) until Redis is introduced. | QA CH-8 / 19 |
+| R22 | River's transactional job insert is the outbox (no custom relay). PostgreSQL 17 on RDS (18 if available with PostGIS); no 18-only features. | 08/09 |
+| R23 | Production: **AWS ap-south-1 (Mumbai) primary, ap-south-2 (Hyderabad) DR**; ECS Fargate (ARM) `api` + `worker` services, RDS PostgreSQL + PostGIS Multi-AZ, S3 + CloudFront, WAF, Secrets Manager, KMS; IaC with OpenTofu under `deploy/terraform/`. Alternative: GCP. | 22/25 |
+| R24 | Development: local Docker Compose only; no card-requiring free tiers (user directive). | user |
+| R25 | Payment aggregator chosen on written UPI/card rates at onboarding (Cashfree vs Razorpay shortlisted) behind the `PaymentProvider` interface; settlement model (PA split settlement vs collect-and-payout) decided with legal counsel under RBI PA directions [LEGAL] — design supports both. | 14 |
+| R26 | Admins are separate identities from consumer/partner accounts; `RIDER` and `RESTAURANT_*` roles are mutually exclusive per user; internal `SYSTEM` principal for automated transitions. | 12 |
