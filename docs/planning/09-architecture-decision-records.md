@@ -324,9 +324,9 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 - **Juspay:** an orchestrator layered over PAs (~0.22–0.25% extra, enterprise-negotiated). Not needed at our scale.
 - **UPI MDR policy is in flux:** a 2026 amendment bill would let the government notify MDR on UPI P2M, reportedly 0.4% above ₹2,000 for large merchants. Proposed, not enacted as of Aug–Sep 2026. Most of our orders are below ₹2,000.
 
-**Cost sensitivity.** On a ₹350 average order `[ASSUMPTION]` paid via UPI, a 2% + GST fee costs ≈ ₹8.26 per order. That is more than the entire ₹5 platform fee. With 70% UPI share `[ASSUMPTION]`, the fee differential between a 2% PA and a 0%-UPI PA is the single largest variable infrastructure cost in V1.
+**Cost sensitivity.** On a ₹350 average order `[ASSUMPTION]` paid via UPI, a 2% + GST fee costs ≈ ₹8.26 per order. That is more than the entire ₹5 platform fee. With 70% UPI share `[ASSUMPTION]`, every 0.5 percentage point of negotiated UPI rate is worth ≈ ₹2 per order. PA fees are the single largest variable technology cost per order in V1, larger than the per-order cloud cost target (doc 01 M-60: ≤ ₹6).
 
-**Options.** (A) Razorpay only; (B) Cashfree only; (C) PhonePe PG / Paytm PG (0% UPI); (D) orchestrator (Juspay); (E) provider-abstracted, choose commercially.
+**Options.** (A) Razorpay only; (B) Cashfree only; (C) PhonePe PG / Paytm PG (claimed low/0% UPI); (D) orchestrator (Juspay); (E) provider-abstracted, choose commercially.
 
 **Decision.** **E.** A `payments.Provider` Go interface (doc 14 §9) with:
 1. **Reference adapter: Razorpay** (best-documented sandbox, official Go SDK, Route for split settlement, mature webhooks). It is built first so the open-source project has a working default.
