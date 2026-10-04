@@ -303,7 +303,7 @@ All `/partner/restaurants/{restaurantId}/*` operations require a restaurant role
 | `POST /partner/restaurant-applications/{restaurantId}/submit` 🔑 | OWN | `{agreementVersion, otpChallengeId, otpCode}` → `{status: SUBMITTED}` | `KYC_INCOMPLETE` |
 | `GET /partner/restaurants` | OWN, STAFF | → my outlets + role per outlet | — |
 | `GET /partner/restaurants/{rid}` / `PATCH` 🔒 | OWN (STAFF read) | profile (name, description, images, minOrder, packaging mode, radius ≤ admin cap, avgPrepTime) | `VERSION_MISMATCH` |
-| `GET /partner/restaurants/{rid}/operating-hours` / `PUT` 🔒 | OWN, STAFF | `{week: [{dayOfWeek, slots[{opensAt, closesAt}]}]}` (atomic replace) | `VALIDATION_FAILED` (overlap) |
+| `GET /partner/restaurants/{rid}/operating-hours` / `PUT` 🔒 | GET: OWN, STAFF · PUT: OWN only (R57) | `{week: [{dayOfWeek, slots[{opensAt, closesAt}]}]}` (atomic replace) | `VALIDATION_FAILED` (overlap) |
 | `POST /partner/restaurants/{rid}/closures` / `DELETE …/closures/{id}` | OWN | `{startsAt, endsAt, reason, note}` | `CONFLICT` (overlap) |
 | `POST /partner/restaurants/{rid}/open` | OWN, STAFF | "Start taking orders" (`accepting_orders=true`) | `KYC_INCOMPLETE`, `FORBIDDEN` (suspended) |
 | `POST /partner/restaurants/{rid}/close` | OWN, STAFF | stop for the day | — |

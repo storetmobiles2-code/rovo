@@ -227,3 +227,4 @@ Decisions on the Reviewer's contested points (31 §12). Where the Lead deviates 
 | R54 | M-02 (restaurant acceptance metric) is redefined: share of `PLACED` orders accepted by the restaurant within 180 s; system cancellations with `RESTAURANT_UNRESPONSIVE` count as misses. |
 | R55 | The `api.` host is used in V1 **only for inbound provider webhooks** (payment aggregator, SMS delivery receipts): server-to-server, no cookies, HMAC-verified, optional provider IP allow-list at the WAF. Browser traffic never uses it (R27). Native bearer clients may use it later. |
 | R56 | SSE stream lifetime: the server closes each stream after **30 min** (clients reconnect transparently and refetch); this applies to docs 08, 11, 12, 22. |
+| R57 | Operating hours: restaurant staff may read and use pause/resume; only the owner edits weekly hours and holidays. Payout-account changes: 48 h cooling-off + finance approval (supersedes "1-cycle hold"). |

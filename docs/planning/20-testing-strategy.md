@@ -356,7 +356,7 @@ sequenceDiagram
 
 | Strategy | Use for | Why |
 |---|---|---|
-| **Template DB per test (default)** | Anything that commits: event recording + River fan-out, SSE fan-out via `LISTEN/NOTIFY`, concurrency/race tests, multi-tx flows | Real commit semantics; tests run in parallel safely |
+| **Template DB per test (default)** | Anything that commits: per-subscriber River job insertion, SSE fan-out via `LISTEN/NOTIFY`, concurrency/race tests, multi-tx flows | Real commit semantics; tests run in parallel safely |
 | **Transaction-per-test (rollback)** | Read-heavy sqlc query tests, PostGIS lookup tests | Fastest; but invalid where code commits or uses `LISTEN/NOTIFY` |
 | Fresh migrations from zero | Migration tests only (§15) | Verifies the migration chain itself |
 
@@ -396,33 +396,36 @@ River supports stubbing time via `river.Config.Test.Time` (`rivertype.TimeGenera
 
 Test patterns:
 
-1. **Scheduling assertions:** placing an online order inserts `restaurant_accept_timeout` with `ScheduledAt = placed_at + cfg.accept_timeout`; creating an offer inserts `delivery_offer_timeout` at `offered_at + 45 s` — asserted with `RequireInsertedTx` + `RequireInsertedOpts{ScheduledAt: …}`.
+1. **Scheduling assertions:** placing an order inserts the R1 ladder jobs — alert repeats every 30 s, owner SMS at +60 s, ops flag at +90 s and `restaurant_accept_timeout` at **+180 s** (values are doc 13 keys); creating an offer inserts `delivery_offer_timeout` at `offered_at + 45 s` — asserted with `RequireInsertedTx` + `RequireInsertedOpts{ScheduledAt: …}`.
 2. **Execution with fake clock:** set the app `Clock` to `offered_at + 44 s` → run the job via `rivertest.NewWorker(...).Work` → asserts **no-op** (job re-checks the deadline against the clock; idempotent). Set to `+45 s` → offer `EXPIRED`, next-best rider offered, new timeout job inserted.
 3. **Late action vs timeout race:** rider accept at `+44.9 s` committed first, timeout job runs after → no-op; reverse order → accept fails with `OFFER_EXPIRED` (409). Both orders exercised deterministically via explicit sequencing, plus a randomised goroutine race test (§6.6).
-4. **Cascade exhaustion:** N riders all expire → delivery returns to `UNASSIGNED`, admin alert outbox event emitted, retry backoff job scheduled (values from doc 13/06 `[OPEN]`).
+4. **Cascade exhaustion:** N riders all expire → delivery returns to `UNASSIGNED`, admin alert subscriber job inserted, retry backoff job scheduled (values from doc 13).
+4b. **Revocation (R16):** admin manual reassign or order cancel while an offer is `PENDING` → offer `REVOKED`, its timeout job becomes a no-op, rider receives an `offer.revoked` event.
 5. **Retries & dead jobs:** job handler errors are retried with River's policy; poisoned jobs land in discarded state and raise an alert metric — tested with injected failures.
 6. **Uniqueness:** duplicate timeout scheduling is prevented by unique job options (`rivertest.Worker` disables uniqueness by default — integration tests that rely on uniqueness use a real client instead).
+7. **Periodic catch-up (M11, RV-004):** every periodic job (weekly settlement, daily PA recon, retention sweeps) runs hourly and asks "has period P completed?". Tests: (a) the scheduled tick is skipped (leader restart simulated) → the next hourly run completes period P exactly once; (b) two concurrent runners → one run (unique by period); (c) fake clock at Monday 09:00 IST with no completed settlement for last week → the **missed-settlement alert** metric fires; (d) a period run twice is idempotent (no duplicate payout lines).
 
 ### 6.6 Concurrency and race tests
 
 - Run all Go tests with `-race` in CI.
 - Dedicated tests launch K goroutines (K = 2..20) performing conflicting commands on one aggregate: two riders accept the same offer; restaurant accepts while customer cancels; duplicate payment webhooks arrive simultaneously; admin manual assign while auto-dispatch assigns. Assert exactly one winner, losers get typed conflict errors, and invariants (§6.7) hold. Repeated 50× in nightly (`-count=50`).
 
-### 6.7 Outbox and invariants
+### 6.7 Per-subscriber jobs (River as outbox, R22/R42) and invariants
 
-- **Atomicity:** domain change + `event_log` row + `event.fanout` River job in the same transaction — test forces a failure after `events.Record` and asserts none persisted.
-- **Fan-out (doc 08 §7.3 — River `InsertTx` *is* the outbox, no separate relay):** `events.Record` writes `event_log` + one `event.fanout` job in the caller's tx; the fan-out job enqueues one unique job per subscriber `(handler, event_id)`; tests assert: rollback of the business tx leaves neither row; fan-out run twice creates no duplicate subscriber jobs; a subscriber handler run twice records one `processed_events` row and one side-effect (no double SMS, no double ledger post); a handler crash mid-way is retried and converges.
-- **Event schema compatibility:** `tools/eventschema` (doc 08 §4.3) diff runs in CI; each `.v1` event has a JSON fixture tested for round-trip decode by every subscriber.
-- **Lag metric** (event recorded → handler done) emitted and asserted in tests (doc 24 consumes).
+- **No event table, no fan-out hop (R42, C8):** the publisher inserts **one River job per subscriber** from the static subscription table with `InsertManyTx` in the business transaction. Tests assert: (a) commit → exactly one job per registered subscriber, with the event payload and trace context in job args; (b) a forced failure after the domain write rolls back both the domain change and every job; (c) adding a subscriber to the table adds exactly one job per event; (d) no `event_log`/`outbox_events` table exists (schema snapshot check).
+- **Idempotent subscribers:** a subscriber handler run twice records one `processed_events` row and one side-effect (no double SMS, no double ledger post); a handler crash mid-way is retried and converges.
+- **Event schema compatibility:** each `.v1` event has a JSON fixture tested for round-trip decode by every subscriber (replaces the cut `tools/eventschema`, C9).
+- **Latency budget (RV-002, RV-037):** commit → restaurant SSE event ≤ 2 s p95; commit → push sent (fakepush) ≤ 3 s p95; measured in integration and in K-2 (doc 24 consumes the metric).
 - **`assertInvariants(t, db)` helper**, called at the end of every integration and E2E test (via the test API in E2E), runs SQL checks: all journals balance; trial balance = 0; no order/delivery status combination outside the allowed set; no delivery with two accepted offers; no rider with > 1 active delivery; no `PENDING_PAYMENT` order older than the payment expiry without a reconciliation job scheduled; refunds ≤ captures per order. These same queries become a nightly production **reconciliation job** (doc 14/24).
 
 ### 6.8 SSE
 
 - `httptest` server + real SSE hub + real Postgres `pg_notify` inside the business tx (doc 08 §6.2): a transition commits → event received by the subscribed client within 1 s; a **rolled-back** tx produces no event; a client not entitled to a topic receives nothing — checked both at subscribe time and at routing time (order ownership changes mid-stream).
-- **No replay by design** (doc 08): on reconnect the client refetches over REST; tests assert `Last-Event-ID` only suppresses stale duplicates (older `entity_version`), and the frontend test (§9.1) asserts the refetch-on-reconnect behaviour.
+- **No replay by design** (R10): `Last-Event-ID` is ignored; on reconnect the client refetches active queries over REST — the frontend test (§9.1) asserts the refetch-on-reconnect behaviour and the 2–10 s reconnect jitter. `reauth` is sent only on session revocation; streams close at 30 min (doc 12 §4.7).
 - LISTEN connection loss → `/readyz` degraded and clients receive `event: degraded` → frontend switches to polling (E2E F-13).
+- **LISTEN watchdog (M12, RV-003):** a test opens a LISTEN connection that stops reading while NOTIFYs continue; assert `pg_notification_queue_usage()` is exported as a metric, the alert rule fires above 0.1 (threshold scaled down in the test), and the watchdog reconnects the stalled listener; business commits keep succeeding throughout.
 - Slow consumer (client not reading) is disconnected once its bounded buffer (16 messages) fills, and the hub keeps serving others.
-- Heartbeat `: ping` every 20 s (doc 08) asserted with the fake clock; needed to survive CDN/load-balancer idle timeouts (see C-9).
+- Heartbeat `: ping` every 20 s (R10, R52) asserted with the fake clock; needed to survive CDN/load-balancer idle timeouts (see C-9).
 - Connection cleanup: N connects/disconnects → goroutine count and DB listeners return to baseline (leak test).
 
 ---
@@ -440,6 +443,12 @@ Test patterns:
 | TS client typecheck | `tsc --noEmit` across all three apps against the regenerated client — a renamed field breaks the frontend build in the same PR | PR |
 | Generator compatibility fixture | A small "kitchen-sink" spec using every 3.1 construct we allow (nullable via type arrays, `oneOf` with discriminator, `const`, `examples`) is run through oapi-codegen, openapi-typescript and kin-openapi in CI; constructs that any tool mishandles are banned by lint (see CH-1) | PR (spec/tooling changes) |
 | Examples valid | Every `example`/`examples` in the spec validates against its schema (they also feed MSW fixtures) | PR |
+
+### 7.5 Golden documents and PA files (M14, RV-063, RV-066)
+
+- **CA-signed golden invoices and statements:** the CA signs off ≥ 10 cases (prepaid, COD, coupon, partial refund, cancellation, round-off, restaurant weekly statement, rider statement). They are committed as fixtures; invoice/statement generation must reproduce them exactly (PDF text + amounts). A changed fixture needs CA re-sign-off. Required before the quote-engine code freeze.
+- **PA sample settlement/recon files:** obtained from the chosen PA during onboarding; golden-file tests drive the daily recon job (matched, fee deducted, held, missing, extra) and, if split settlement is chosen (R35), the transfer/release-hold paths.
+- **₹1 live test before Gate A:** one real payment, one refund and (split model) one transfer release in production, reconciled end to end.
 
 **Not doing:** Pact/consumer-driven contracts — single repo, single team, spec-first codegen on both sides already gives compile-time consumer checks.
 
@@ -465,7 +474,7 @@ Domain ──► PaymentProvider interface ──► razorpayAdapter (real wire 
 
 ### 7.4 OTP / SMS / push provider contracts
 
-Same pattern: real adapter → `fakeotp`/`fakesms` (wire-level) in PR, provider sandbox/test mode nightly where one exists `[OPEN: 15]`. Tests cover DLT template ID mapping per language, provider error codes → retry/fallback decisions, delivery-report webhooks, and the fallback path (secondary provider or voice/WhatsApp OTP `[OPEN: 15]`).
+Same pattern: real adapter → `fakeotp`/`fakesms` (wire-level) in PR, provider sandbox/test mode nightly where one exists `[OPEN: 15]`. Tests cover DLT template ID mapping per language **and per OTP host** (one template each for `app.`, `restaurant.`, `rider.`; doc 12 §2.2), provider error codes → retry/fallback decisions, delivery-report webhooks, and the fallback path (secondary SMS provider; voice OTP `[OPEN: 15]`). WhatsApp OTP is cut (C2) and not tested. **DLT template conformance (RV-065):** a staging check per release diffs the template mirror in the repo against the provider's exported registered templates; any mismatch blocks promotion.
 
 ---
 

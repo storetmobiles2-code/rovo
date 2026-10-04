@@ -941,7 +941,7 @@ All amounts configurable per city (and per zone/restaurant where stated) via ADM
 
 - **BR-PAYOUT-001 (R53)** Restaurants: weekly cycle Mon 00:00 – Sun 23:59 IST of `DELIVERED` orders (plus adjustments); settlement day is an `app_config` key owned by doc 10 (default **Tuesday**; manual transfer, V1).
 - **BR-PAYOUT-002 (R53)** Riders: weekly cycle same window; payout day is an `app_config` key owned by doc 10 (default **Monday** for the previous Mon–Sun); on-demand P1 (RDR-EARN-005).
-- **BR-PAYOUT-003** Payouts are made only to verified accounts in the payee's own name (or registered entity name); account changes trigger a 1-cycle hold unless verified by penny-drop [ASSUMPTION – fraud control].
+- **BR-PAYOUT-003** Payouts are made only to verified accounts in the payee's own name (or registered entity name); account changes require re-authentication, a 48 h cooling-off hold and finance approval (maker-checker, R31 family 4; doc 12), with penny-drop verification when available [ASSUMPTION – fraud control].
 - **BR-PAYOUT-004** Minimum payout ₹100; below carries forward.
 
 ### 11.15a BR-COST — Running cost as a business line item
