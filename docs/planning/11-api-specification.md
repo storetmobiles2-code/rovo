@@ -84,7 +84,7 @@ Health endpoints `GET /healthz` (liveness) and `GET /readyz` (DB, River, LISTEN)
 
 - Never floats, never rupee strings. Negative amounts appear only in bill lines (discount, negative round-off).
 - Rates are basis points (`"rateBps": 500` = 5%).
-- **Bill lines** (`BillLine`): `component` (`ITEM_TOTAL | PACKAGING | DELIVERY_FEE | SURGE_FEE | PLATFORM_FEE | SMALL_CART_FEE | DISCOUNT | TAX | ROUND_OFF`), `label`, `amount`, `isIncluded` (for "incl. GST" informational lines), and `tax` details. **Payable = Σ lines where `isIncluded=false`**. It is rounded to a whole rupee via an explicit `ROUND_OFF` line (ruling 8).
+- **Bill lines** (`BillLine`): `component` (`ITEM_TOTAL | PACKAGING | DELIVERY_FEE | PLATFORM_FEE | SMALL_CART_FEE | DISCOUNT | TAX | ROUND_OFF`), `label`, `amount`, `isIncluded` (for "incl. GST" informational lines), and `tax` details. **Payable = Σ lines where `isIncluded=false`**. It is rounded to a whole rupee via an explicit `ROUND_OFF` line (ruling 8).
 
 ### 1.5 Pagination, filtering, sorting
 
