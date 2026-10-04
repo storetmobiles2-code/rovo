@@ -593,11 +593,11 @@ sequenceDiagram
     W->>PG: DeliveryPickedUp → ordering: READY_FOR_PICKUP|PREPARING → PICKED_UP
     API-->>C: SSE order.status PICKED_UP
     D->>API: POST .../arrived-drop
-    D->>API: POST .../delivered {delivery_otp?, cod_collected_paise?}
+    D->>API: POST .../delivered {delivery_code (prepaid ≥ ₹300, R39), cod_collected_paise?}
     API->>PG: BEGIN, delivery → DELIVERED, if COD: record cod_collected, event DeliveryDelivered, COMMIT
     W->>PG: DeliveryDelivered → ordering PICKED_UP→DELIVERED, event OrderDelivered
     W->>PG: OrderDelivered → ledger.Post (one journal, idempotent by order_id+rule):<br/>recognise restaurant payable, fees, GST, commission, TDS, rider pay,<br/>COD: Dr rider_cash_in_hand
-    W->>PG: if rider cash_in_hand ≥ limit → event RiderCashLimitReached → dispatch blocks COD offers
+    W->>PG: recompute COD headroom: COD offers only while cash_in_hand + payable ≤ ₹2,000 (R6),<br/>RiderCashLimitReached when no headroom is left
     W->>PG: OrderDelivered → ratings window, notifications (receipt, rate prompt), invoice issuance
     API-->>C: SSE order.status DELIVERED + rate prompt
 ```
@@ -616,7 +616,7 @@ sequenceDiagram
     participant PA as Payment Aggregator
     actor C as Customer PWA
 
-    R->>API: POST /api/v1/restaurant/orders/{id}/reject {reason: ITEM_UNAVAILABLE}
+    R->>API: POST /api/v1/partner/restaurants/{rid}/orders/{id}/reject {reasonCode: ITEM_UNAVAILABLE}
     API->>PG: CAS PLACED→REJECTED, event OrderRejected, COMMIT
     API-->>C: SSE order.status REJECTED ("refund initiated")
     W->>PG: OrderRejected → payments: insert refund(key=order:{id}:full, amount=captured, status=PENDING)
@@ -625,10 +625,12 @@ sequenceDiagram
     PA-->>W: refund_id, status pending|processed
     W->>PG: refund INITIATED, event RefundInitiated
     PA->>API: webhook refund.processed
-    API->>PG: webhook_events + job → refund PROCESSED, event RefundProcessed
+    API->>PG: payment_events + job → refund PROCESSED, event RefundProcessed
     W->>PG: ledger.Post refund journal, notifications: "₹X refunded, ref ..."
     Note over W,PA: refund.failed → retry with backoff (3x) → ReconExceptionRaised → finance queue
 ```
+
+The same refund path serves the R1 accept timeout (`CANCELLED`/`RESTAURANT_UNRESPONSIVE`, §5.3). **COD orders** have no PA payment to refund: compensation follows **R29**, where the customer chooses either a **manual UPI refund** (finance records the UTR, `refunds.provider='MANUAL'`, ledger entry) or a single-user coupon. It is never coupon-only `[LEGAL]` (doc 14 §15).
 
 ---
 
@@ -639,18 +641,18 @@ sequenceDiagram
 | Topic | Subscribers | Events (SSE `event:` names) |
 |---|---|---|
 | `order:{order_id}` | the customer who owns it | `order.status`, `order.eta`, `delivery.milestone`, `payment.status` |
-| `restaurant:{restaurant_id}:inbox` | members of that restaurant | `order.placed`, `order.cancelled`, `order.rider_assigned`, `order.rider_arrived` |
+| `inbox:{restaurant_id}` | members and order-receiver devices of that restaurant | `order.placed`, `order.status`, `order.cancelled`, `order.rider_assigned`, `order.rider_arrived`, `restaurant.status` |
 | `rider:{rider_id}` | that rider | `offer.new`, `offer.revoked`, `delivery.updated`, `account.cash_limit` |
-| `ops:city:{city_id}` | admins scoped to that city | `dispatch.exhausted`, `order.stuck`, `restaurant.alert_escalated` |
+| `ops:{city_id}` | admins scoped to that city | `ops.alert` (`ACCEPT_SLA`, `DISPATCH_EXHAUSTED`, `DEVICE_OFFLINE`, `STUCK_ORDER`, …), `ops.order_updated` |
 | `user:{user_id}` | any logged-in user | `inbox.new` (notification inbox badge) |
 
-Each browser tab opens **one** SSE stream: `GET /api/v1/stream`. The server derives the topics from the principal (customers get `user:` plus their active `order:` topics, and so on). Clients may narrow with `?topics=` within their entitlement. Authorization is checked at subscribe time and again when an event is routed (is the order still owned by this user?).
+Topic and event names follow doc 11 §4.2 (register row 65). Each browser tab opens **one** SSE stream: `GET /api/v1/stream` (R10). The server derives the topics from the principal (customers get `user:` plus their active `order:` topics, and so on). Clients may narrow with `?topics=` within their entitlement. Authorization is checked at subscribe time and again when an event is routed (is the order still owned by this user?).
 
 ### 6.2 Delivery path: worker → API process
 
 ```mermaid
 flowchart LR
-    TX[Any tx in API or worker<br/>state change + event row] -->|"SELECT pg_notify('rovo_rt', '{topic,type,id,v}')"<br/>inside same tx| PG[(Postgres)]
+    TX[Any tx in API or worker<br/>state change + subscriber jobs] -->|"SELECT pg_notify('rovo_rt', '{topic,type,id,v}')"<br/>inside same tx| PG[(Postgres)]
     PG -->|delivered only on COMMIT| L1[API replica 1<br/>dedicated LISTEN conn]
     PG --> L2[API replica 2<br/>dedicated LISTEN conn]
     L1 --> HUB1[SSE hub: map topic → subscribers] --> Clients1((clients))
@@ -661,18 +663,20 @@ flowchart LR
 - **Payload ≤ 8000 bytes** (Postgres limit). We send a small envelope `{topic, type, entity_id, entity_version, minimal fields}`. Clients either apply the minimal fields (status, ETA) or invalidate the TanStack Query cache and refetch over REST.
 - **Missed events are harmless.** On (re)connect the client refetches the active resources. The SSE `id:` field carries `entity_version`, and `Last-Event-ID` is used only to skip stale duplicates. No server-side replay buffer in V1. This deliberately avoids building a durable stream.
 - **The LISTEN connection** is a dedicated pgx connection per API replica, outside the pool and not through PgBouncer in transaction mode (LISTEN does not work there). The connection reconnects with backoff. While it is down, `/readyz` reports degraded, and clients fall back to polling because the server sends `event: degraded`.
+- **NOTIFY queue safety (M12, RV-003).** If any LISTEN backend stops reading, Postgres's async notification queue (8 GB default) fills, and then **every** transaction that calls `pg_notify` fails, including order placement. Controls: (1) a metric and alert on `pg_notification_queue_usage() > 0.1` (warning) and `> 0.5` (page); (2) LISTEN connections only read: the hub goroutine drains notifications continuously and hands them to bounded per-subscriber buffers, never blocking on a client; (3) a **watchdog** per replica sends a self-addressed probe NOTIFY every 10 s and reconnects the LISTEN connection if the probe is not received within 30 s; (4) fallback option, if the alert ever fires in production: move NOTIFY to a post-commit, best-effort step so business commits never depend on it (SSE is only a hint).
 - **Heartbeats:** an SSE comment line `: ping` every **20 s**, which is shorter than every idle timeout in the chain. Examples: Cloudflare (if placed in front) closes idle proxied streams after ~100 s on non-Enterprise plans (https://community.cloudflare.com/t/100-second-proxy-read-timeout-524-gateway-error-increase/684447, accessed 2026-10-04). Managed L7 load balancers default to around 60 s idle timeouts, and DevOps should set ≥ 120 s. Any proxy in the path (local Caddy/Vite dev proxy, edge) must not buffer `text/event-stream`. The response sets `Cache-Control: no-store` and `X-Accel-Buffering: no`.
-- **Maximum stream duration:** the server closes each stream after 30 min with a `retry: 2000` hint, so connections rebalance across tasks after deploys and scale-outs, and no platform request-duration limit is ever hit unexpectedly.
+- **Maximum stream duration:** the server closes each stream after 30 min with a jittered `retry:` hint (2–10 s, RV-038), so connections rebalance across tasks after deploys and scale-outs, and no platform request-duration limit is ever hit unexpectedly. *(Proposal, register row 29 / RV-011:)* the stream continues past access-token expiry while the server-side session is valid; `reauth`/`revoked` is sent only when the session is revoked. Docs 11, 12 and 22 (55-min deadline) should align on this one rule `[OPEN → Security + DevOps]`. On reconnect, clients refetch only the active order/inbox queries.
 - **Fallback:** if SSE fails 3 times within 60 s, the client switches to polling `GET /api/v1/orders/{id}` every 10 s (customers) or `GET /api/v1/restaurant/orders?status=PLACED` every 5 s (restaurant inbox) until SSE recovers.
 - **HTTP/2** (or HTTP/3) between browser and edge, so the SSE stream does not consume one of the browser's six HTTP/1.1 connections per host.
 - **Capacity:** each SSE connection costs one goroutine plus a small buffer (~10–20 KB). 5,000 concurrent streams fit comfortably in a single 1–2 GB API process `[ASSUMPTION: validate in load test, doc 20]`. Per-subscriber send buffers are bounded (16 messages). A slow consumer is disconnected rather than allowed to block the hub.
-- **Background delivery:** SSE only works while the PWA is in the foreground. Anything that must reach a backgrounded or closed app (new order for restaurant, new offer for rider, order delivered for customer) is **also** sent via Web Push, with SMS/WhatsApp escalation for restaurants (doc 15).
+- **Background delivery:** SSE only works while the PWA is in the foreground. Anything that must reach a backgrounded or closed app (new order for restaurant, new offer for rider including tier-2 stale riders, order delivered for customer) is **also** sent via Web Push, with SMS escalation for restaurants at 60 s (R1; WhatsApp is V1.1, doc 15).
+- **Presence as heartbeat:** an open SSE stream from a restaurant order-receiver device counts as its heartbeat (R27), so devices with a live stream send no extra heartbeat requests; otherwise the device heartbeats every 60 s.
 - **Later (multi-replica at scale):** if `NOTIFY` throughput becomes a bottleneck, the `platform/pubsub` interface switches to Redis/Valkey pub/sub or NATS without touching modules. `NOTIFY` takes a global lock at commit, which matters at roughly thousands of notifies per second. That is far beyond V1 volume.
 
 ### 6.3 Rider location ingestion
 
-- The rider PWA posts `POST /api/v1/rider/location {lat,lng,accuracy,ts}` every 30–60 s while online and in the foreground (P12). The write is an upsert into `rider_locations` with no event emission (high frequency, low value). A sparse sample, at most 1 per 5 min, goes to `rider_location_samples` with 30-day retention `[ASSUMPTION; DPDP review in doc 19]`.
-- The location is used by dispatch candidate search. It is not streamed to customers in V1 (no live map).
+- The rider PWA posts `POST /api/v1/rider/location {points[1–10]}` (batched, R27) every 30–60 s while online and in the foreground (P12). The write upserts `rider_availability.last_location` with no event emission (high frequency, low value). A sparse sample goes to `rider_location_pings` with short retention (doc 10). Evidence for disputes comes from the location captured at each status tap (`delivery_status_history`), not from every ping (RV-040).
+- The location is used by the two-tier dispatch candidate search (R34). It is not streamed to customers in V1 (no live map).
 
 ---
 
@@ -686,7 +690,7 @@ flowchart LR
   1. `INSERT … ON CONFLICT DO NOTHING RETURNING` in its own short transaction.
   2. If there is a conflict and the stored row is `completed` with the same `request_hash`, replay the stored response. If the `request_hash` differs, return `422 IDEMPOTENCY_KEY_REUSED`. If the row is `in_progress`, return `409 REQUEST_IN_PROGRESS` with `Retry-After: 1`.
   3. Otherwise, execute the handler. The final business transaction also writes `completed` and the response in the **same transaction** where possible, so the key and the effect commit atomically.
-- **Webhooks** dedupe on `(provider, provider_event_id)` unique in `webhook_events`. **Event handlers** dedupe on `(handler_name, event_id)` in `processed_events`, or by natural idempotency (CAS updates, unique business keys such as `refunds.refund_key`, `ledger_journals(source_type, source_id, rule)`).
+- **Webhooks** dedupe on `(provider, provider_event_id)` unique in `payment_events`. **Event handlers** dedupe on `(handler_name, event_id)` in `processed_events`, or by natural idempotency (CAS updates, unique business keys such as `refunds.refund_key`, `ledger_journals(source_type, source_id, rule)`).
 
 ### 7.2 Concurrency control
 
@@ -694,35 +698,41 @@ flowchart LR
   `UPDATE orders SET status=$to, version=version+1, … WHERE id=$id AND status=$from AND version=$v RETURNING …`
   Zero rows means `409 ORDER_STATE_CONFLICT` and the client refetches. The HTTP API exposes the version as `ETag` and accepts `If-Match` on mutations from partner apps.
 - **Contended resources** (a delivery being accepted by a rider while the expiry job runs, rider COD headroom): `SELECT … FOR UPDATE` on the single owning row inside a short transaction. Dispatch candidate selection uses `FOR UPDATE SKIP LOCKED` on `rider_availability` so parallel dispatchers never pick the same rider.
-- **Ledger:** postings are append-only. A journal is inserted with its postings in one transaction. A deferred constraint trigger asserts Σ debits = Σ credits per journal. Balance checks that gate behaviour (rider cash limit) lock the `account_balances` row with `FOR UPDATE` and update it in the same transaction as the posting.
+- **Ledger:** postings are append-only. A journal is inserted with its postings in one transaction. A deferred constraint trigger asserts Σ debits = Σ credits per journal. Balance checks that gate behaviour (rider cash limit) lock the `ledger_account_balances` row with `FOR UPDATE` and update it in the same transaction as the posting.
 - **Isolation level:** `READ COMMITTED` by default, plus explicit row locks and CAS. `SERIALIZABLE` only in settlement runs (rare, retried on `40001`).
 - **Timeouts:** every DB transaction has `statement_timeout` (5 s API, 60 s jobs) and `idle_in_transaction_session_timeout` (10 s). No external HTTP call is ever made inside an open DB transaction.
 
-### 7.3 Transactional events (outbox) detail
+### 7.3 Transactional events (outbox) detail — amended 2026-10-04 per R22/R42
 
-The emitting code calls `events.Record(ctx, tx, evt)`, which in the same transaction:
-1. inserts the envelope into `event_log` (append-only, partitioned by month, 90-day hot retention, then archived to object storage), and
-2. calls River `InsertTx` for one `event.fanout` job.
+The emitting code calls `events.Publish(ctx, tx, evt)`, which in the same transaction:
+1. looks up the **static subscription table** (code, not config) for `evt.Type`, and
+2. calls River **`InsertManyTx`** with **one job per subscriber** (`kind = <module>.on_<event>`, args = the envelope incl. `event_id` and W3C trace context, River unique key `(handler, event_id)`), on the subscriber's queue (`realtime`, `default` or `batch`).
 
-The fan-out worker looks up the static subscription table (code, not config) and enqueues one job per subscriber `(handler, event_id)` with River **unique jobs** to prevent duplicates. Each subscriber job runs its handler in its own transaction and records `processed_events`.
+There is **no `event_log` / `outbox_events` table and no `event.fanout` hop** (R42, scope cut C8). Each subscriber job runs its handler in its own transaction and records `(handler, event_id)` in `processed_events`. Because River lives in the same database, `InsertManyTx` **is** the transactional outbox. No relay or poller is needed, and there is no dual-write problem (R22, ADR-006 as amended). The event itself is visible for debugging in the job args (River retention 24–72 h) and in the structured log line the publisher writes.
 
-Because River lives in the same database, `InsertTx` **is** the transactional outbox. No separate relay or poller is needed, and there is no dual-write problem (ADR-006).
+**Latency budget (RV-002/RV-037).** Restaurant ring and rider offer are latency-critical. The `realtime` queue uses River's LISTEN-based fast fetch plus a short fetch poll interval `[ASSUMPTION: 200 ms]`. Targets, measured in the doc 20 load test: commit → restaurant SSE ≤ 2 s p95; commit → Web Push sent ≤ 3 s p95 (NFR-PERF-004 ≤ 5 s restaurant, ≤ 3 s rider offer).
 
----
+### 7.4 Periodic jobs: catch-up semantics (M11)
+
+River OSS periodic jobs are leader-elected and **not durable**: a leader restart at the tick skips that run silently (RV-004). Therefore every periodic job (weekly settlement run, daily PA reconciliation, retention sweeps, idempotency-key cleanup, rating aggregates) is a **catch-up job**:
+- It is scheduled **hourly** (or more often), not at a single tick.
+- On each run it asks "has the run for period P completed?" from a durable record (e.g. a `job_runs(job, period, status, completed_at)` row or the business table itself, such as a settlement batch for the period). If not, it runs, idempotently per period; otherwise it exits.
+- Period boundaries come from the injected app clock and the city timezone (R19).
+- **Alerts:** "no settlement run for last week by Mon 09:00 IST" (missed-settlement alert, page finance + on-call); "no PA recon for D-1 by 18:00 IST"; any catch-up job whose last success is older than 2 periods.
 
 ## 8. Caching strategy
 
 | What | Where | TTL / invalidation | Notes |
 |---|---|---|---|
 | Static PWA assets | CDN + service worker precache | content-hashed filenames, `immutable, max-age=1y`; `index.html` `no-cache` | Workbox precache, versioned SW |
-| Menu images | `public-media` bucket behind the CDN (`img.<domain>`) | `max-age=7d`, versioned object keys | The client resizes and compresses (WebP/JPEG, max 1200px) before upload. No server-side image pipeline in V1. |
+| Menu images | `public-media` bucket behind the CDN (`img.<domain>`) | `max-age=7d`, versioned object keys | The client resizes and compresses (WebP/JPEG variants, max 1200px) before upload; the server validates type/size. No server-side WebP pipeline in V1 *(proposal, minor drift note in 31 §14)*. KYC uploads are images only, server re-encoded, SSE-KMS, short-TTL signed URLs (R38). |
 | Map tiles | provider CDN (OpenFreeMap) + browser HTTP cache | provider headers | Self-hosted PMTiles in object storage as fallback (ADR-015) |
 | `GET /api/v1/restaurants/{id}/menu` | in-process LRU in API (keyed by `menu_version`) + HTTP `ETag` + `Cache-Control: private, max-age=30` | invalidated by `MenuChanged` via NOTIFY | Menus are the hottest read |
 | Restaurant list for a location | in-process, keyed by `(zone_id, filters)`, TTL 30 s | `RestaurantOpened/Closed` busts zone key | Open/closed must be fresh. Short TTL is fine. |
 | Zones, cities, pricing configs | in-process, loaded at boot, refreshed on `ZoneChanged`/`PricingConfigChanged` NOTIFY + 5-min safety refresh | | Small data |
 | Session state (partner audience) | in-process LRU (session id → state), TTL ≤ 30 s; admin uncached (doc 12 AUTH-D05) | `SessionRevoked` NOTIFY busts immediately | Customer requests verify the EdDSA JWT only. No DB hit. |
 | Quotes | DB (`quotes`), TTL 10 min | n/a | Must survive restarts |
-| Rate-limit counters | **edge WAF rate rules** for coarse per-IP limits; in-process token buckets for general per-user API limits (per task); **Postgres** for OTP/auth limits (must survive restarts and be shared across tasks) | | Redis adapter later (ADR-007) |
+| Rate-limit counters | **edge WAF rate rules** for coarse per-IP limits (plus admin-host rate + geo-IN rules, R37); **Postgres `rate_limit_buckets`** for OTP/auth counters and per-user API limits, shared across replicas (R21) | | Redis adapter later (ADR-007) |
 
 Not cached: order state, payment state, ledger balances (always read from the primary).
 
@@ -734,15 +744,22 @@ Doc 22 (DevOps) owns concrete services, sizes and costs. This section defines th
 
 ### 9.1 Local and CI
 
-Docker Compose (§2.3). CI uses ephemeral service containers (Postgres+PostGIS, MinIO) for integration tests. Optional free-tier dev/preview environments are allowed for demos only (doc 25).
+Docker Compose (§2.3). CI uses ephemeral service containers (Postgres 17 + PostGIS, MinIO) for integration tests. **Development and demos use local Docker only** (R24): no card-requiring free tiers and no hosted preview environment; shared demos run the local stack behind a card-free tunnel.
 
-### 9.2 Production at launch (pilot)
+### 9.2 Production at launch: two IaC profiles (R32)
 
-- Edge CDN + WAF → L7 LB → **2 `rovo api` tasks** (for zero-downtime deploys and to survive one task failing, not for load) + **1 `rovo worker` task** (2 once River leader election and job concurrency are proven in staging) on a managed container runtime.
-- **Managed PostgreSQL + PostGIS**, automated backups + PITR, encryption with KMS, private networking. **Multi-AZ** is recommended. A documented single-AZ pilot decision is acceptable per baseline §4a, with the upgrade trigger "first paid restaurant payout cycle completed or GMV > ₹10 lakh/month, whichever first" `[OPEN: Lead Architect/DevOps]`.
-- **No Redis provisioned.** Object storage + CDN for apps and media. Secrets manager. OTLP to the chosen backend.
-- Sizing target: a single small city, ≈ 500–2,000 orders/day, peak ≈ 3–5 orders/min, under 1,000 concurrent SSE streams `[ASSUMPTION; Product to confirm volume in doc 01]`. The smallest task sizes (0.5 vCPU / 1 GB) and a small burstable DB instance are expected to suffice. The load test in doc 20 confirms this.
-- Staging uses the same Terraform with smaller sizes, single-AZ, and the PA in sandbox mode. It can be stopped when idle.
+| | `closed-pilot` profile (Gate A) | `public-launch` profile (Gate B) |
+|---|---|---|
+| Edge | CloudFront (flat-rate Pro; pay-as-you-go fallback if the request allowance is exceeded 2 months running, R27) + included WAF; `/api/*` on all four app hosts | same, WAF rules per doc 22 |
+| Compute | ECS Fargate (ARM): **2 `rovo api` tasks** (zero-downtime deploys and one-task failure, not load) + **1 `rovo worker` task**; OTLP exported directly (no collector gateway) | sized by the doc 20 load test; worker ≥ 2 once leader election and job concurrency are proven |
+| Database | RDS PostgreSQL 17 + PostGIS **Single-AZ** db.t4g.small, PITR, KMS, private networking, **cross-region automated backups** to `ap-south-2` | **Multi-AZ, mandatory before Gate B or > 100 orders/day, whichever comes first** |
+| Network | tasks in public subnets with compensating controls (R28) | one NAT Gateway (single AZ) before Gate B, or earlier if a provider requires IP allow-listing |
+| Observability | Grafana Cloud (metrics, traces, logs, Faro) + CloudWatch Logs / S3 180-day archive in `ap-south-1`, security events ≥ 1 year (R36, M1) | same |
+
+- **No Redis provisioned.** Object storage + CDN for apps and media. Secrets manager.
+- **Load model (R45, owned by doc 20):** closed pilot ≈ 30 orders/day, month 1 ≈ 80/day, month 3 ≈ 250/day; design point 2,000 orders/day with a 500 orders/h peak; load test at 3× (1,500 orders/h) plus 3,000 concurrent SSE connections. Infrastructure is sized to the phase; capacity is proven by the test.
+- **Cost (R46):** doc 25 §15 is the single source (closed pilot ≈ ₹14–17k/month prod ex-GST + stoppable staging; public launch ≈ ₹30k/month).
+- Staging uses the same OpenTofu code with the `closed-pilot` sizes and the PA in sandbox mode. It can be stopped when idle.
 
 ### 9.3 Scale horizontally (same architecture)
 

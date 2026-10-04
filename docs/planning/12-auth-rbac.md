@@ -82,9 +82,11 @@ erDiagram
     sessions {
         uuid id PK "= sid claim = token family"
         uuid user_id FK
-        text audience "customer | partner | admin | customer_native | partner_native"
+        text audience "customer | restaurant | rider | admin | *_native"
         text active_context "e.g. rider | restaurant:<uuid>"
         text device_label
+        text device_binding "none | order_receiver | rider_device (R44)"
+        uuid restaurant_device_id "FK restaurant_devices when order_receiver"
         inet created_ip
         inet last_ip
         timestamptz last_seen_at
@@ -105,7 +107,7 @@ erDiagram
     admin_credentials {
         uuid user_id PK
         text password_argon2id "PHC string"
-        bytea totp_secret_enc "envelope-encrypted"
+        bytea totp_secret_enc "field-level encrypted (KMS envelope)"
         bigint totp_last_step "replay guard"
         int failed_attempts
         timestamptz locked_until
@@ -125,7 +127,7 @@ Table names are proposals for `10-database-schema.md`; Backend owns final DDL.
 | `RIDER` | member | city | `ADMIN_OPS` on rider KYC approval | One city in V1. |
 | `ADMIN_SUPER` | staff | global or city | `ADMIN_SUPER` + checker (second `ADMIN_SUPER`) | First one via CLI bootstrap (§3.6). Keep the count at 2–3 people. |
 | `ADMIN_OPS` / `ADMIN_SUPPORT` / `ADMIN_FINANCE` | staff | city (NULL = all cities) | `ADMIN_SUPER` (maker-checker) | Several admin roles per staff user are allowed, except **FINANCE+SUPPORT on the same person is discouraged** (refund maker = checker risk; enforced by "checker ≠ maker" anyway). |
-| `SYSTEM` (new, internal) | n/a | global | n/a | Non-human principal for worker jobs (auto-cancel, payout calc). Appears in the audit log as `actor_type=system`. **Addition to the baseline.** |
+| `SYSTEM` (internal, R26) | n/a | global | n/a | Non-human principal for worker jobs (auto-cancel, payout calc). Appears in the audit log as `actor_type=system`. |
 
 ### 1.3 Can a person be both customer and rider on one phone? (decision)
 
@@ -133,9 +135,9 @@ Table names are proposals for `10-database-schema.md`; Backend owns final DDL.
 
 How it works:
 
-- **Separate apps, separate sessions.** The customer app (`app.` host) issues `aud=customer` sessions, which only ever carry `CUSTOMER` permissions. The partner app (`partner.` host) issues `aud=partner` sessions, which carry only `RIDER` or `RESTAURANT_*` permissions. A stolen customer session can never act as a rider, and the reverse holds too.
-- **Context switching inside the partner app.** An owner of several outlets, or an owner who is also staff elsewhere, picks an **active context** (`restaurant:<id>`). This calls `POST /api/v1/auth/context`, which re-issues the access token with a new `ctx` claim in the same session family. A rider's context is always `rider`.
-- **Mutual exclusion.** `RIDER` and `RESTAURANT_*` are never granted to the same user in V1. A DB constraint or trigger plus a domain check enforces it. Exceptions need `ADMIN_SUPER` and are `[OPEN]` for V1.1.
+- **Separate apps, separate sessions.** The customer app (`app.` host) issues `aud=customer` sessions, which only ever carry `CUSTOMER` permissions. The restaurant app (`restaurant.` host) issues `aud=restaurant` sessions carrying only `RESTAURANT_*` permissions, and the rider app (`rider.` host) issues `aud=rider` sessions carrying only `RIDER` permissions (R14). A stolen customer session can never act as a rider, and the reverse holds too.
+- **Context switching inside the restaurant app.** An owner of several outlets, or an owner who is also staff elsewhere, picks an **active context** (`restaurant:<id>`). This calls `POST /api/v1/auth/context`, which re-issues the access token with a new `ctx` claim in the same session family. A rider's context is always `rider`.
+- **Mutual exclusion (R26).** `RIDER` and `RESTAURANT_*` are never granted to the same user in V1. A DB constraint or trigger plus a domain check enforces it. There are no exceptions in V1.
 - **Fraud guards for dual-role people** (enforced in the domain, tested as SEC-047):
   - A rider is never offered or assigned a delivery for an order placed by their own user id, or delivered to an address on their own account.
   - A restaurant member cannot rate or review a restaurant they are assigned to, and cannot redeem restaurant-funded coupons at it.
@@ -157,17 +159,21 @@ Indian operators recycle deactivated numbers after an inactivity period, commonl
 ```mermaid
 sequenceDiagram
     autonumber
-    participant B as Browser (app./partner.)
+    participant B as Browser (app./restaurant./rider.)
     participant CF as Edge (CDN + cloud WAF) / Turnstile
     participant API as rovo API (auth module)
     participant DB as Postgres
     participant SMS as SMS provider (primary/secondary)
-    B->>CF: GET Turnstile widget (managed, mostly invisible)
-    B->>API: POST /api/v1/auth/otp/request {phone, turnstile_token, purpose:"login"} + X-Rovo-Client
-    API->>CF: siteverify(token, remoteip) — check success, hostname, action="otp_request"
+    B->>API: POST /api/v1/auth/otp/request {phone, purpose:"login"} + X-Rovo-Client
+    opt risk signal fired (soft IP limit, new device + velocity, strict mode)
+      API-->>B: 428 {challenge_required}
+      B->>CF: Turnstile widget (invisible/managed)
+      B->>API: retry with turnstile_token
+      API->>CF: siteverify(token, remoteip) — check success, hostname, action="otp_request"
+    end
     API->>DB: rate-limit checks (phone, IP, /24, device, global budget) [Postgres-backed]
     API->>DB: INSERT otp_challenges(id, phone_hmac, code_hmac, expires_at=+5m, attempts=0, purpose)
-    API->>SMS: send DLT template "<#> 123456 is your rovo login code... @app.rovo.in #123456"
+    API->>SMS: send DLT template for this host "<#> 123456 is your rovo login code... @app.rovo.in #123456"
     API-->>B: 202 {challenge_id, resend_after:30} (identical whether or not the account exists)
     B->>API: POST /api/v1/auth/otp/verify {challenge_id, code} (WebOTP autofill where supported)
     API->>DB: SELECT ... FOR UPDATE; check not expired/consumed, attempts<5; attempts++
@@ -190,24 +196,24 @@ sequenceDiagram
 | Max failed verifies per phone | **10/hour, 20/day** | After that: 1 h lock on OTP login for that phone, plus an SMS notice to the phone (the SMS is itself rate limited). Stays below the NIST 100-consecutive-failures ceiling. |
 | Resend cooldown | 30 s → 60 s → 120 s → 300 s | Each resend **creates a new challenge** and invalidates earlier ones. |
 | Sends per phone | **5/hour, 10/day** | |
-| Sends per IP | 20/10 min, 100/day **(soft)**, beyond which Turnstile is forced to interactive mode | Indian mobile networks use CGNAT, so many users share one IP. IP limits **escalate** rather than block, except at 5× the soft limit. |
+| Sends per IP | 20/10 min, 100/day **(soft)**, beyond which the bot challenge is required (interactive mode on repeat) | Indian mobile networks use CGNAT, so many users share one IP. IP limits **escalate** rather than block, except at 5× the soft limit. |
 | Sends per /24 (IPv4) or /48 (IPv6) | 300/day soft | |
 | Sends per device id | 5/hour | `rovo_did`, a random first-party cookie. Weak (clearable), so it only feeds risk scoring. |
 | Global SMS budget breaker | Alert at 2× the trailing-7-day hourly p95; at **4×**, global "strict mode" (interactive Turnstile for everyone, per-IP hard limits), page on-call | Caps toll-fraud spend. Daily hard budget in provider console as a second layer `[ASSUMPTION: provider supports it]`. |
 | Number filter | E.164 `+91`, 10 digits, first digit 6–9, libphonenumber `MOBILE` type; reject known test/invalid ranges; **no international numbers in V1** | Removes international revenue-share (IRSF) pumping, the costliest variant. |
-| Turnstile | **Required on every OTP request** from web (managed mode, `action=otp_request`), validated server-side with `remoteip`, `hostname` and `action` checked, single-use token | Turnstile works standalone (no Cloudflare proxy needed). Free plan: unlimited challenges, 20 widgets, 10 hostnames per widget (Cloudflare docs, accessed 2026-10-04). Behind a `BotChallenge` interface so AWS WAF CAPTCHA/Challenge or reCAPTCHA Enterprise can replace it `[OPEN — DevOps cost/UX comparison]`. If Turnstile siteverify itself is down: **fail closed for new devices, fail open with hard per-phone limit of 1/10 min for devices with a valid prior session** `[ASSUMPTION — product to accept]`. |
+| Turnstile | **Risk-based (RV-034):** required only when a risk signal fires (soft per-IP or /24 limit exceeded, new device with high velocity, global strict mode). When required: managed mode, `action=otp_request`, validated server-side with `remoteip`, `hostname` and `action` checked, single-use token. Local, CI and E2E use `BotChallenge=fake`, which accepts any token, so the golden flow runs offline (RV-020); real Turnstile test keys are used only in a staging smoke test | Turnstile works standalone (no Cloudflare proxy needed). Free plan: unlimited challenges, 20 widgets, 10 hostnames per widget (Cloudflare docs, accessed 2026-10-04). Behind a `BotChallenge` interface so AWS WAF CAPTCHA/Challenge or reCAPTCHA Enterprise can replace it `[OPEN — DevOps cost/UX comparison]`. If Turnstile siteverify itself is down: **fail closed for new devices, fail open with hard per-phone limit of 1/10 min for devices with a valid prior session** `[ASSUMPTION — product to accept]`. |
 | OTP storage | `code_hmac = HMAC-SHA-256(K_otp, challenge_id ‖ code)`; `phone_hmac = HMAC-SHA-256(K_phone, e164)` for rate-limit keys | A slow hash adds nothing for a 10⁶ space. The **pepper `K_otp` lives outside the DB** (cloud secrets manager, see 19 §7.5), so a DB dump alone does not reveal live codes. Comparison uses `hmac.Equal`. Rows are purged after 24 h; aggregates stay in metrics. |
 | Purposes | `login`, `phone_change_old`, `phone_change_new`, `step_up` | A code is only valid for its purpose and challenge. |
-| SMS content | DLT-registered template; **no links**; contains the domain-bound WebOTP line `@app.rovo.in #123456` (or `@partner.rovo.in`) and the Android SMS Retriever hash for future native apps | WebOTP binds autofill to our origin, which blunts phishing relays. TRAI/DLT template compliance is owned by `15-notification-architecture.md`. |
+| SMS content | DLT-registered template; **no links**; contains the domain-bound WebOTP line for the requesting host (`@app.rovo.in`, `@restaurant.rovo.in` or `@rider.rovo.in` + ` #123456`) and the Android SMS Retriever hash for future native apps. The admin host uses TOTP and sends no OTP SMS. **Decision (RV-017):** register **one DLT template per OTP-using host** (3 templates), not a host variable, because operators may scrub domains in variable fields as unregistered URLs `[ASSUMPTION — confirm with the aggregator in week 1; if a host variable passes scrubbing, collapse to one template]` | WebOTP binds autofill to our origin, which blunts phishing relays. TRAI/DLT template compliance is owned by `15-notification-architecture.md` (N-6). |
 
 **Account enumeration:** `otp/request` responses and timings are identical for known and unknown numbers. `is_new` is only revealed after successful verification. Blocked accounts get the same 202 and the verify step returns a generic `account_unavailable`.
 
-**Rate-limiter storage (clarifies P6):** OTP and auth limits must be **durable and shared across replicas**, so they go in Postgres from day one: `rate_limit_buckets` with an `UPSERT … RETURNING` sliding window, partitioned by day. Otherwise a deploy, restart or scale-out resets or splits the counters, which an attacker can exploit. They move to the managed Redis-compatible cache only if/when P6's adapter is enabled. General API limits may use in-memory buckets per replica as a soft layer behind the edge WAF rate rules.
+**Rate-limiter storage (R21):** OTP and auth limits must be **durable and shared across replicas**, so they go in Postgres from day one: `rate_limit_buckets` (M4) with an `UPSERT … RETURNING` sliding window; a plain table with a nightly retention `DELETE`, no partitioning (C8). Otherwise a deploy, restart or scale-out resets or splits the counters, which an attacker can exploit. They move to the managed Redis-compatible cache only if/when P6's adapter is enabled. General API limits may use in-memory buckets per replica as a soft layer behind the edge WAF rate rules.
 
 ### 2.3 Account creation
 
-- **Customer app:** the first successful verify creates `users(kind=member)` plus a `CUSTOMER` role. A profile step (name, optional email) follows, along with **DPDP notice + consent capture** (versioned notice id stored in `consents`, see 19 §8) and an **18+ self-declaration** (19 §8.6).
-- **Partner app:** OTP verify creates or reuses the member, but **grants no partner role**. The user lands in onboarding, which creates a `partner_applications` row (`rider` or `restaurant`) in `PENDING_KYC`. Roles are granted only when `ADMIN_OPS` approves KYC (§7). Restaurant staff join via an owner invite (`staff_invites` row bound to a phone hash, 72 h expiry, single use). After OTP verify the staff member gets `RESTAURANT_STAFF` scoped to that restaurant.
+- **Customer app:** the first successful verify creates `users(kind=member)` plus a `CUSTOMER` role. A profile step (name, optional email) follows, along with **DPDP notice + consent capture** (versioned notice id stored in `consents`, see 19 §8) and an **18+ self-declaration** (19 §8.6), shown together on one screen (RV-057).
+- **Restaurant and rider apps:** OTP verify creates or reuses the member, but **grants no partner role**. The user lands in onboarding, which creates a `partner_applications` row (`rider` or `restaurant`) in `PENDING_KYC`. Roles are granted only when `ADMIN_OPS` approves KYC (§7). Restaurant staff join via an owner invite (`staff_invites` row bound to a phone hash, 72 h expiry, single use). After OTP verify the staff member gets `RESTAURANT_STAFF` scoped to that restaurant.
 
 ### 2.4 Phone-number change
 
@@ -231,7 +237,7 @@ sequenceDiagram
 - `OtpSender` interface with **primary** and **secondary** SMS providers, both registered with the same DLT entity, header and template.
 - Fallback triggers: primary API error or timeout (> 3 s); no delivery report (DLR) within 30 s **and** the user taps "Didn't get it?" (that counts as a resend and consumes rate limit). The challenge is never auto-sent on both providers (double cost, pumping amplification).
 - **Voice OTP** (from the same provider) is offered on the 3rd attempt `[OPEN — cost]`.
-- **WhatsApp OTP** (Meta authentication templates via a BSP) is **deferred to V1.1** `[OPEN]`. It is attractive (cheaper per message in India `[ASSUMPTION — verify pricing]`, high WhatsApp penetration) but adds a BSP contract and Meta template approval. The design keeps a `channel` column so it can be added later. Rate limits apply per phone across channels combined.
+- **WhatsApp OTP** (Meta authentication templates via a BSP) is **cut from V1** (C2; V1.1 candidate). It is attractive (cheaper per message in India `[ASSUMPTION — verify pricing]`, high WhatsApp penetration) but adds a BSP contract and Meta template approval. The design keeps a `channel` column so it can be added later. Rate limits apply per phone across channels combined.
 - **Email OTP is not a login factor** for anyone. For admins, email carries only notifications and password-reset links, and a reset still requires TOTP (§3.3).
 
 ---
@@ -245,18 +251,18 @@ sequenceDiagram
 | Identifier | Work email (citext, unique). Admin accounts are `users.kind='staff'` and cannot log in via OTP or hold member roles. |
 | Password policy | 12–128 chars, any characters, Unicode NFKC-normalised. **No composition rules, no periodic expiry.** Rejected if it appears in a breached-password corpus (offline top-1M list bundled at build time; online HIBP k-anonymity range API optional `[OPEN]`). Rejected if it contains the email local-part. Follows NIST SP 800-63B-4. |
 | Hash | **argon2id, m = 64 MiB, t = 3, p = 1**, 16-byte salt, 32-byte output, PHC string format. This exceeds the OWASP minimum (m=19 MiB, t=2, p=1). A per-replica semaphore allows at most 4 concurrent hashes to avoid memory-exhaustion DoS (size the API task memory accordingly). Re-hash on login when params change. Benchmark target: ≤ 400 ms on the production task size `[ASSUMPTION — benchmark on chosen vCPU/arch]`. |
-| Lockout | Progressive delay after 3 failures (1 s, 2 s, 4 s…). After **10 failures per account in 1 h**, the account is locked for 15 min, `ADMIN_SUPER` is alerted, and the event is audited. Failed-attempt counters per IP sit at the edge (cloud WAF rate-based rule on `admin.` `/api/v1/auth/*`) and in the app. |
+| Lockout | Progressive delay after 3 failures (1 s, 2 s, 4 s…). After **10 failures per account in 1 h**, the account is locked for 15 min, `ADMIN_SUPER` is alerted, and the event is audited. Failed-attempt counters per IP sit at the edge (AWS WAF rate-based rule on `admin.` `/api/v1/auth/admin/*`, plus a geo = IN rule on the whole admin host, R37) and in the app. |
 | Second factor | **TOTP mandatory** for every admin, enrolled at first login; the account can do nothing else until enrolment is complete. |
 
 ### 3.2 TOTP (RFC 6238)
 
 - SHA-1, 6 digits, 30 s step. These are the defaults that every authenticator app supports; SHA-1 HMAC remains acceptable in this construction.
-- 160-bit secret from CSPRNG, shown once as QR plus base32. Stored **envelope-encrypted** (`totp_secret_enc`, see 19 §7.3).
+- 160-bit secret from CSPRNG, shown once as QR plus base32. Stored with **field-level encryption** (KMS envelope, `totp_secret_enc`, see 19 §7.3; kept under R38).
 - Verification window ±1 step. **Replay guard:** reject any step ≤ `totp_last_step`.
 - 5 failed TOTP attempts after a correct password lock the account for 15 min. The alert says "password correct, TOTP failed", a strong compromise signal, so `ADMIN_SUPER` is paged.
 - **Recovery codes:** 10 codes of 10 base32 chars (50 bits each), shown once, stored as `HMAC-SHA-256(K_rc, code)`, single use. Using one triggers an alert, forces TOTP re-enrolment, and notifies all `ADMIN_SUPER`s.
-- **Lost TOTP and codes:** another `ADMIN_SUPER` issues a reset through maker-checker (a second admin approves). The person re-enrols via a one-time setup link.
-- **WebAuthn / passkeys (V1.1):** add as a phishing-resistant factor. Once available it is mandatory for `ADMIN_SUPER` and `ADMIN_FINANCE`, with TOTP as fallback for other admin roles.
+- **Lost TOTP and codes:** another `ADMIN_SUPER` issues a reset through maker-checker (a second admin approves; treated as R31 family 5 because it re-grants admin access). The person re-enrols via a one-time setup link.
+- **WebAuthn / passkeys (P1, R37):** add as a phishing-resistant factor after launch. Once shipped it is mandatory for `ADMIN_SUPER` and `ADMIN_FINANCE`, with TOTP as fallback for other admin roles. Not a Gate A/B item.
 
 ### 3.3 Provisioning, reset, offboarding
 
@@ -267,15 +273,22 @@ sequenceDiagram
 
 ### 3.4 Sessions, timeouts and step-up
 
-| Parameter | Admin | Partner (rider/restaurant) | Customer |
-|---|---|---|---|
-| Access JWT TTL | 5 min | 10 min | 10 min |
-| Idle timeout (refresh not used) | **30 min** | 7 days | 30 days |
-| Absolute session lifetime | **12 h** (no "remember me") | 30 days | 180 days |
-| Server-side session check per request | Yes, uncached | Yes, cached ≤ 30 s | No (JWT only; revocation effective at ≤ 10 min) |
-| Concurrent sessions | Max 2 per admin | Max 5 | Max 10 (oldest evicted) |
+| Parameter | Admin | Restaurant (personal device) | Restaurant **order-receiver device** (R44) | Rider (R44) | Customer |
+|---|---|---|---|---|---|
+| Access JWT TTL | 5 min | 10 min | 10 min | 10 min | 10 min |
+| Idle timeout (refresh not used) | **30 min** | 7 days | **30 days sliding** | **30 days sliding** | 30 days |
+| Absolute session lifetime | **12 h** (no "remember me") | 30 days | **90 days** | 180 days `[proposal — R44 sets sliding only]` | 180 days |
+| Server-side session check per request | Yes, uncached | Yes, cached ≤ 30 s | Yes, cached ≤ 30 s | Yes, cached ≤ 30 s | No (JWT only; revocation effective at ≤ 10 min) |
+| Concurrent sessions | Max 2 per admin | Max 5 | 1 per registered device | Max 3 | Max 10 (oldest evicted) |
 
 NIST SP 800-63B-4 AAL2 guidance is ≤ 24 h overall and ≤ 1 h inactivity; admin values are stricter.
+
+**Device-bound sessions (R44, M10, RV-054).** A restaurant owner (or `ADMIN_OPS` during onboarding) registers a counter device as an **order receiver** (`restaurant_devices.is_order_receiver = true`). Its session row carries `device_binding = order_receiver` and `restaurant_device_id`:
+- The refresh token still rotates on every use, with reuse detection. The binding adds a device key: the PWA generates a non-extractable WebCrypto key pair at registration and signs each refresh request; the server stores the public key on `restaurant_devices`. A copied refresh cookie alone cannot refresh `[ASSUMPTION — verify WebCrypto non-extractable keys persist in IndexedDB across Chrome updates on target devices]`.
+- The session never expires mid-service. If the 90-day absolute limit falls within the next 7 days, re-authentication (owner OTP) is prompted **outside service hours** only.
+- The owner (restaurant app → Devices) and `ADMIN_OPS` (admin) can list and revoke order-receiver devices; revocation closes the device's SSE stream immediately.
+- Order-receiver sessions hold only the `RESTAURANT_STAFF`-level permission set for that outlet (inbox, accept/reject, availability). Owner-only actions (payouts, bank, staff, menu prices) need a personal owner session with step-up.
+- Rider sessions are bound to the rider's own phone (`rider_device`) and slide for 30 days. A new device login revokes the previous rider session and triggers an SMS notice.
 
 **Step-up (re-authentication).** Sensitive actions require a fresh second factor within the last **5 min**, bound to the action:
 - Endpoints return `401 {error:"step_up_required", step_up_id}`.
@@ -283,10 +296,12 @@ NIST SP 800-63B-4 AAL2 guidance is ≤ 24 h overall and ≤ 1 h inactivity; admi
 - Step-up actions for admin: approving or creating any maker-checker request, revealing full PII (phone, address, bank number), viewing a KYC document, exporting reports with PII, changing own password or TOTP, and managing admin users.
 - Step-up actions for members: phone change, bank/UPI payout destination change, account deletion request, and adding or removing restaurant staff.
 
-### 3.5 Network restrictions for the admin console
+### 3.5 Network restrictions for the admin console (R37)
 
-- **Option A (recommended V1): an identity-aware proxy as an outer gate** in front of `admin.rovo.in`, tied to the operator's workforce IdP (Google Workspace / Microsoft Entra / IAM Identity Center) with its own MFA. Examples: AWS Verified Access, Google Cloud IAP (with an external Application Load Balancer), or Cloudflare Access if Cloudflare fronts the zone. rovo's own password + TOTP stays as the inner gate, so an attacker needs two independent sets of factors. The API must **verify the proxy's signed identity header** (e.g. IAP `x-goog-iap-jwt-assertion`, Verified Access `x-amzn-ava-user-context`, `Cf-Access-Jwt-Assertion`) for signature and audience. The admin origin must be reachable **only** through the proxy (private ALB / security-group or serverless NEG restriction), otherwise the gate can be bypassed `[OPEN — DevOps picks per cloud; cost check in 25]`.
-- **Option B (minimum):** a **WAF IP-set allowlist** rule on the admin host (AWS WAF IP set / Cloud Armor rule) plus an optional in-app per-account allowlist (`admin_ip_allowlist` CIDRs). The in-app check uses the client IP derived only from the **trusted proxy chain** (CDN/LB-appended `X-Forwarded-For` hops counted from the right; never the left-most, client-controlled value).
+- **No identity-aware proxy in V1** (C4: cost and operations for a small team; the former "Option A" — Verified Access / IAP / Cloudflare Access — is withdrawn).
+- **Edge rules on the admin host (V1):** AWS WAF on the CloudFront distribution with (a) a **rate-based rule** on `/api/v1/auth/admin/*` (19 §6.11 W3), and (b) a **geo rule** that blocks requests to the `admin.` host from outside India. Ops staff work from phones on dynamic mobile IPs (07 §1), so an IP allowlist is not the default.
+- **Optional:** an in-app per-account allowlist (`admin_ip_allowlist` CIDRs) for finance staff with fixed office IPs. The in-app check uses the client IP derived only from the **trusted proxy chain** (CDN/LB-appended `X-Forwarded-For` hops counted from the right; never the left-most, client-controlled value).
+- Inner gate: password + mandatory TOTP now; passkeys (WebAuthn) as P1 (§3.2).
 - Admin console sends `X-Frame-Options: DENY`, strict CSP, `Cache-Control: no-store`, and `Referrer-Policy: no-referrer`.
 
 ---

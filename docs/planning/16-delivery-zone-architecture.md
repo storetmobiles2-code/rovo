@@ -52,12 +52,12 @@ flowchart TD
 | Concept | What it is | Used for | Not used for |
 |---|---|---|---|
 | **City** (`cities`) | Operating market: timezone, GST state, locales, launch status | Scoping everything (`city_id`), invoices, reports | Geometry checks (the city centroid is display only) |
-| **Zone** (`zones`) | Ops-drawn polygon. Status `DRAFT/ACTIVE/INACTIVE` + operational pause + surge | Serviceability gate, fee config selection, pause/surge, ops dashboards, rider home zone | Restaurant ownership boundaries; address entry |
+| **Zone** (`zones`) | Ops-drawn polygon. Status `DRAFT/ACTIVE/INACTIVE` + operational pause | Serviceability gate, fee config selection, pause, ops dashboards, rider home zone | Restaurant ownership boundaries; address entry |
 | **Locality** (`localities`) | Named neighbourhood with centroid, aliases and PIN codes | Address form ("Area" picker), search ("biryani in New Town"), pin sanity check, reporting by area | Pricing or serviceability. Localities are *names*, zones are *rules*. |
 
 Why localities are separate from zones: people in Mahabubnagar describe places by colony/area names and landmarks. Ops draw zones by road access and rider coverage. Tying the two together would force a re-draw of names whenever ops change coverage.
 
-**Restaurant zone assignment:** on approval (and on any location change), `restaurants.zone_id` = the `ACTIVE` zone covering the outlet point (the same rule as §3 step 2). An outlet outside every active zone cannot become `ACTIVE` (10 `ck_restaurants__live_requirements`). When zones are edited, a job re-computes `zone_id` for affected outlets and shows the diff in the impact preview (§8.3).
+**Restaurant zone assignment:** on approval (and on any location change), `restaurants.zone_id` = the `ACTIVE` zone covering the outlet point (the same rule as §3 step 2). An outlet outside every active zone cannot become `ACTIVE` (10 `ck_restaurants__live_requirements`). When zones are edited, a job re-computes `zone_id` for affected outlets; the save is blocked if an active outlet would fall outside every zone (§8.3).
 
 ---
 
@@ -71,7 +71,7 @@ Why localities are separate from zones: people in Mahabubnagar describe places b
 | `restaurants` | `location geography(Point)`, `max_delivery_radius_m` | GiST partial `WHERE status='ACTIVE'` |
 | `customer_addresses` | `location geography(Point)` (required map pin) | none needed (lookups by user) |
 | `rider_availability` | `last_location geography(Point)` | GiST partial `WHERE state='AVAILABLE'` (KNN) |
-| `fee_configs` | slabs, road factor, ETA params, rider pay | exclusion constraint on effective range |
+| `fee_configs` | slabs (road metres), straight-line radius cap, road factor, ETA params, rider pay | exclusion constraint on effective range |
 
 Why `geometry` for zones and `geography` for points: ops draw straight edges on a Web-Mercator map. A planar polygon in lon/lat matches what they see, whereas geodesic edges would bow slightly. At city scale the difference is metres, but WYSIWYG avoids "I drew it here" disputes. Points use `geography` so that `ST_DWithin`/`ST_Distance`/KNN work in metres with GiST support. `ST_Covers` has both geometry and geography signatures and uses the spatial index ([PostGIS docs](https://postgis.net/docs/ST_Covers.html), accessed 2026-10-04).
 
@@ -82,7 +82,7 @@ Why `geometry` for zones and `geography` for points: ops draw straight edges on 
 ### 3.1 Steps (geo module, pure function + two indexed queries)
 
 ```
-Input: point P (lat,lng) [+ restaurant R for restaurant-specific checks]
+Input: point P (lat,lng) [+ restaurant R for restaurant-specific checks]; :now = injected app clock (R19)
 1. Validate P: lat ∈ [-90,90], lng ∈ [-180,180], not (0,0); client accuracy ≤ 100 m preferred (warn otherwise).
 2. Zone lookup:
      SELECT z.* FROM zones z
@@ -91,16 +91,16 @@ Input: point P (lat,lng) [+ restaurant R for restaurant-specific checks]
      LIMIT 1;
    none                                 → NOT_SERVICEABLE (reason OUTSIDE_SERVICE_AREA)
    city.status <> 'LIVE'                → NOT_SERVICEABLE (CITY_NOT_LIVE)          [staging can override]
-   zone.paused_until > now()            → PAUSED (ZONE_PAUSED, pause_message_i18n) — browse allowed, ordering blocked (04 §4)
-3. Resolve fee config for (city, zone, now) — 10 §5.2.
+   zone.paused_until > :now             → PAUSED (ZONE_PAUSED, pause_message_i18n) — browse allowed, ordering blocked (04 §4)
+3. Resolve fee config for (city, zone, :now) — 10 §5.2.
 4. For a given restaurant R (quote, restaurant page) or for each candidate (discovery, §7):
      R.status = 'ACTIVE' AND R.city_id = zone.city_id
      R's own zone not paused                               else RESTAURANT_ZONE_PAUSED
      d_straight = haversine(R.location, P)                 (Go, canonical)
-     d_road     = round(d_straight × road_factor)          (road_factor from P's zone config)
-     d_road ≤ min(R.max_delivery_radius_m, cfg.max_serviceable_distance_m)   else TOO_FAR
+     d_straight ≤ min(R.max_delivery_radius_m, cfg.max_serviceable_radius_m)   else TOO_FAR   (straight-line, R18)
+     d_road     = round_half_up(d_straight × road_factor)  (road_factor from P's zone config; fee, rider pay, ETA only)
      open now (hours + closures + pause + accepting_orders) else CLOSED / PAUSED (with "opens at")
-5. Output: {serviceable, reasonCode, cityId, zoneId, localityGuess, feeConfigId, dRoadM, etaRange, deliveryFee}
+5. Output: {serviceable, reasonCode, cityId, zoneId, localityGuess, feeConfigId, dStraightM, dRoadM, etaRange, deliveryFee}
 ```
 
 Notes:
@@ -132,26 +132,43 @@ d_straight_m = 2R · asin( sqrt( sin²(Δφ/2) + cos φ1 · cos φ2 · sin²(Δ�
 d_road_m     = round_half_up( d_straight_m × road_factor_milli / 1000 )
 ```
 
-- Implemented once in `platform/geo` (Go). It is used by quote, discovery post-filter, rider pay and ETA.
+- Implemented once in `platform/geo` (Go). `d_straight_m` is used for the serviceability radius check; `d_road_m` for the fee slab, rider pay and ETA (R18).
 - PostGIS prefilter: `ST_DWithin(r.location, :p::geography, :radius_straight_m * 1.02)`. The geography default spheroid differs from the sphere by < 0.5%, so the 2% margin keeps the index filter a superset of the Go decision.
 - `road_factor` defaults to 1.3 (00 §3), configurable per zone (`fee_configs.road_factor_milli`). In a small city with river/rail crossings, specific restaurant↔area pairs can be much worse than 1.3. Calibration (§4.3) will tell.
 
 ### 4.2 Golden values (fixture points, §10)
 
-| Pair | Straight (m) | ×1.3 road (m) | Slab | Note |
+Radius checks use the **straight-line** column; slabs use the **road** column with `[lo, hi)` bounds (R18).
+
+| Pair | Straight (m) | ×1.3 road (m) | Slab / result | Note |
 |---|---|---|---|---|
-| R1 (78.0035,16.7488) → C1 (78.0200,16.7600) | 2,153 | 2,800 | 2–4 km → ₹30 | |
-| R1 → C2 (77.9750,16.7300) | 3,685 | 4,791 | 4–6 km → ₹40 | |
-| R1 → C4 (78.0350,16.7750) | 4,442 | 5,775 | 4–6 km → ₹40 | C4 near the zone edge, inside |
-| R2 (77.9800,16.7300) → C2 | 532 | 692 | 0–2 km → ₹20 | |
-| R2 → C1 | 5,410 | **7,033** | — | **TOO_FAR** (> 7,000 default radius) |
+| R1 (78.0035,16.7488) → C1 (78.0200,16.7600) | 2,153 | 2,800 | [2,000, 4,000) → ₹30 | |
+| R1 → C2 (77.9750,16.7300) | 3,685 | 4,791 | [4,000, 6,000) → ₹40 | |
+| R1 → C4 (78.0350,16.7750) | 4,442 | 5,775 | [4,000, 6,000) → ₹40 | C4 near the zone edge, inside |
+| R2 (77.9800,16.7300) → C2 | 532 | 692 | [0, 2,000) → ₹20 | |
+| R2 → C1 | **5,410** | 7,033 | [6,000, 8,000) → **₹50** | **Serviceable**: 5,410 ≤ 7,000 straight-line (v1 wrongly said TOO_FAR on road distance) |
+| R2 → C4 | **7,703** | 10,014 | — | **TOO_FAR** (7,703 > 7,000 straight-line) |
+| R3 (78.0300,16.7600; radius 3 km) → C1 | 1,065 | 1,384 | [0, 2,000) → ₹20 | |
+| R3 → C2 | 6,740 | 8,762 | — | **TOO_FAR** (6,740 > R3's own 3,000 radius) |
 | R1 → C3 (78.0600,16.7488) | 6,016 | 7,821 | — | C3 outside the zone → `OUTSIDE_SERVICE_AREA` first |
 
 Values computed with the formula above (R = 6,371,008.8 m) on 2026-10-04. CI asserts them to ±1 m.
 
+**Boundary goldens (pure slab and radius functions; default config):**
+
+| Input | Expected |
+|---|---|
+| `d_road` = 0 / 1,999 m | ₹20 |
+| `d_road` = 2,000 m | ₹30 (lower bound inclusive) |
+| `d_road` = 3,999 / 4,000 m | ₹30 / ₹40 |
+| `d_road` = 7,999 / 8,000 m | ₹50 / ₹60 |
+| `d_straight` = 7,000 m (`d_road` = 9,100 m) | serviceable, ₹60 |
+| `d_straight` = 7,001 m | `TOO_FAR` |
+| `d_road` ≥ 10,000 m | no slab. Unreachable while 7,000 × 1.3 = 9,100 < 10,000; a config that makes it reachable is rejected (§6.1). |
+
 ### 4.3 Calibration and upgrade path
 
-1. **Calibrate (V1, free):** for delivered orders, compare `est_road_distance_m` with the GPS-trace length from `rider_location_pings` (pickup → drop, cleaned). Report the median ratio per zone and by distance band, and adjust `road_factor` per zone through a fee-config version.
+1. **Calibrate (V1, free):** for delivered orders, compare `est_road_distance_m` with the travel time between the pickup and drop milestone taps (locations in `delivery_status_history`) and, where available, the sparse `rider_location_pings` (pings are not continuous while the rider is in a navigation app, RV-040). Report the median ratio per zone and by distance band, and adjust `road_factor` per zone through a fee-config version.
 2. **Self-hosted routing (V1.x, when the error hurts pricing or ETA):** OSRM or Valhalla with an OpenStreetMap extract for Telangana/Southern India (Geofabrik). It runs as a separate container behind `RoutingProvider`:
    ```go
    type RoutingProvider interface {
@@ -183,11 +200,10 @@ promised_eta_at = placed_at + upper bound   (stored on the order; drives T-DELIV
    {"from": "06:00", "to": "11:00", "kmph": 22},
    {"from": "11:00", "to": "18:00", "kmph": 20},
    {"from": "18:00", "to": "22:00", "kmph": 16},
-   {"from": "22:00", "to": "06:00", "kmph": 24}],
- "rainSpeedFactor": 0.8}
+   {"from": "22:00", "to": "06:00", "kmph": 24}]}
 ```
 
-- `rainSpeedFactor` is applied when the zone has `surge_reason = 'RAIN'`.
+- No rain speed factor in V1. It was tied to surge (R30) and returns with it in V1.1. In heavy rain, ops pause the zone or accept the slower ETAs, and weekly calibration absorbs seasonal speed.
 - **Live updates** (`eta_at`, 13 `OrderEtaUpdated`):
   - at accept: actual prep time;
   - at assign: rider distance to restaurant;
@@ -199,49 +215,73 @@ promised_eta_at = placed_at + upper bound   (stored on the order; drives T-DELIV
 
 ---
 
-## 6. Fees, surge and rider pay
+## 6. Fees and rider pay
 
 ### 6.1 Customer delivery fee
 
+Slabs are a contiguous list of half-open intervals on **road-adjusted** metres: `[{"fromM":0,"toM":2000,"feePaise":2000}, {"fromM":2000,"toM":4000,…}, …]`. `fromM` is inclusive and `toM` is exclusive (R18).
+
 ```
-slab_fee  = first slab with d_road_m ≤ uptoM  (slabs from P's zone fee_config; above last slab ⇒ TOO_FAR)
+slab_fee  = the slab with fromM ≤ d_road_m < toM   (slabs from P's zone fee_config)
+            -- serviceability (straight-line radius) is decided first (§3.1); no slab ⇒ config bug ⇒ 500 + alert, never a guess
 if free_delivery_min_order_paise set and item_total ≥ it ⇒ slab_fee = 0
-delivery_fee = slab_fee   (GST-inclusive per ruling 8 [OPEN — CA]; GST shown as an "incl." line)
-surge_fee    = zone.surge_fee_paise if surge active (now < surge_expires_at) else 0   (separate bill line "Rain fee")
+delivery_fee = slab_fee   (GST-inclusive per R8 [OPEN — CA]; GST shown as an "incl." line)
 ```
 
-Default slabs (00 §5): ≤ 2 km ₹20 · ≤ 4 km ₹30 · ≤ 6 km ₹40 · ≤ 8 km ₹50; max radius 7 km. Slab boundaries are inclusive (2,000 m → ₹20; 2,001 m → ₹30). Platform fee ₹5 and small-cart fee (₹15 below ₹149 item total) are added by the quote engine (11, 10 §5). They are not geo concerns.
+Default slabs are in §6.5. **Fee-config validation** runs on save, and the API rejects a violation with `422 VALIDATION_FAILED`. It guarantees the property **"every serviceable point has exactly one slab"**:
+1. The first slab starts at `fromM = 0`. Each next `fromM` equals the previous `toM` (no gaps or overlaps). `toM > fromM`.
+2. `ceil(max_serviceable_radius_m × road_factor_milli / 1000) < last.toM`. With the defaults, 7,000 × 1.3 = 9,100 < 10,000.
+3. `restaurants.max_delivery_radius_m` is capped by `min(…, max_serviceable_radius_m)` at evaluation time, so a larger outlet radius can never escape the slab range.
 
-### 6.2 Surge: V1 decision
+The platform fee (₹5) and the small-cart fee (₹15 below ₹149 item total) are added by the quote engine (11, 10 §5). They are not geo concerns; their default values are in §6.5.
 
-**Yes, manual only.** Monsoon rain in Telangana (roughly June–September) and festival peaks are when riders log off and orders spike. A transparent, ops-controlled surcharge that mostly goes to riders is the simplest lever that keeps service alive.
+### 6.2 Surge: not in V1 (R30, C1)
 
-| Rule | Value |
-|---|---|
-| Who | `ADMIN_OPS` (city scope); audited; no maker-checker (time-critical) |
-| Shape | flat ₹10–₹50 per order (`zones.surge_fee_paise`, CHECK 100–5000 paise); reason `RAIN/PEAK/LOW_RIDERS/FESTIVAL/OTHER` |
-| Expiry | **mandatory** `surge_expires_at`, max 4 h ahead (app rule); re-arm if needed |
-| Disclosure | Banner on home + restaurant pages and a separate bill line before checkout (04 transparency). Quotes lock the surge for their 10-min TTL. |
-| Rider share | `surge_rider_bonus_paise` per delivery (default = 100% of the surge fee [ASSUMPTION]) |
-| Not in V1 | automatic demand-based pricing, per-restaurant surge, multiplicative surge |
-
-### 6.3 Zone pause vs surge
+There is **no surge, rain fee or peak fee** in V1 (01 BR-FEE-006, 02 §2.2). There is no `SURGE_FEE` bill component, no zone surge columns and no surge endpoints. Ops levers for monsoon rain (roughly June–September) and festival peaks:
 
 | Situation | Ops tool |
 |---|---|
-| Heavy rain, riders still out | surge (+ rain speed factor in ETA) |
+| Heavy rain, riders still out | Nothing on price. Ops may announce a **rider peak bonus** for a time window. It is paid as a ledger adjustment (`adjustment_type = PEAK_BONUS`, 10 §9) per rider after the window, so it never touches the customer bill. |
 | Flooding / unsafe roads / law & order | **zone pause** with message and expiry (`paused_until`) |
-| Rider shortage (orders unassigned > 10 min) | surge `LOW_RIDERS` first, then pause if still exhausted (dashboard suggests it, 07) |
+| Rider shortage (orders unassigned > dispatch-exhaust threshold, 13 §5.1) | rider peak bonus first, then pause if still exhausted (dashboard suggests it, 07) |
+
+Pilot rider minimum guarantee (R47, M6) uses the same mechanism (`adjustment_type = MG_TOPUP`). Both adjustments are maker-checker above the ledger-adjustment threshold (R31 family 1; key in 13 §5.1). Upgrade path: manual zone surge in V1.1, behind a feature flag, with an explicit bill line.
+
+### 6.3 Zone pause
+
+A zone pause (`paused_until`, reason, en/te message) blocks new orders into the zone and from restaurants located in it (§3.1 notes). Orders already placed continue.
 
 ### 6.4 Rider pay per delivery (00 §5)
 
 ```
 distance_pay = max(0, d_road_m − rider_base_distance_m) × rider_per_km_paise / 1000   (pro-rata per metre, round half up)
 wait_pay     = max(0, waiting_seconds − rider_wait_free_s) / 60 × rider_wait_per_min_paise   (floor to minute)
-rider_pay    = rider_base_pay_paise + distance_pay + wait_pay + surge_rider_bonus_paise (if surge locked on the order)
+rider_pay    = rider_base_pay_paise + distance_pay + wait_pay
 ```
 
-`d_road_m` is the **order's** `est_road_distance_m` (restaurant → customer), not the GPS trace. It is predictable for riders and immune to detours. Example R1 → C4 (5,775 m, no wait, no surge): 2,500 + 3,775 × 600 / 1000 = 2,500 + 2,265 = **4,765 paise (₹47.65)**. Rider pay for a cancellation is in 13 §6.2.
+`d_road_m` is the **order's** `est_road_distance_m` (restaurant → customer), not the GPS trace. It is predictable for riders and immune to detours. Example R1 → C4 (5,775 m, no wait): 2,500 + 3,775 × 600 / 1000 = 2,500 + 2,265 = **4,765 paise (₹47.65)**. R2 → C1 (7,033 m): 2,500 + 3,020 = **5,520 paise**. Rider pay for a cancellation is in 13 §6.2. Peak bonuses and `MG_TOPUP` are ledger adjustments, not part of per-delivery pay (§6.2).
+
+### 6.5 Commercial defaults (single source, R48)
+
+These are the city-default `fee_configs` values seeded by 10 §15.1 and the default commission plan. They are all per city/zone/restaurant, effective-dated, and validated with the local market. Changing an approved fee config or a commission plan is maker-checker (R31 family 3). Other docs cite the **key**, not the value.
+
+| Key (`fee_configs` column unless noted) | Default | Source |
+|---|---|---|
+| `delivery_fee_slabs` (road m, `[from, to)`) | `[0,2000)` ₹20 · `[2000,4000)` ₹30 · `[4000,6000)` ₹40 · `[6000,8000)` ₹50 · `[8000,10000)` ₹60 | R18 |
+| `max_serviceable_radius_m` (straight-line) | 7,000 | R18 |
+| `restaurants.max_delivery_radius_m` (straight-line) | 7,000 (effective = min with the cap above) | R18 |
+| `road_factor_milli` | 1,300 | 00 §3 |
+| `free_delivery_min_order_paise` | NULL (off) | 00 §5 |
+| `platform_fee_paise` | 500 | 00 §5 |
+| `small_cart_threshold_paise` / `small_cart_fee_paise` | 14,900 / 1,500 | 00 §5 |
+| `cod_enabled` / `cod_max_order_paise` / `cod_first_order_max_paise` | true / 100,000 / 60,000 | R6 |
+| `rider_cash_limit_paise` (offer COD only if cash-in-hand + order ≤ limit) | 200,000 | R6 |
+| `rider_base_pay_paise` / `rider_base_distance_m` / `rider_per_km_paise` | 2,500 / 2,000 / 600 | 00 §5 |
+| `rider_wait_free_s` / `rider_wait_per_min_paise` | 600 / 100 [ASSUMPTION] | 00 §5 |
+| `rider_cancel_comp_bps` | 5,000 (50% of base) [OPEN — Finance] | 13 §6.2 |
+| `commission_plans.commission_bps` (default plan) | 1,500 (bounds 0–3,000) | 00 §5, register row 56 |
+| `round_payable_to_rupee` | true | R8 |
+| `eta_params` | §5 | — |
 
 ---
 
@@ -252,8 +292,7 @@ rider_pay    = rider_base_pay_paise + distance_pay + wait_pay + surge_rider_bonu
 V1 scale: Mahabubnagar may have on the order of 100–400 listed outlets at maturity [ASSUMPTION]. Any sane query is fast. The design still keeps the index path, so city #5 doesn't need a rewrite.
 
 ```sql
--- :p = customer pin (geography), :maxr = max(min(r.radius, cfg.max)) for the city, in straight-line metres
---       = cfg.max_serviceable_distance_m / road_factor × 1.02
+-- :p = customer pin (geography), :maxr = cfg.max_serviceable_radius_m × 1.02 (straight-line metres; R18)
 SELECT r.id, r.name, r.name_i18n, r.diet_type, r.avg_prep_time_min, r.cost_for_two_paise,
        r.location, r.max_delivery_radius_m, r.zone_id, r.paused_until, r.accepting_orders,
        ST_Distance(r.location, :p) AS approx_m
@@ -266,7 +305,7 @@ LIMIT 500;
 ```
 
 Then, in Go (pure, cached inputs):
-1. Exact haversine × road factor ≤ the restaurant's own radius and the zone cap. Drop failures.
+1. Exact straight-line haversine ≤ min(the restaurant's own radius, the zone cap). Drop failures. Compute `d_road` for fee and ETA.
 2. Open-now from operating hours (local wall clock in `cities.timezone`, cross-midnight slots), closures, `paused_until`, `accepting_orders`, and the restaurant zone pause.
 3. Join cached aggregates: `rating_aggregates`, cuisines, offers (coupons targeting the restaurant).
 4. Filter (`veg=true` → `diet_type='PURE_VEG'` or has veg items; cuisine; rating ≥ 4; offers; max delivery time).
