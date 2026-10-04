@@ -413,7 +413,7 @@ Restaurant UI is the `restaurant` app at the `restaurant.` host (R14). Roles `RE
 ### 6.6 RES-ORD — Order management
 
 - **RES-ORD-001 (P0) New-order alert that cannot be missed.** On `PLACED`: full-screen new-order card, **looping loud sound** (until acknowledged), vibration, and Web Push when backgrounded, **repeated every 30 s** until accepted/rejected (R1; escalation per BR-TIME-002); works with screen locked if the PWA is open and push is allowed. Alert content: order code, items with customisations (big text, te names when present), dietary markers, special request, order total and **payment type label ("Prepaid" — restaurant never collects cash)**, customer first name only.
-  - AC: *Given* the partner app is open on the orders screen *when* an order is `PLACED` *then* the alert renders within 5 s p95.
+  - AC: *Given* the restaurant app is open on the orders screen *when* an order is `PLACED` *then* the alert renders within 5 s p95.
 - **RES-ORD-002 (P0) Accept with prep time.** Accept button with prep-time choice (default = restaurant default prep time; quick options 10/15/20/30/45 min).
 - **RES-ORD-003 (P0) Reject with reason.** Reasons (doc 13 §6.3 `ORDER_REJECT`): `ITEMS_OUT_OF_STOCK` (must select the items → they are auto-marked out of stock), `TOO_BUSY`, `CLOSING_SOON`, `KITCHEN_ISSUE`, `RESTAURANT_OTHER` (text). Rejection triggers full refund (BR-REF-001).
 - **RES-ORD-004 (P0) Timeout (R1).** If not accepted within the 180 s accept window (BR-TIME-001) the order is **auto-cancelled**: `CANCELLED`, `cancelled_by=SYSTEM`, reason `RESTAURANT_UNRESPONSIVE` (not `REJECTED`), prepaid fully refunded; escalation per BR-TIME-002; auto-pause per BR-TIME-003.
@@ -697,7 +697,7 @@ Reference device: **low-end Android** (≈ Moto E/Redmi A-series class, 2–3 GB
 | ID | Pri | Requirement |
 |---|---|---|
 | NFR-PERF-001 | P0 | Customer app: initial route JS ≤ 170 KB gzip, CSS ≤ 30 KB gzip; total home first-load transfer ≤ 500 KB including images above the fold; repeat visit ≤ 100 KB (PWA cache). |
-| NFR-PERF-002 | P0 | Core Web Vitals p75 (field): LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1 (customer & partner apps). Lab: TTI ≤ 5 s on reference device. |
+| NFR-PERF-002 | P0 | Core Web Vitals p75 (field): LCP ≤ 2.5 s, INP ≤ 200 ms, CLS ≤ 0.1 (customer, restaurant and rider apps). Lab: TTI ≤ 5 s on reference device. |
 | NFR-PERF-003 | P0 | API latency (server-side, excluding PA/SMS): p95 ≤ 300 ms reads, ≤ 500 ms writes; quote + place order p95 ≤ 800 ms. |
 | NFR-PERF-004 | P0 | Real-time: status event → client render p95 ≤ 5 s (customer), ≤ 5 s (restaurant new order), ≤ 3 s (rider offer). |
 | NFR-PERF-005 | P0 | Menu images: list thumbnails ≤ 30 KB (WebP/AVIF), detail ≤ 120 KB; lazy-loaded. |
@@ -725,7 +725,7 @@ Targets apply to the **production** environment (standard hyperscaler, India reg
 | ID | Pri | Requirement |
 |---|---|---|
 | NFR-A11Y-001 | P0 | All four apps (R14) conform to **WCAG 2.2 Level AA** for P0 flows; verified by automated checks in CI and a manual audit (TalkBack on Android + keyboard on admin) before launch. |
-| NFR-A11Y-002 | P0 | Touch targets ≥ 44×44 CSS px for customer/partner apps (exceeds 2.5.8's 24 px minimum), ≥ 8 px spacing between primary actions. |
+| NFR-A11Y-002 | P0 | Touch targets ≥ 44×44 CSS px for customer, restaurant and rider apps (exceeds 2.5.8's 24 px minimum), ≥ 8 px spacing between primary actions. |
 | NFR-A11Y-003 | P0 | Dietary markers never rely on colour alone: shape + text label ("Veg", "Egg", "Non-veg") + accessible name. |
 | NFR-A11Y-004 | P0 | Text scales to 200% without loss of function; Telugu text uses a font with full conjunct support (e.g. Noto Sans Telugu) and line-height ≥ 1.5 to avoid clipped vowel signs. |
 | NFR-A11Y-005 | P0 | Rider and restaurant critical actions (Accept, Picked up, Delivered) are full-width, high-contrast (≥ 4.5:1, aim 7:1 for outdoor legibility), and use **slide-to-confirm or confirm dialogs** to prevent accidental taps for irreversible steps. |
