@@ -153,6 +153,7 @@ Rules (full transition tables and timers in doc 13):
   5. **M4** online payments (fake PA, then sandbox adapter), ledger, settlement, payouts, COD cash.
   6. **M5** admin/ops, notifications hardening, ratings, support, reports, audit.
   7. **M6** onward (cloud staging, security/performance/DR, pilot, launch) needs human approval and cloud accounts. **Stop and ask before M6.**
+- **API scope:** the catalogue in `11` (~270 operations) is a superset. Build only the operations required by P0 stories in `27`, in golden-flow order; everything else waits for a story.
 - **Workflow:**
   - Work in small vertical slices: migration → sqlc queries → domain logic with table-driven tests → OpenAPI path → handler → generated TS client → UI screen → E2E step.
   - Every PR keeps `make lint test test-integration` green.

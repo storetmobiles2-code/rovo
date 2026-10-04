@@ -684,7 +684,7 @@ Settings and protections:
   - separate roles: `ci-plan` (read-only), `ci-deploy-staging`, `ci-deploy-prod` (push image + update service + run migration task; no data/secret read), `ci-infra-apply` (prod, reviewers required).
 - **Repo hygiene:**
   - branch protection;
-  - CODEOWNERS on `auth/`, `authz/`, `payments/`, `ledger/`, `migrations/`, `infra/`, `.github/`;
+  - CODEOWNERS on `auth/`, `authz/`, `payments/`, `ledger/`, `migrations/`, `deploy/terraform/`, `.github/`;
   - Dependabot for Go, npm, Docker, Actions and Terraform providers;
   - secret scanning + push protection;
   - Private Vulnerability Reporting;

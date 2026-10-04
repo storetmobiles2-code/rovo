@@ -510,7 +510,7 @@ The Solution Architect initially proposed opaque-only. It was weighed and **not*
 - **UI strings:** i18next with ICU message format, catalogs in `packages/i18n/{en,te}/*.json` keyed by namespace. A CI check ensures every `en` key exists in `te` (missing `te` falls back to `en` at runtime, with a warning in dev). Translators work through PRs (or Weblate later `[OPEN]`).
 - **Formatting:** `Intl.NumberFormat('en-IN'|'te-IN', {style:'currency', currency:'INR'})` on the client. The server returns paise integers only, never formatted strings, except in notifications.
 - **Server-side text** (notifications, invoices, problem+json `title`): the Go side uses message catalogs `backend/internal/platform/i18n/{en,te}.toml` keyed by the same template keys as doc 15. Locale is chosen from the user preference, then `Accept-Language`, then the city default.
-- **User-generated content:** `name` + optional `name_te` (or `translations JSONB` — Backend decides in doc 10). Search indexes both.
+- **User-generated content:** `*_i18n` JSONB (e.g. `name_i18n` with `en`/`te` keys; amended per R17). The API returns `nameI18n` + resolved `displayName`. Search indexes both languages.
 - **Fonts:** Noto Sans Telugu subset, loaded only when the locale is `te`.
 - **Error codes** are stable machine strings (`ORDER_STATE_CONFLICT`). Clients map them to localised messages.
 

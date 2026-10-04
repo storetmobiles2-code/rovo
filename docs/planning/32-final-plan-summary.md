@@ -181,7 +181,7 @@ Doc `10`; **90 tables** plus River's own.
 
 ## E. API Summary
 
-Doc `11`; about 200 operations, built in golden-flow order.
+Doc `11`; about 270 operations catalogued (a superset — only operations needed by P0 stories in `27` are built, in golden-flow order).
 
 - **Conventions:**
   - Paths:
@@ -219,7 +219,7 @@ Doc `11`; about 200 operations, built in golden-flow order.
 
 ## F. Security Model
 
-Docs `12` and `19`: 97 threats, SEC-001…185.
+Docs `12` and `19`: 98 threats, SEC-001…192 (four withdrawn in v1.1).
 
 - **Identity:** one `users` identity with scoped role assignments.
   - Roles: `CUSTOMER`, `RESTAURANT_OWNER`, `RESTAURANT_STAFF`, `RIDER`, `ADMIN_SUPER/OPS/SUPPORT/FINANCE` (city-scoped), and an internal `SYSTEM` principal.
