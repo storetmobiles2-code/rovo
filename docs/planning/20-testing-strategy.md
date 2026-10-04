@@ -7,10 +7,10 @@
 | **Status** | Draft v1 (Phase 1 — planning only; no test code exists yet) |
 | **Date** | 2026-10-04 |
 | **Depends on** | `00-planning-baseline.md` (vocabulary, provisional decisions P1–P17, commercial defaults) |
-| **Consumes (when available)** | 01 product requirements (requirement IDs), 10 DB schema, 11 API spec, 12 auth/RBAC (role × operation policy), 13 order state machine (transition tables), 14 payment architecture (PA choice, ledger accounts), 15 notifications (OTP/SMS/push providers), 16 delivery zones (serviceability rules), 17/18 frontend + PWA, 19 threat model, 21 CI/CD, 22 deployment, 23 backup/DR, 24 observability, 25 hosting |
+| **Consumes (when available)** | 01 product requirements (requirement IDs, NFR-PERF targets — read 2026-10-04), 17 frontend architecture (four apps — read 2026-10-04), 10 DB schema, 11 API spec, 12 auth/RBAC (role × operation policy), 13 order state machine (transition tables), 14 payment architecture (PA choice, ledger accounts), 15 notifications (OTP/SMS/push providers), 16 delivery zones (serviceability rules), 17/18 frontend + PWA, 19 threat model, 21 CI/CD, 22 deployment, 23 backup/DR, 24 observability, 25 hosting |
 | **Consumed by** | 21 CI/CD (pipeline stages and budgets), 26 repository structure (test folders, fakes, seeds), 27 backlog (test stories), 28 milestones (quality gates), 29 production readiness (release gates), 33 Phase 2 prompt |
 
-> None of documents 01–26 existed in `docs/planning/` when this draft was written (checked 2026-10-04). Everything that depends on them is written against the baseline and marked `[OPEN]` where the owning doc must confirm. The Release/Lead Architect should reconcile in the review pass.
+> While this draft was written (2026-10-04), docs 01, 04–06, 08, 09, 12, 17 and 25 appeared alongside the baseline. This doc aligns with 01 (requirement ID format, NFR-PERF targets), 17 (four PWAs), and with 08 (PostgreSQL 18, River `InsertTx` as the outbox, SSE as invalidation hints without replay, CAS + `version`, Idempotency-Key semantics, injected `platform/clock` + `platform/idgen`) and 12 (`x-rovo-permission`, `authz/policy.yaml`, 404-not-403, maker-checker, Turnstile on OTP, Postgres-backed auth rate limits). It also follows the **baseline §4a user directive** (local Compose → CI → optional free preview → staging on the same IaC/cloud → production on a managed hyperscaler in India). Everything else is marked `[OPEN]` for the owning doc.
 
 Tags used: `[ASSUMPTION]` unverified premise, `[OPEN]` decision pending elsewhere, `[LEGAL]` needs legal/tax review, `[VERIFY]` external fact to re-check at implementation time.
 
@@ -58,17 +58,18 @@ Tags used: `[ASSUMPTION]` unverified premise, `[OPEN]` decision pending elsewher
 | QA-4 | DB for tests | **Real PostgreSQL + PostGIS** (same major versions as prod) via `testcontainers-go` locally and in CI; **template-database per test** isolation; transaction-per-test only for pure read/query tests. No SQLite, no mocks of the DB layer for integration tests. | PostGIS, `SKIP LOCKED`, River and outbox semantics cannot be faked. |
 | QA-5 | Integration test selection | Go build tag `integration` (`//go:build integration`). `go test ./...` = unit only (no Docker); `go test -tags=integration ./...` = everything. | Fast inner loop, explicit CI stage. |
 | QA-6 | Contract | OpenAPI 3.1 file is the contract. Every API integration/E2E request and response is validated against it by a `kin-openapi/openapi3filter` middleware in **test mode** (fail on mismatch). `oasdiff` breaking-change gate on PRs. Codegen drift check for Go server + TS client. | Spec-first only works if the spec is enforced. |
-| QA-7 | Authorisation | **Generated** role × operation matrix test from an OpenAPI extension `x-rovo-authz` (proposed) + hand-written IDOR suites per resource. Test fails if any operation lacks a policy. | Missing authz checks are the #1 API risk; generation makes "forgot to add a test" impossible. |
+| QA-7 | Authorisation | **Generated** role × operation matrix test from `authz/policy.yaml` + the OpenAPI `x-rovo-permission` extension (doc 12 §5.1) + hand-written IDOR, scope and maker-checker suites per resource. Test fails if any operation lacks a permission or a matrix row. | Missing authz checks are the #1 API risk; generation makes "forgot to add a test" impossible. |
 | QA-8 | Frontend unit/component | Vitest + Testing Library + `user-event`; MSW for HTTP; `vitest-axe` (or `jest-axe`-compatible matcher) for component a11y. | Vite-native, fast. |
 | QA-9 | E2E | **Playwright** (TypeScript), Chromium as primary (Android-Chrome-like), WebKit smoke for iOS Safari PWA; multi-actor tests with 4 browser contexts; against a docker-compose stack with wire-level fake providers. | One tool for E2E, a11y (`@axe-core/playwright`), screenshots, device emulation and CDP throttling. |
 | QA-10 | Visual regression | Playwright `toHaveScreenshot` on a curated ~30-screen set (en + te, 360×800), run inside the pinned Playwright Docker image; **nightly, non-blocking** for the first 2 milestones, then blocking on `main`. No paid SaaS. | Free; catches Telugu layout breakage. |
-| QA-11 | Load | **k6** (OSS) scripts in repo; SSE soak via the `xk6-sse` extension or, if unsuitable, a small Go SSE soak harness `[OPEN]`. Load is generated from outside the target VM. | Free, scriptable, thresholds as code. |
-| QA-12 | Chaos-lite | Scripted experiments with `docker compose kill/pause/restart` + **Toxiproxy** for latency/timeouts to PA/OTP fakes and to Postgres. No chaos platform. | Proportionate to a single-VM V1. |
-| QA-13 | DAST | **ZAP baseline (passive) scan** on every `main` merge against the ephemeral E2E stack; ZAP **API scan** (active, using the OpenAPI file) weekly against the ephemeral stack only, never against prod. | Free; passive scan is cheap and safe. |
+| QA-11 | Load | **k6** (OSS) scripts in repo; SSE soak via the `xk6-sse` extension or, if unsuitable, a small Go SSE soak harness `[OPEN]`. Load is generated from outside the target environment (off-VPC). | Free, scriptable, thresholds as code. |
+| QA-12 | Chaos-lite | Scripted experiments with `docker compose kill/pause/restart` + **Toxiproxy** locally/CI; managed-service experiments (DB failover/reboot, task kill, rolling deploy, real CDN/LB SSE soak) in staging. No chaos platform. | Proportionate to V1; managed-service behaviour is only observable in the cloud. |
+| QA-13 | DAST | **ZAP baseline (passive) scan** on every `main` merge against the ephemeral E2E stack; ZAP **API scan** (active, using the OpenAPI file) weekly against the ephemeral stack only; passive baseline also against staging after each deploy; never any scan against prod. | Free; passive scan is cheap and safe. |
 | QA-14 | Supply chain | `govulncheck`, `osv-scanner` (Go + pnpm lockfile), Trivy image scan, `gitleaks`, CodeQL (free for public repos), Dependabot/Renovate `[OPEN: 21]`. | Free for public repos. |
 | QA-15 | Time & IDs | All business time via an injected `Clock`; River gets the same clock via `river.Config.Test.Time` in tests; UUIDv7 and order-code generators injectable and seedable. **No business deadline may be computed with SQL `now()`.** | Timeouts (45 s offer, restaurant accept) must be testable without sleeping. |
 | QA-16 | Test-control surface | Non-prod-only `/_test/*` API (OTP sink, fake-PA control, clock, seed/reset, push sink) compiled only with build tag `testhooks`, on a separate listener, plus env guard and shared secret. Prod image is built without the tag, and a CI test proves `/_test/*` is absent from it. | E2E needs control; prod must be provably free of it. |
 | QA-17 | Coverage | ≥ 90 % statements for pricing/quote, ledger, order & delivery state machines, coupons, commission/rider pay, payouts; 100 % of transition-table rows; 100 % operations in authz matrix; ≥ 70 % overall Go; ≥ 85 % frontend shared packages (money, cart, i18n utils), ≥ 60 % per frontend app. | Meaningful where money and state live; not vanity elsewhere. |
+| QA-18 | Deploy verification | **Post-deploy smoke + synthetic checks** run automatically after every staging and production deploy (read-only in prod); staging smoke must pass before promotion. **IaC checks** (`terraform`/`tofu fmt -check`, `validate`, `tflint`, `checkov`, `plan` with drift report) gate every PR touching `infra/` and every deploy. | Baseline §4a: same images and IaC across staging and production. |
 
 ---
 
@@ -106,7 +107,8 @@ Likelihood (L) and impact (I) on 1–5; Score = L × I. Tier decides how much te
 | R-RT-1 | SSE dropped behind CDN/proxy; restaurant misses new order | 3 | 4 | 12 | **T2** | SSE integration, staging-through-CDN test, polling fallback E2E, soak |
 | R-PWA-1 | Stale service worker serves old app against new API (breaking change) | 3 | 4 | 12 | **T2** | SW update-flow E2E (§11.3), oasdiff gate |
 | R-I18N-1 | Missing/wrong Telugu strings, overflow, unreadable fonts on low-end devices | 4 | 3 | 12 | **T2** | Key parity, pseudo-locale, visual, native review (§16) |
-| R-PERF-1 | Free VM saturates at dinner peak | 2 | 4 | 8 | **T2** | k6 capacity test (§12) |
+| R-PERF-1 | Managed prod shape under-sized (burstable DB credits, task CPU, pooler) at dinner peak | 2 | 4 | 8 | **T2** | k6 capacity test on prod shape in staging (§12.4) |
+| R-ENV-1 | Staging/prod drift or broken IaC → deploy works locally/CI but fails in cloud (PostGIS version, LISTEN via pooler, LB idle timeouts, IAM) | 3 | 4 | 12 | **T2** | IaC validate/plan/lint/checkov (§21.1), post-deploy smoke + synthetics (§19.3), nightly integration run against staging managed DB (§6.1) |
 | R-DATA-1 | Migration breaks prod data / irreversible | 2 | 5 | 10 | **T2** | Migration up/down + prod-shape snapshot test (§15) |
 | R-DATA-2 | Backups unrestorable | 2 | 5 | 10 | **T2** | Weekly restore verification (§15.3) |
 | R-PRIV-1 | Personal data leaks into logs/test envs (DPDP) | 3 | 4 | 12 | **T2** | Log-redaction tests, anonymisation rules (§18.5) |
@@ -176,7 +178,7 @@ flowchart TB
 - **Table-driven** with named cases (`name` field, `t.Run(tc.name, …)`), `t.Parallel()` wherever there is no shared mutable state.
 - **Pure core, thin shell:** state transitions, pricing, coupon evaluation, commission, rider pay, journal construction are **pure functions** taking explicit inputs (including `now time.Time` and config snapshots) and returning values + domain events. They do not touch the DB, the clock or random sources. This is a design requirement on backend (see §20) because it makes T1 logic unit-testable in microseconds.
 - **Money helpers:** a `money.Paise` type (int64) with no float conversion; tests use `require.Equal(t, money.Paise(49280), got)` — never compare formatted strings for money.
-- **Naming:** `TestQuote_DeliveryFeeSlabs`, `TestOrderTransition_AcceptFromPlaced`. Requirement tags in a comment (`// REQ: CUS-031, PAY-004`) — parsed by the traceability script (§23).
+- **Naming:** `TestQuote_DeliveryFeeSlabs`, `TestOrderTransition_AcceptFromPlaced`. Requirement tags in a comment (`// REQ: CUS-CHK-003, BR-FEE-002` — doc 01 ID format) — parsed by the traceability script (§23).
 - **No sleeps** in unit tests. Ever. Time is injected.
 - **Golden files:** `testdata/*.golden.yaml` (human-reviewable) with a `-update` flag (`go test ./internal/pricing -run Golden -update`). CI fails if `-update` would change anything (`git diff --exit-code`). Changes to golden files require a Finance-ops/Product reviewer in CODEOWNERS for `**/pricing/testdata/**` and `**/ledger/testdata/**`.
 
@@ -199,7 +201,7 @@ The quote engine is a pure function: `Quote(cart, restaurantPricing, cityPricing
 
 ```yaml
 - id: Q-001
-  req: [CUS-030]
+  req: [CUS-CART-004, BR-FEE-001]   # illustrative IDs
   desc: "Typical lunch order, 2.6 km road distance, no coupon"
   config_ref: mbnr-default-2026-10     # frozen config snapshot in testdata
   cart:
@@ -320,7 +322,7 @@ Webhook payload parser + signature verifier; phone normaliser; address/PIN valid
 
 ### 6.1 Database provisioning and isolation
 
-**Decision:** `testcontainers-go` with the Postgres module, using the **same `postgis/postgis` image tag as production** (`[OPEN: 22]` pins PG 17+/PostGIS 3.x). The harness honours `ROVO_TEST_DATABASE_URL`: if set (e.g., a CI service container or a developer's local DB), it is used instead of starting a container.
+**Decision:** `testcontainers-go` with the Postgres module, using a `postgis/postgis` image whose **PostgreSQL major (18 per doc 08) and PostGIS minor match the managed production service** (managed providers often lag upstream PostGIS — the test image follows production, not the newest tag; `[OPEN: 22]` pins both). A nightly job also runs the integration suite against a **staging managed-Postgres database** (dedicated test schema/db) to catch managed-service differences: extensions allow-list, `pg_notify`/`LISTEN` through the provider's proxy/pooler, collation, `statement_timeout` defaults. The harness honours `ROVO_TEST_DATABASE_URL`: if set (e.g., a CI service container or a developer's local DB), it is used instead of starting a container.
 
 ```mermaid
 sequenceDiagram
@@ -328,7 +330,7 @@ sequenceDiagram
   participant C as Postgres+PostGIS container (shared per CI job)
   participant T as Each test
   M->>C: start once (or reuse via ROVO_TEST_DATABASE_URL)
-  M->>C: CREATE DATABASE rovo_template; goose up; seed reference data (city, zones fixtures)
+  M->>C: CREATE DATABASE rovo_template, goose up, seed reference data (city, zones fixtures)
   M->>C: mark template (datistemplate = true), no connections
   T->>C: CREATE DATABASE t_<random> TEMPLATE rovo_template  (~tens of ms)
   T->>T: run test with its own pgx pool + River client
@@ -337,7 +339,7 @@ sequenceDiagram
 
 | Strategy | Use for | Why |
 |---|---|---|
-| **Template DB per test (default)** | Anything that commits: outbox relay, River jobs, SSE fan-out via `LISTEN/NOTIFY`, concurrency/race tests, multi-tx flows | Real commit semantics; tests run in parallel safely |
+| **Template DB per test (default)** | Anything that commits: event recording + River fan-out, SSE fan-out via `LISTEN/NOTIFY`, concurrency/race tests, multi-tx flows | Real commit semantics; tests run in parallel safely |
 | **Transaction-per-test (rollback)** | Read-heavy sqlc query tests, PostGIS lookup tests | Fastest; but invalid where code commits or uses `LISTEN/NOTIFY` |
 | Fresh migrations from zero | Migration tests only (§15) | Verifies the migration chain itself |
 
@@ -391,16 +393,19 @@ Test patterns:
 
 ### 6.7 Outbox and invariants
 
-- **Atomicity:** domain change + outbox row in the same transaction — test forces a failure after the outbox insert and asserts neither persisted.
-- **Relay:** at-least-once delivery, per-aggregate ordering preserved, crash between "handled" and "marked sent" leads to redelivery, handler idempotency (dedupe by event ID) prevents double side-effects (double SMS, double ledger post).
-- **Lag metric** emitted and asserted in tests (doc 24 consumes).
+- **Atomicity:** domain change + `event_log` row + `event.fanout` River job in the same transaction — test forces a failure after `events.Record` and asserts none persisted.
+- **Fan-out (doc 08 §7.3 — River `InsertTx` *is* the outbox, no separate relay):** `events.Record` writes `event_log` + one `event.fanout` job in the caller's tx; the fan-out job enqueues one unique job per subscriber `(handler, event_id)`; tests assert: rollback of the business tx leaves neither row; fan-out run twice creates no duplicate subscriber jobs; a subscriber handler run twice records one `processed_events` row and one side-effect (no double SMS, no double ledger post); a handler crash mid-way is retried and converges.
+- **Event schema compatibility:** `tools/eventschema` (doc 08 §4.3) diff runs in CI; each `.v1` event has a JSON fixture tested for round-trip decode by every subscriber.
+- **Lag metric** (event recorded → handler done) emitted and asserted in tests (doc 24 consumes).
 - **`assertInvariants(t, db)` helper**, called at the end of every integration and E2E test (via the test API in E2E), runs SQL checks: all journals balance; trial balance = 0; no order/delivery status combination outside the allowed set; no delivery with two accepted offers; no rider with > 1 active delivery; no `PENDING_PAYMENT` order older than the payment expiry without a reconciliation job scheduled; refunds ≤ captures per order. These same queries become a nightly production **reconciliation job** (doc 14/24).
 
 ### 6.8 SSE
 
-- `httptest` server + real SSE handler + real Postgres `LISTEN/NOTIFY` (or in-process pub-sub per P6): a transition commits → event received by subscribed client within 1 s; client not authorised for that order receives nothing (authz on stream subscription).
-- `Last-Event-ID` resume after disconnect returns missed events (or a "resync" signal) — per doc 11/17 design `[OPEN]`.
-- Heartbeat/comment frames at the configured interval (needed to survive CDN/proxy idle timeouts; see CH-6).
+- `httptest` server + real SSE hub + real Postgres `pg_notify` inside the business tx (doc 08 §6.2): a transition commits → event received by the subscribed client within 1 s; a **rolled-back** tx produces no event; a client not entitled to a topic receives nothing — checked both at subscribe time and at routing time (order ownership changes mid-stream).
+- **No replay by design** (doc 08): on reconnect the client refetches over REST; tests assert `Last-Event-ID` only suppresses stale duplicates (older `entity_version`), and the frontend test (§9.1) asserts the refetch-on-reconnect behaviour.
+- LISTEN connection loss → `/readyz` degraded and clients receive `event: degraded` → frontend switches to polling (E2E F-13).
+- Slow consumer (client not reading) is disconnected once its bounded buffer (16 messages) fills, and the hub keeps serving others.
+- Heartbeat `: ping` every 20 s (doc 08) asserted with the fake clock; needed to survive CDN/load-balancer idle timeouts (see C-9).
 - Connection cleanup: N connects/disconnects → goroutine count and DB listeners return to baseline (leak test).
 
 ---
@@ -411,7 +416,7 @@ Test patterns:
 
 | Check | How | When |
 |---|---|---|
-| Spec lint | `vacuum` or Spectral with a rovo ruleset: operationId required, every operation has `x-rovo-authz`, error responses use the shared problem+json schema, money fields are `integer` with `_paise` suffix, no `number` for money, enums match canonical status names | PR |
+| Spec lint | `vacuum` or Spectral with a rovo ruleset: operationId required, every operation has `x-rovo-permission` (`public` explicit), error responses use the shared problem+json schema, money fields are `integer` with `_paise` suffix, no `number` for money, enums match canonical status names | PR |
 | Response/request validation | Test-only middleware wraps the real router using `kin-openapi/openapi3filter.ValidateRequest` + `ValidateResponse` (kin-openapi lists OpenAPI 3.1 support — README accessed 2026-10-04). Any response with an undocumented status code, missing required field, extra field where `additionalProperties: false`, or wrong enum value **fails the test** | All Go API integration tests + E2E stack (middleware enabled via `testhooks` build, logs + fails the request with 500 `CONTRACT_VIOLATION` so Playwright notices) |
 | Breaking changes | `oasdiff breaking` (supports OpenAPI 3.0/3.1/3.2; GitHub Action `oasdiff/oasdiff-action/breaking` — oasdiff.com accessed 2026-10-04) comparing PR spec vs `main`; breaking change requires label `api-breaking` + versioning note | PR |
 | Codegen drift | Regenerate Go server interfaces and TS client; `git diff --exit-code` | PR |
@@ -451,39 +456,40 @@ Same pattern: real adapter → `fakeotp`/`fakesms` (wire-level) in PR, provider 
 
 ### 8.1 Generated role × operation matrix
 
-**Proposal (needs doc 11/12 agreement):** every OpenAPI operation declares its policy in an extension:
+Doc 12 §5.1 makes `authz/policy.yaml` the single source of the role × permission matrix and requires every OpenAPI operation to declare `x-rovo-permission` (`public` explicit). QA builds on that:
 
 ```yaml
-x-rovo-authz:
-  roles: [CUSTOMER]                  # who may call it at all
-  ownership: order.customer_id       # resource-ownership rule id (doc 12)
-  scope: none                        # or city / restaurant / rider
+# openapi excerpt (doc 11 owns)
+x-rovo-permission: order.read          # L1 permission, resolved via authz/policy.yaml
+x-rovo-test-scope: customer_order      # QA proposal: names the fixture "owner" relation so the generator can build own/foreign requests
 ```
 
-A Go test generator reads the spec and produces, for **every operation × every principal** (`anonymous`, 8 roles, plus `ADMIN_OPS` scoped to another city), a case:
+A Go generator joins the spec and `policy.yaml` and produces, for **every operation × every principal** (`anonymous`, the 8 roles, an admin scoped to another city, and a principal of the right role for a *foreign* resource), a case:
 
-| Principal kind | Expected |
+| Principal kind | Expected (doc 12 semantics) |
 |---|---|
-| anonymous on non-public op | 401 |
-| role not in `roles` | 403 (or 404 where doc 12 chooses to hide existence — pinned per op) |
-| role in `roles`, owns resource | 2xx (with valid fixture request from spec examples) |
-| role in `roles`, does not own resource | 404/403 per doc 12 |
-| admin scoped to city B on city-A resource | 403/404 |
+| anonymous on non-`public` op | 401 |
+| role lacks the permission (`—` in matrix) | 403 |
+| role has permission (`O`/`R`/`A`), resource is own/assigned | 2xx (valid request built from spec examples + fixtures) |
+| role has permission, resource belongs to someone else | **404** (not 403 — existence not leaked) |
+| admin scoped to city B on a city-A resource | 404; city-A lists return empty, not error |
+| permission marked `S` (step-up) without fresh step-up | 401/403 with step-up challenge code per doc 12 |
+| permission marked `M`/`C` | maker creates `approval_request`; direct execution refused (see §8.4) |
 
 - Fixtures: a seeded "authz world" with two cities (the second is a test-only city `TESTCITY` to prove scoping; this also validates multi-city readiness), two restaurants per city each with owner + staff, two riders, two customers, orders in each state.
-- **Completeness gates:** test fails if an operation lacks `x-rovo-authz`, or if the generator cannot build a valid request (forces examples in the spec).
+- **Completeness gates:** test fails if an operation lacks `x-rovo-permission`, if a permission in the spec is missing from `policy.yaml` (or vice versa), or if the generator cannot build a valid request (forces examples in the spec). Doc 12 already generates role × permission unit tests from `policy.yaml`; this suite adds the **HTTP-level** check that L1 middleware, L2 policy functions and L3 scoped queries agree.
 - The matrix is also emitted as a Markdown/CSV artifact for security review (doc 19).
 
 ### 8.2 IDOR suites per resource (hand-written, T1)
 
 | Resource | Attack | Expected |
 |---|---|---|
-| Order | Customer A `GET/PATCH/cancel` order of customer B (UUID and human code `RV-…`) | 404, no data in body/timing-insensitive message |
+| Order | Customer A `GET/PATCH/cancel` order of customer B (UUID and human code `RV-…`); restaurant reads customer phone/address (must only see first name) | 404, no data in body; restaurant DTO contains no phone/address/location fields (schema-level assertion) |
 | Address | Customer A reads/edits/uses B's address id in checkout | 404 / 422 |
 | Payment | A initiates payment for B's order; A requests refund on B's order | 404 |
-| Restaurant inbox | Staff of outlet R1 accepts/rejects/reads orders of R2 (same owner and different owner) | 403/404 |
-| Menu | Owner of R1 edits R2's menu items, uploads image to R2 | 403 |
-| Delivery | Rider X accepts offer addressed to rider Y; marks Y's delivery picked/delivered; reads customer phone after delivery completed (masking window `[OPEN: 12]`) | 403/404 |
+| Restaurant inbox | Staff of outlet R1 accepts/rejects/reads orders of R2 (same owner and different owner); staff reads payouts/bank/commission of own outlet | 404 (foreign outlet); 403 (staff on owner-only permission) |
+| Menu | Owner of R1 edits R2's menu items, uploads image to R2 | 404 |
+| Delivery | Rider X accepts offer addressed to rider Y; marks Y's delivery picked/delivered; sees customer name/address in an offer **before** accepting; reads customer phone > 30 min after `DELIVERED/FAILED` (doc 12 §5.3) — tested with the fake clock at 29:59 / 30:01 | 404; offer DTO has locality only; PII redacted after window |
 | Rider earnings & COD | Rider X reads Y's earnings/cash-in-hand | 404 |
 | Payout | Restaurant owner reads another restaurant's payout statement | 404 |
 | Admin | `ADMIN_SUPPORT` performs finance-only actions (manual adjustment, payout record); `ADMIN_OPS` of city A edits zone in city B | 403 |
@@ -493,7 +499,11 @@ A Go test generator reads the spec and produces, for **every operation × every 
 
 ### 8.3 Session and token tests
 
-Expired access JWT → 401 + refresh succeeds; refresh-token rotation and **reuse detection** (old refresh token reused → whole family revoked); logout revokes; admin login without TOTP blocked; TOTP replay within window rejected; OTP attempt limit + lockout; cookie flags (`HttpOnly`, `Secure`, `SameSite`) asserted; CSRF defence for cookie-authenticated mutating endpoints (doc 12 `[OPEN]`).
+Expired access JWT → 401 + refresh succeeds; refresh-token rotation and **reuse detection** (old refresh token reused → whole family revoked); logout revokes; admin login without TOTP blocked; TOTP replay within window rejected; OTP attempt limit + lockout; cookie flags (`HttpOnly`, `Secure`, `SameSite`) asserted; CSRF defence per doc 12 AUTH-D06: cross-origin `Sec-Fetch-Site`/`Origin` on unsafe methods rejected, missing `X-Rovo-Client` header rejected, non-JSON body rejected; per-audience cookie isolation (a customer cookie is not accepted on the restaurant/rider/admin hosts); admin idle (30 min) / absolute (12 h) timeouts with the fake clock; partner/admin session revocation effective within the 30 s cache window (admin immediately); blocked user → 401 on next request.
+
+### 8.4 Maker-checker and audit tests (doc 12 §5.5, §5.7)
+
+For **each** `action_type` under maker-checker: maker cannot execute directly; maker cannot approve own request (including `ADMIN_SUPER`); checker in another city cannot see/approve; request expires at 24 h (fake clock); payload tampering after approval (hash mismatch) blocks execution; preconditions re-validated at execution (e.g., refund still ≤ captured — INV-L4); threshold splitting blocked by daily per-agent caps (e.g., three ₹299 refunds then a fourth hits the ₹3,000/day cap — values from config). **Audit:** every allowed and denied privileged action writes an `audit_events` row with PII redacted in `changes`; hash chain verifies after N random events; `UPDATE`/`DELETE` on `audit_events` by the app role fails (integration test with the app DB role, not superuser).
 
 ---
 
@@ -528,7 +538,7 @@ Expired access JWT → 401 + refresh succeeds; refresh-token rotation and **reus
 
 - Component level: `vitest-axe` assertions on every shared component and key screens.
 - E2E level: `@axe-core/playwright` `AxeBuilder` on each main screen of each app, tags `wcag2a, wcag2aa, wcag21a, wcag21aa` (+ `wcag22aa` where axe supports) — **0 serious/critical violations** to pass (Playwright docs, accessed 2026-10-04). Automated checks catch only part of WCAG; manual audit in §16.2.
-- Specific checks: touch targets ≥ 48 CSS px on partner app (riders with gloves/helmets), colour contrast of status chips, focus order in checkout, live-region announcement for order status updates and new-order alert.
+- Specific checks: touch targets ≥ 48 CSS px on the rider and restaurant apps (riders with gloves/helmets, sunlight — doc 01), colour contrast of status chips, focus order in checkout, live-region announcement for order status updates and new-order alert.
 
 ### 9.5 Visual regression (decision)
 
@@ -542,8 +552,9 @@ Expired access JWT → 401 + refresh succeeds; refresh-token rotation and **reus
 
 ### 10.1 Stack and conventions
 
-- **Playwright Test** (TypeScript) in `e2e/` (`[OPEN: 26]`), run against `compose.e2e.yml` (planning reference; DevOps owns): `api` + `worker` built with `testhooks` tag, PostGIS, Caddy (same reverse-proxy config as prod so SSE buffering/headers are realistic), three PWAs as **production builds** served statically, `fakepa`, `fakeotp`/`fakesms`, `fakepush`, Toxiproxy (idle unless a chaos test arms it), local map tiles stub (no external tile requests in CI).
+- **Playwright Test** (TypeScript) in `e2e/` (`[OPEN: 26]`), run against `compose.e2e.yml` (planning reference; DevOps owns), which extends the **local** Compose stack of baseline §4a: `api` + `worker` built with `testhooks` tag, Postgres 18 + PostGIS, **MinIO** (S3-compatible: menu images, invoices), **Mailpit** (admin emails), the local reverse proxy configured with the same routes, headers, SSE flush and same-origin `/api/*` topology as production (doc 12 AUTH-D03), the **four PWAs** (`customer`, `restaurant`, `rider`, `admin` — doc 17 F2 splits the baseline `partner` app) as **production builds** served statically on their own local origins (same-origin `/api/*` per app), `fakepa`, `fakeotp`/`fakesms`, `fakepush`, Toxiproxy (idle unless a chaos test arms it), local map tiles stub (no external tile requests in CI).
 - Each spec starts from `POST /_test/reset?profile=e2e` (truncate + reseed deterministic data, ~1–2 s) or uses **unique per-test entities** created by factory endpoints so specs can run in parallel workers without reset `[decide in Phase 2 by measurement]`.
+- **Turnstile:** non-prod uses Cloudflare's published **test site/secret keys that always pass** (and the always-fail pair for one negative test) `[VERIFY at implementation]`; production keys never appear in CI.
 - Logins use the OTP sink: UI enters phone → test reads OTP via `GET /_test/otp?phone=…` → UI enters it. Admin TOTP uses a seeded TOTP secret and computes the code in the test (`otpauth` lib).
 - Selectors: role/label first, `data-testid` for dynamic items (order cards, offer card) — §20.2.
 - **Every spec ends with** `GET /_test/invariants` (runs §6.7 checks) and fails on any violation; **contract-validation middleware** is on, so any spec-violating response fails the run.
@@ -563,8 +574,8 @@ The golden flow needs a 45 s offer timeout, restaurant accept timeout, cancel wi
 sequenceDiagram
   autonumber
   participant C as Customer ctx (customer app, 360x800)
-  participant R as Restaurant ctx (partner app, staff, 800x1280)
-  participant D as Rider ctx (partner app, rider, 360x800, geolocation mocked)
+  participant R as Restaurant ctx (restaurant app, staff, 800x1280)
+  participant D as Rider ctx (rider app, 360x800, geolocation mocked)
   participant A as Admin ctx (admin app, 1366x768, ADMIN_OPS + ADMIN_FINANCE)
   participant P as fakepa / test API
   C->>C: OTP login (sink), pick locality + pin in Z-CENTRAL
@@ -581,14 +592,14 @@ sequenceDiagram
   R->>R: Mark ready → READY_FOR_PICKUP (dispatch may start earlier per doc 13)
   D-->>D: SSE: offer card with countdown
   D->>D: Accept offer → delivery ASSIGNED
-  D->>D: Arrived → AT_RESTAURANT; Picked up (order code check) → PICKED_UP
+  D->>D: Arrived → AT_RESTAURANT, Picked up (order code check) → PICKED_UP
   C-->>C: status timeline updates via SSE
-  D->>D: Arrived at drop → AT_DROP; Delivered (COD: confirm cash ₹492.80) → DELIVERED
+  D->>D: Arrived at drop → AT_DROP, Delivered (COD: confirm cash ₹492.80) → DELIVERED
   C->>C: Rate restaurant + rider
   A->>A: Order detail shows full timeline + audit log
   A->>P: GET /_test/ledger?order=… → assert journals (§4.5)
-  A->>P: clock → next Monday 00:00 IST; run payout job
-  A->>A: Payout run lists R1 net 35,566 paise, rider 2,860 paise; mark paid with UTR ref
+  A->>P: clock → next Monday 00:00 IST, run payout job
+  A->>A: Payout run lists R1 net 35,566 paise, rider 2,860 paise, mark paid with UTR ref
   A->>P: GET /_test/invariants → all pass
 ```
 
@@ -639,13 +650,13 @@ Runs: COD and online variants; locale `en` and `te` variants alternate; one vari
 
 | Profile | Viewport / DPR | CPU throttle | Network | Use |
 |---|---|---|---|---|
-| `entry-android` | 360×800 @2 | 4× (`Emulation.setCPUThrottlingRate`) | "Slow 4G" ≈ 400 ms RTT, 1.6 Mbps down, 750 kbps up (`Network.emulateNetworkConditions`) `[ASSUMPTION: align with 18]` | customer golden flow, partner rider flow |
+| `entry-android` | 360×800 @2 | 4× (`Emulation.setCPUThrottlingRate`) | "Slow 4G" ≈ 400 ms RTT, 1.6 Mbps down, 750 kbps up (`Network.emulateNetworkConditions`) `[ASSUMPTION: align with 18]` | customer golden flow, rider app flow |
 | `very-low-end` | 360×720 @1.5 | 6× | 3G-like ≈ 300 kbps down, 400 ms RTT | smoke: app shell + menu + checkout |
-| `restaurant-tablet` | 800×1280 @1.5 | 4× | Slow 4G | partner inbox long-running (SSE soak in browser 2 h, memory growth check via `performance.memory` where available) |
+| `restaurant-tablet` | 800×1280 @1.5 | 4× | Slow 4G | restaurant app inbox long-running (SSE soak in browser 2 h, memory growth check via `performance.memory` where available) |
 
 Throttling is Chromium-only (CDP session via `page.context().newCDPSession(page)`); WebKit runs unthrottled.
 
-**Budgets** (Lighthouse CI mobile preset on built PWAs, nightly; values owned by doc 18 `[OPEN]`): initial JS of customer app ≤ ~170 KB gzip `[ASSUMPTION]`, LCP ≤ 2.5 s (Lighthouse simulated mobile), TBT ≤ 300 ms, CLS ≤ 0.1; in Playwright `entry-android` profile: menu interactive ≤ 5 s cold, ≤ 2 s warm (SW cache).
+**Budgets** (Lighthouse CI mobile preset on built PWAs, nightly; values owned by doc 18 `[OPEN]`): per doc 01 NFR-PERF-001/002: customer initial route JS ≤ 170 KB gzip, CSS ≤ 30 KB gzip, home first-load ≤ 500 KB, LCP ≤ 2.5 s, TBT ≤ 300 ms (INP proxy in lab), CLS ≤ 0.1, TTI ≤ 5 s on reference device; in Playwright `entry-android` profile: menu interactive ≤ 5 s cold, ≤ 2 s warm (SW cache).
 
 ### 11.2 Offline and flaky-network behaviour
 
@@ -688,13 +699,13 @@ Automated E2E: build v1 and v2 of an app (v2 with a visible build marker); serve
 
 | Parameter | Value | Derivation |
 |---|---|---|
-| Orders/day (target at 6–12 months) | 2,000 | Baseline brief |
-| Peak-hour share | 25 % → **500 orders/h** (≈ 0.14 orders/s) | Lunch 12:30–13:30 or dinner 20:00–21:00 IST |
-| Design load | **3× peak = 1,500 orders/h**; spike 5× for 5 min | Headroom for growth/campaigns |
+| Orders/day (V1 capacity) | 2,000 | Baseline brief; doc 01 NFR-PERF-006 |
+| Peak hour | doc 01 NFR-PERF-006 states **300 orders/h**; the QA brief assumed 25 % of daily = 500/h. Tests use the more conservative **500 orders/h** (≈ 0.14 orders/s) | Lunch 12:30–13:30 or dinner 20:00–21:00 IST |
+| Design load | **3× peak = 1,500 orders/h** (exceeds NFR-PERF-006's required 3× of 300/h = 900/h); spike 5× for 5 min | Headroom for growth/campaigns |
 | Browse sessions per order | 10 (10 % conversion) → 5,000 sessions/peak h | `[ASSUMPTION]` |
 | API reads per session | 25 → ~35 rps at peak, **~105 rps at design load**, 175 rps spike | |
-| Concurrent SSE | customers tracking (~350) + restaurant devices (~300) + riders (~120) + admins (~10) ≈ 800 → **test 2,500** | 40-min avg order lifecycle |
-| Rider location pings | 120 riders / 30 s ≈ 4 rps → test 15 rps | P12 |
+| Concurrent SSE | customers tracking (~350) + restaurant devices (150 per NFR-PERF-006) + riders online (150) + admins (~10) ≈ 660 → **test 2,500** (≈ 3.8×) | 40-min avg order lifecycle |
+| Rider location pings | 150 riders / 30 s = 5 rps → test 15 rps | P12, BR-COST-003 |
 | Order transitions | ~8 per order → ~1 event/s peak → test 5/s | |
 
 ### 12.2 SLOs asserted as k6 thresholds
@@ -704,12 +715,13 @@ Automated E2E: build v1 and v2 of an app (v2 with a visible build marker); serve
 | Read APIs (restaurant list, menu, order status) | **< 300 ms** | < 800 ms | < 0.5 % |
 | Order create (excluding PA round-trip; fakepa with 0 latency) | **< 800 ms** | < 1.5 s | < 0.5 % |
 | Quote | < 400 ms | < 1 s | < 0.5 % |
-| State-change commands (accept, pickup…) | < 400 ms | < 1 s | < 0.5 % |
-| SSE: commit → client receive | < 2 s | < 5 s | 0 dropped events (with resume) |
+| Other writes / state-change commands (accept, pickup…) | < 500 ms (NFR-PERF-003) | < 1 s | < 0.5 % |
+| SSE: commit → client receive (server-side test metric) | < 2 s | < 5 s | 0 missed state (refetch on reconnect) |
+| Status event → client render (E2E, NFR-PERF-004) | ≤ 5 s customer/restaurant, ≤ 3 s rider offer | – | – |
 | Offer timeout firing | 45 s + < 5 s | 45 s + < 10 s | 0 missed |
 | Outbox lag | < 2 s | < 5 s | – |
 
-(Doc 24 owns production SLOs; these are pre-release test thresholds and must be ≤ production SLOs.)
+(Requirement source: doc 01 NFR-PERF-003/004/006. Doc 24 owns production SLOs; these are pre-release test thresholds and must be at least as strict as production SLOs.)
 
 ### 12.3 k6 scenarios
 
@@ -725,29 +737,34 @@ Automated E2E: build v1 and v2 of an app (v2 with a visible build marker); serve
 
 Data: `load` seed profile (§18.2) with 150 restaurants, 6,000 menu items, 300 riders, 50,000 customers, 100,000 historical orders (to make indexes realistic).
 
-### 12.4 Capacity test on the target free VM
+### 12.4 Capacity test on the managed production shape
 
-- Target shape per P17/doc 25 (e.g., an Always-Free ARM VM) `[VERIFY: 25]`. Because free-tier capacity may not allow a second identical VM, the **capacity run is executed on the production VM before launch** (empty of real data), and afterwards only on staging or in announced maintenance windows (see CH-5).
-- Load generator runs **off-box** (GitHub-hosted runner or developer machine; must respect the hosting provider's acceptable-use policy and Cloudflare rate limits — run against origin with an allow-listed IP or a staging hostname bypassing CDN for raw API, and once through CDN for realistic SSE/proxy behaviour).
-- Report: max orders/h with SLOs met, CPU/RAM/disk IO, Postgres connections, River queue latency, outbox lag, SSE memory per connection, GC pauses. Pass criterion: design load (3× peak) sustained 60 min at < 70 % CPU.
+- **Target:** the production shape defined by docs 22/25 under baseline §4a — e.g., API as 2 small always-on container tasks (≈ 0.5–1 vCPU / 1–2 GB each on ECS Fargate, Cloud Run with min instances and instance-based billing, or Azure Container Apps with min replicas), worker as 1–2 small tasks, and a small managed PostgreSQL + PostGIS instance (≈ 2 vCPU / 4–8 GB, e.g., `db.t4g.medium`-class or equivalent) behind the managed load balancer + CDN/WAF `[OPEN: 22/25 — exact shapes and costs]`.
+- **Where:** in **staging**, which is built from the same IaC; for the capacity run the staging stack is **temporarily scaled to the production shape** via IaC variables (same instance classes, same pooler, same LB/CDN/WAF settings), then scaled back down (cost: a few hours of prod-shape spend — budgeted per release `[ASSUMPTION]`). Before go-live one confirmation run is also done against the **empty production environment**; never again with real users on it.
+- **Load generators** run **outside** the target VPC (GitHub-hosted runner or a short-lived VM in the same region), with the WAF/rate-limit rules either kept on (realism run) or with the generator IPs allow-listed (raw-capacity run) — both are reported. Respect the cloud provider's load/penetration-testing policy `[VERIFY with chosen provider]`.
+- **Measured and reported:** max orders/h at SLO; API/worker CPU + memory per task; autoscaling behaviour (scale-out time, cold start if any — must be zero with min instances); managed-DB CPU, IOPS/throughput credits (burstable classes can exhaust credits during an 8 h soak — check explicitly), connections vs `max_connections`, pooler saturation; River queue latency; event fan-out lag; SSE memory per connection and **LB/CDN idle-timeout behaviour on long-lived SSE streams**; cost per 1,000 orders (input to doc 25 INR estimate).
+- **Pass criterion:** design load (3× peak) sustained 60 min with SLOs met at ≤ 70 % CPU on API tasks and ≤ 60 % on the DB, no credit exhaustion over the 8 h soak, and auto-scaling not *required* to meet the SLO at 1× peak.
 
 ---
 
 ## 13. Resilience / chaos-lite
 
-Run against the compose stack (nightly subset C-1, C-3, C-4; full set pre-release) with `/_test/invariants` checked after each experiment.
+Run against the Compose stack (nightly subset C-1, C-3, C-4) and, for the managed-service experiments (C-3b, C-9b), against **staging** before each release, with `/_test/invariants` (or the read-only reconciliation queries in staging) checked after each experiment.
 
 | ID | Experiment | Method | Expected |
 |---|---|---|---|
 | C-1 | **Kill worker mid-dispatch** | `docker compose kill worker` right after an offer is created; restart after 60 s | River rescues the job; offer expires/ cascades correctly once worker is back; **no double offer or double assignment**; alert fired for worker down (doc 24) |
 | C-2 | **Kill API during order create** | kill between DB commit and response | Client retries with idempotency key → same order; no duplicate |
-| C-3 | **DB restart** | `docker compose restart db` during K-2 at 1× | API readiness → 503 during outage; pools reconnect; no lost outbox events; River resumes; SSE clients reconnect and resync |
+| C-3 | **DB restart** | `docker compose restart db` during K-2 at 1× | API readiness → 503 during outage; pools reconnect; no lost events; River resumes; LISTEN reconnects; SSE clients reconnect and refetch |
+| C-3b | **Managed DB failover / reboot** (staging) | Provider's forced-failover or reboot action (Multi-AZ if enabled; single-AZ reboot otherwise) during K-2 at 1× | Same as C-3; measured downtime recorded as RTO evidence; DNS/endpoint change picked up by pools and the dedicated LISTEN connection |
+| C-3c | **Task kill / rolling deploy** (staging) | Stop one API task; deploy a new image during load | LB drains; SSE clients reconnect to remaining task; no 5xx beyond budget; graceful shutdown finishes in-flight requests and River jobs |
 | C-4 | **PA timeouts** | Toxiproxy latency 30 s / reset on fakepa | Order create returns retryable error within our timeout budget; no orphan "paid but no order"; reconciliation fixes stragglers |
 | C-5 | **PA webhook endpoint unreachable for 30 min** | block inbound from fakepa | Reconciliation poll converges; fakepa retries succeed idempotently |
 | C-6 | **OTP provider failure** | fakeotp returns 5xx / times out | Fallback provider or channel engaged per doc 15; user sees en/te message; rate limits not consumed by failed sends `[OPEN: 15]` |
 | C-7 | **Disk nearly full / slow disk** | fill volume to 95 %; IO latency via cgroup throttle | Alerts fire; API degrades gracefully; no corrupt state |
 | C-8 | **Clock jump** | advance fake clock 10 min abruptly | Timeout jobs fire in order; no negative durations; SLA metrics sane |
-| C-9 | **SSE proxy idle timeout** | Caddy/CDN-like proxy with 100 s idle timeout via Toxiproxy | Heartbeats keep streams alive; reconnect logic works |
+| C-9 | **SSE proxy idle timeout** | Toxiproxy-simulated 100 s idle timeout (Compose) | Heartbeats keep streams alive; reconnect logic works |
+| C-9b | **Real edge path** (staging) | 2 h SSE soak through the real CDN/WAF + managed LB | No unexpected disconnects beyond the platform's max stream duration; documented max and reconnect behaviour |
 
 ---
 
@@ -763,7 +780,7 @@ ASVS 5.0.0 is current (owasp.org project page; chapter list from the v5.0.0 CSV 
 |---|---|
 | V1 Encoding & Sanitization | Fuzz targets (§5.2); React auto-escaping + lint ban on `dangerouslySetInnerHTML`; SQL only via sqlc (parameterised) |
 | V2 Validation & Business Logic | OpenAPI request validation; business-logic abuse tests: negative qty, coupon stacking, price tampering, cancel/refund abuse, COD limit bypass (§10.4) |
-| V3 Web Frontend Security | CSP/HSTS/frame-ancestors/`X-Content-Type-Options` header tests on Caddy + CDN; ZAP baseline |
+| V3 Web Frontend Security | CSP/HSTS/frame-ancestors/`X-Content-Type-Options` header tests on the local reverse proxy (Compose) and on the real CDN/LB in staging (post-deploy smoke); ZAP baseline |
 | V4 API & Web Service | Contract validation, mass-assignment tests (§8.2), HTTP method tests, rate limits |
 | V5 File Handling | Menu image upload: type sniffing, size limits, EXIF stripping, no SVG script, storage path traversal |
 | V6 Authentication | OTP brute force & lockout, OTP expiry, admin password + TOTP, credential stuffing rate limits |
@@ -773,7 +790,7 @@ ASVS 5.0.0 is current (owasp.org project page; chapter list from the v5.0.0 CSV 
 | V10 OAuth & OIDC | N/A in V1 (no OAuth login) — documented as not applicable |
 | V11 Cryptography | OTP/refresh-token hashing, TOTP secret encryption at rest, no custom crypto (code review checklist) |
 | V12 Secure Communication | TLS config scan (e.g., `testssl.sh` on staging, pre-release) |
-| V13 Configuration | `/_test/*` absent from prod image (test), debug endpoints off, secrets not in images (gitleaks + Trivy secret scan) |
+| V13 Configuration | `/_test/*` absent from prod image (test), debug endpoints off, secrets not in images (gitleaks + Trivy secret scan); IaC misconfiguration scanning (checkov/tflint, §21.1): DB not publicly reachable, storage buckets private, encryption with KMS on, WAF attached |
 | V14 Data Protection | Log redaction tests; PII fields encrypted/masked per doc 12/19; data export/deletion (DPDP) flows tested |
 | V15 Secure Coding & Architecture | govulncheck, osv-scanner, Trivy, CodeQL, dependency pinning |
 | V16 Security Logging & Error Handling | Security events (auth failures, authz denials, webhook signature failures) emitted — asserted in tests; no stack traces in responses |
@@ -788,9 +805,10 @@ ASVS 5.0.0 is current (owasp.org project page; chapter list from the v5.0.0 CSV 
 | CodeQL (Go + JS/TS) | SAST | PR + weekly | Block on High |
 | `gitleaks` | Secrets in diff/history | PR | Block |
 | Trivy | Built images (OS + language pkgs), IaC/compose misconfig | main + nightly | Block release on Critical/High with fix |
-| **ZAP baseline** (passive; spider default 1 min; exit 1 on FAIL, 2 on WARN — zaproxy.org docs accessed 2026-10-04) | Each PWA + API via Caddy on the ephemeral E2E stack, authenticated context for customer app | every `main` merge | Rules file: selected rules = FAIL (missing CSP, cookie flags, info leaks), rest WARN; FAIL blocks |
+| **ZAP baseline** (passive; spider default 1 min; exit 1 on FAIL, 2 on WARN — zaproxy.org docs accessed 2026-10-04) | Each PWA + API via the reverse proxy on the ephemeral E2E stack, authenticated context for customer app | every `main` merge | Rules file: selected rules = FAIL (missing CSP, cookie flags, info leaks), rest WARN; FAIL blocks |
 | ZAP API scan (active) using OpenAPI | API on ephemeral stack only | weekly | Findings triaged within 5 working days |
-| `testssl.sh` | Staging TLS | pre-release | No High |
+| `testssl.sh` | Staging TLS on the CDN/LB endpoints | pre-release | No High |
+| ZAP baseline against **staging** (passive only) | Staging hostnames behind WAF | after each staging deploy (part of post-deploy smoke, ≤ 5 min) | FAIL rules block promotion to production |
 
 **Decision on ZAP:** Yes — baseline on `main` (not PR, to save minutes and because fork PRs can't run the full stack reliably), active API scan weekly. Never scan production actively. External penetration test before public launch `[OPEN: budget, 19/29]`.
 
@@ -816,7 +834,7 @@ Replay of a valid signed webhook (idempotent no-op), replay with modified amount
 - **Schema snapshot:** `pg_dump --schema-only` (normalised) committed; CI fails on drift without a migration.
 - **Destructive change lint:** flag `DROP COLUMN`, `ALTER TYPE`, non-concurrent index creation on large tables, `NOT NULL` without default on populated tables — a migration linter (e.g., Squawk `[VERIFY]`) or a custom script; requires `migration-reviewed` label.
 - **Data migrations** tested with a fixture dataset containing edge rows (nulls, old enum values, Telugu text, max paise values).
-- **Prod-shape rehearsal (pre-release):** apply pending migrations to a restored **anonymised** copy of the latest production backup (or the `load` dataset before launch); measure lock times and duration; must be < 30 s blocking per migration `[ASSUMPTION]`.
+- **Prod-shape rehearsal (pre-release):** apply pending migrations to a restored copy of the latest production snapshot **inside the production boundary** (as in §15.3; or the `load` dataset before launch); measure lock times and duration; must be < 30 s blocking per migration `[ASSUMPTION]`.
 
 ### 15.2 Data integrity checks
 
@@ -824,7 +842,7 @@ The `assertInvariants` SQL set (§6.7) doubles as the nightly reconciliation in 
 
 ### 15.3 Backup restore verification (weekly, automated)
 
-Scheduled workflow (doc 23 owns backup mechanics): fetch latest encrypted backup from object storage → restore into an ephemeral PostGIS container on a runner → `goose status` equals expected version → run invariants + row-count sanity vs. production metrics snapshot → verify PITR to a timestamp if WAL archiving is used `[OPEN: 23]` → record **measured restore time** (RTO evidence) → destroy. Failure pages the on-call. Backup data never leaves the runner and is never used in lower environments without anonymisation (§18.5).
+Scheduled workflow (doc 23 owns backup mechanics; production uses managed automated backups + PITR per baseline §4a): via IaC, **restore the latest production snapshot and a PITR point (e.g., now − 15 min) into a short-lived managed instance inside the production account's isolated restore subnet** (data stays in the India region and inside the production security boundary) → `goose status` equals expected version → run invariants + row-count sanity vs. production metrics snapshot → verify the PITR copy contains a canary row written at the target time `[OPEN: 23]` → also restore the latest **logical dump** (if doc 23 keeps one as a provider-independent copy) into a container to prove portability → record **measured restore time** (RTO evidence) → destroy via IaC. Failure pages the on-call. Production data never leaves the production boundary and is never used in lower environments without anonymisation (§18.5).
 
 ---
 
@@ -861,3 +879,359 @@ WCAG 2.2 AA target `[OPEN: 17]`. Manual pass per app: TalkBack on Android device
 - **UAT scripts** derived from doc 04–07 journeys; each script references requirement IDs (§23).
 - **Legal/consent:** pilot participants informed of pilot status; DPDP consent flows exercised for real `[LEGAL]`.
 
+---
+
+## 18. Test data management
+
+### 18.1 Principles
+
+1. **Synthetic by default.** No production personal data in local, CI, preview or staging. Ever, unless §18.5 applies.
+2. **Deterministic.** Seeds produce identical rows (IDs, codes, timestamps) on every run: seeded UUIDv7 generator, seeded order-code generator, frozen clock.
+3. **One source of truth for seed content** (`seed/` YAML/JSON, `[OPEN: 26]` location) consumed by: Go seeder (`rovo seed --profile=…`, non-prod builds only), Go test fixtures, TS factories (shared IDs exported as constants for E2E).
+4. **Fixtures are realistic for Mahabubnagar** so that demos, UAT and screenshots look right in `te` and `en`.
+
+### 18.2 Seed profiles
+
+| Profile | Contents | Used by |
+|---|---|---|
+| `minimal` | 1 city, 1 zone, 1 restaurant (3 items), 1 rider, 1 customer, 1 admin per role | unit-ish integration tests, smoke |
+| `e2e` | Everything in §18.3 (deterministic) | E2E, local dev, dogfooding on staging |
+| `authz` | `e2e` + second test-only city `TESTCITY` with its own zone, restaurants, riders, admins | authz matrix (§8) |
+| `load` | 150 restaurants, ~6,000 items, 300 riders, 50,000 customers, 100,000 historical orders spread over 90 days with realistic lunch/dinner curves, ledger history | k6, EXPLAIN tests, migration rehearsal |
+| `demo` | `e2e` with nicer images and copy, no test-only edge cases | preview environment, stakeholder demos |
+
+### 18.3 Mahabubnagar `e2e` dataset (illustrative)
+
+- **City:** Mahabubnagar (`timezone = Asia/Kolkata`, `currency = INR`, default locale `te`), pricing config snapshot `mbnr-default-2026-10` = baseline §5 defaults.
+- **Localities** (names to be verified by local ops `[ASSUMPTION]`): e.g., New Town, Padmavathi Colony, Bhageerathi Colony, Christianpally, Srinivasa Colony, Housing Board Colony, Rajendra Nagar, Yenugonda, Boyapally, Shasab Gutta, Metugadda — each with `name_te`, centroid and PIN code `5090xx` `[ASSUMPTION — verify PINs]`.
+- **Zones:** synthetic polygons `Z-CENTRAL`, `Z-NORTH` (with hole), `Z-SOUTH` (inactive) — §6.4.
+- **Restaurants (fictional names, never real brands):** 12 outlets, e.g. "Palamuru Biryani Point (test)", "Sri Lakshmi Tiffins (test)", "Annapurna Meals (test)", a bakery, a juice bar, a Chinese fast-food stall, a pure-veg outlet. Menus include: variants (half/full biryani, small/large), add-ons (extra raita, egg, extra chicken piece), veg/non-veg/egg flags, items unavailable, items with `name_te` missing (fallback test), GST-inclusive vs exclusive pricing flag if supported `[OPEN: 14]`, packaging per item and per order. Edge outlets: one closed now, one with overnight hours, one near the zone edge, one with commission 25 %, one with **expired FSSAI** (must not be orderable), one suspended.
+- **Riders:** 10 (online/offline, stale location, COD cash-in-hand near limit, suspended, one rider who is also a customer per AUTH-D02).
+- **Customers:** 20 with addresses (landmarks!), phones in a reserved fake range that the OTP sink accepts (e.g., `+91 90000 0xxxx`) `[ASSUMPTION — ensure the range is never sent to a real SMS gateway: non-prod OTP adapters are hard-wired to the sink]`.
+- **Admins:** one per admin role, TOTP secrets seeded (test-only), two `ADMIN_SUPER`s (maker-checker needs two).
+- **Coupons:** flat, percent-capped, first-order, expired, exhausted, restaurant-funded.
+
+### 18.4 Factories / builders
+
+- **Go:** `internal/testutil/fx` builders with sensible defaults and fluent overrides, persisting through module services (not raw SQL) where possible so invariants hold: `fx.Order(t, db).ForCustomer(c).From(r1).WithItems(fx.Item("chicken_biryani_full", 2)).COD().InState(order.Preparing).Build()`. `InState` drives the aggregate through legal transitions — fixtures can never create an impossible state.
+- **TypeScript:** typed factory functions over generated OpenAPI types (`makeOrder({ status: 'PREPARING' })`), `@faker-js/faker` with a **fixed seed** and Indian locale for names/addresses where randomness helps; deterministic IDs.
+- **E2E:** `/_test/factory/*` endpoints wrap the Go builders so Playwright can create isolated entities per test.
+
+### 18.5 Production-derived data and anonymisation (DPDP)
+
+Default answer is **no**. When a bug truly needs production-shaped data:
+
+| Rule | Detail |
+|---|---|
+| Approval | Written approval by the DPDP grievance/data-protection owner (doc 19) + engineering lead; ticket records purpose and expiry |
+| Location | Anonymisation runs **inside the production boundary** (same India region/account); only the anonymised output may leave, into staging only |
+| Phones / emails | Replaced with deterministic fakes from the reserved range (keyed HMAC so joins still work; key destroyed after the run) |
+| Names | Replaced via faker (`te`/`en` names) |
+| Addresses | House/flat, building, landmark, contact name/phone replaced; lat/lng jittered ≥ 300–500 m and snapped to locality centroid for small localities; PIN kept |
+| Free text | Delivery instructions, support tickets, reviews: dropped or replaced with lorem in the same language |
+| KYC, bank/UPI, Aadhaar, documents | Never copied |
+| Payment refs | PA payment/refund IDs tokenised; amounts kept |
+| Auth | Sessions, refresh tokens, OTP challenges, TOTP secrets dropped |
+| Audit/IP/device | Dropped |
+| Retention | Max 30 days in staging, then destroyed; access logged |
+| Verification | An automated PII scanner (regex for Indian mobiles, emails, PAN/Aadhaar patterns) must report zero hits before export |
+
+### 18.6 Deterministic clocks and IDs
+
+- `platform/clock` (doc 08 §4.1 rule 7): `Clock` interface; `FakeClock` with `Set`, `Advance`; shared between API and worker in E2E via the test-control offset (§10.2); passed to River as `Config.Test.Time` in tests.
+- Canonical frozen instant for golden tests: **2026-03-14T06:30:00Z = 12:00 IST Saturday** (lunch peak); other named instants: `DinnerPeak` 20:30 IST, `JustBeforeMidnightIST`, `MondayPayoutCutoff`.
+- `platform/idgen`: seeded UUIDv7 (monotonic, based on fake clock) and seeded order-code generator; snapshot tests never contain real random IDs.
+- SQL `now()`/`CURRENT_TIMESTAMP` allowed only for audit `created_at` defaults, never for business deadlines (lint: grep in `queries/*.sql` flags `now()` in `WHERE` clauses) — see CH-2.
+
+---
+
+## 19. Test environments and provider fakes
+
+### 19.1 Environments (baseline §4a)
+
+| Env | Where | Data | Providers | Tests that run there |
+|---|---|---|---|---|
+| **local** | Docker Compose: Postgres 18 + PostGIS, MinIO, Mailpit, optional Valkey, LGTM stack, `fakepa`, `fakeotp`/`fakesms`, `fakepush`, Toxiproxy | `e2e`/`demo` seeds | All fakes; full golden flow offline | Unit, integration (testcontainers or the Compose DB), E2E, chaos-lite, k6 smoke |
+| **ci** | GitHub Actions ephemeral runners + containers | Seeds only | Fakes; PA/OTP **sandboxes** only in scheduled/`main` jobs with secrets | Everything in §21 except staging-only tests |
+| **dev/preview** (optional, free tier) | Per §4a, free tiers acceptable | `demo` | Fakes + PA sandbox | Manual previews, design review; **no gating tests depend on it** |
+| **staging** | Same cloud + same IaC as production, scaled down (can be stopped when idle) | `e2e`/`demo` seeds + UAT data; anonymised data only under §18.5 | PA **sandbox**, OTP provider in test mode or sink with allow-listed real team phones, real push services, real CDN/WAF/LB, managed Postgres | Post-deploy smoke, synthetics, E2E subset against real edge, ZAP baseline, k6 capacity (scaled to prod shape), managed-DB chaos (C-3b/C-3c/C-9b), UAT, real-device checklist, restore drills (restore target in prod boundary) |
+| **production** | Managed hyperscaler, India region | Real | Real | **Read-only** post-deploy smoke + continuous synthetics; nightly reconciliation (invariants); no load, no active scans, no `/_test/*` |
+
+### 19.2 Provider fakes (wire-level, shipped as small Go services in the repo)
+
+| Fake | Mimics | Controls (via its own admin API, used by `/_test/*` proxy) | Notes |
+|---|---|---|---|
+| `fakepa` | Chosen PA's REST API (orders, payments, refunds, settlements) + hosted checkout page + signed webhooks (PA's HMAC scheme) | Outcome per payment (success/fail/pending/UPI-intent-timeout), webhook delay (ms → hours), duplicate ×N, reorder, drop, wrong signature, amount mismatch, refund failure, API latency/5xx; webhook delivery log endpoint | Contract suite keeps it honest vs sandbox (§7.2) |
+| `fakeotp` / `fakesms` | OTP/SMS provider API (DLT template id, sender id, unicode flag) + delivery reports | Fail next N, latency, DLR status; **sink** endpoint `GET /messages?to=` | Non-prod OTP adapter hard-wired to sink — a misconfiguration can't SMS real numbers |
+| `fakepush` | Web Push endpoint (accepts VAPID-signed requests) | Record payloads; return 410 Gone for a subscription (cleanup test) | Real push tested on devices only |
+| Mailpit | SMTP | Read via its API | Admin invites/password reset |
+| MinIO | S3 API | – | Same S3 adapter as prod object storage |
+| Turnstile | Cloudflare test keys | always-pass / always-fail keys | §10.1 |
+| Map tiles | Local static tiles/PMTiles stub | – | No third-party tile calls in CI |
+
+### 19.3 Post-deploy smoke and synthetic checks
+
+| Check | Staging (every deploy) | Production (every deploy + every 5 min synthetic) |
+|---|---|---|
+| `/healthz`, `/readyz` on API and worker, image digest = expected | ✓ | ✓ |
+| Migrations at expected version; River queues draining | ✓ | ✓ |
+| Static PWAs: `index.html` + SW + manifest load via CDN, correct build id, CSP/HSTS headers present | ✓ | ✓ |
+| Public reads: city/zones, restaurant list for a Mahabubnagar point, a menu (`p95 < 300 ms` from India-region probe) | ✓ | ✓ |
+| SSE: open stream, receive heartbeat within 25 s through CDN/LB | ✓ | ✓ |
+| `/_test/*` returns 404 | ✓ (prod-built image is also deployed to staging; testhooks run in a separate `staging-e2e` deployment `[OPEN: 22]`) | ✓ |
+| Full golden flow (COD + PA sandbox online) with seeded test accounts, Playwright against the real edge (~5 min) | ✓ blocks promotion | ✗ |
+| ZAP baseline passive | ✓ blocks promotion on FAIL | ✗ |
+| Synthetic "test restaurant" order in production | ✗ | **Optional** `[OPEN: 29]`: a hidden test restaurant + test customer with COD, auto-cancelled before acceptance, excluded from reports/ledger payouts — only if Product/Finance accept the operational complexity; otherwise read-only checks only |
+
+Failures page the on-call (doc 24) and trigger automatic rollback of the deploy where doc 21/22 supports it.
+
+---
+
+## 20. Testability hooks required from backend and frontend
+
+These are **requirements** on Phase 2 design; most are cheap if done from day one and very expensive later.
+
+### 20.1 Backend
+
+| Hook | Requirement |
+|---|---|
+| **Injected clock** | `platform/clock` everywhere (handlers, domain, jobs, rate limiters, token expiry, SSE heartbeat); River `Config.Test.Time` wired to it in tests; **no `time.Now()` outside `platform/clock`** (lint rule: `forbidigo` on `time.Now`) and no SQL `now()` in business predicates |
+| **Injected IDs/randomness** | `platform/idgen` for UUIDv7 + order codes; OTP generator injectable (CSPRNG in prod, sink-readable in tests — never a fixed OTP) |
+| **Pure domain core** | State machine, pricing, coupons, commission, rider pay, journal builders = pure functions (doc 08 `internal/domain`) |
+| **Provider interfaces + wire-level configurable base URLs** | PA, OTP/SMS, push, object storage, maps: base URL and secrets via env so fakes can be swapped in |
+| **Test-control API** `/_test/*` | Only in binaries built with `-tags testhooks`; served on a **separate listener/port** not exposed by the prod LB; refuses to start unless `ROVO_ENV ∈ {local, ci, staging-e2e}` **and** a `ROVO_TEST_SECRET` is set; every call audited. Endpoints: `reset`, `seed`, `factory/*`, `clock` (set/advance), `jobs/run-due`, `otp?phone=`, `push?user=`, `pa/*` (proxy to fakepa controls), `ledger?order=`, `invariants`. **CI test proves the prod image has no `/_test` routes and no `testhooks` symbols** |
+| **Contract-validation middleware** | kin-openapi request/response validation, enabled in tests and `testhooks` builds |
+| **Invariant queries** | `assertInvariants` SQL set packaged so tests, `/_test/invariants`, nightly reconciliation and restore drills share it |
+| **Config overrides** | All timeouts (offer 45 s, accept, cancel windows, payment expiry), limits (COD cash, rate limits) configurable per env/city |
+| **Observability for tests** | Metrics for queue latency, event lag, SSE connections, offers expired; structured logs with `order_id`/`trace_id` so failing E2E can attach the relevant log slice |
+| **Seeder** | `rovo seed --profile=…` (non-prod builds only) |
+
+### 20.2 Frontend
+
+| Hook | Requirement |
+|---|---|
+| `data-testid` | On dynamic, non-semantic items: order cards (`order-card-{code}`), offer card + countdown, inbox items, status timeline steps, bill lines (`bill-line-{type}`), payout rows. Kept in production builds (cheap; used by synthetics) |
+| Accessible names first | Every interactive control has a role + accessible name (en and te) — the primary selector strategy |
+| Build/version marker | `<meta name="rovo-build" content="…">` and in About screen (SW update tests, smoke checks) |
+| i18n | All strings through i18next; `en-XA` pseudo-locale buildable; language switch without reload |
+| Alert hooks | Restaurant new-order sound/vibration sets `data-alert-played` attribute (tests can't hear) |
+| Geolocation | Rider app uses an injectable geolocation adapter (Playwright `setGeolocation` + a manual override in `testhooks` builds) |
+| Feature flags | Read from API config, overridable in tests |
+| MSW mock mode | `pnpm dev:mock` boots each app on typed MSW handlers |
+| Deterministic rendering | Dates/times rendered via a clock provider the tests can freeze; animations disabled under `prefers-reduced-motion` (Playwright sets it) for screenshot stability |
+
+---
+
+## 21. CI gating, coverage, flaky tests, runtime budgets
+
+### 21.1 What runs when
+
+```mermaid
+flowchart LR
+  PR["Pull request"] --> A["Lint, typecheck, Go unit + rapid 100, Vitest, i18n parity, spec lint, oasdiff, codegen drift, govulncheck, osv, gitleaks, CodeQL, IaC checks if infra/ changed"]
+  A --> B["Go integration -tags=integration -race, sharded x2; authz matrix; migrations round-trip if changed"]
+  B --> C["Build images; E2E smoke: golden COD + online, Chromium"]
+  C --> M{"Merge to main"}
+  M --> D["Full E2E suite incl. F-1..F-14; ZAP baseline; Trivy; build + push images"]
+  D --> S["Deploy staging via IaC"] --> SM["Post-deploy smoke + golden flow vs real edge + ZAP baseline staging"]
+  N["Nightly"] --> N1["rapid 10k, fuzz, -count=50 race tests, visual, pseudo-locale, Lighthouse CI, chaos subset, PA/OTP sandbox contracts, integration vs staging managed DB, EXPLAIN checks, terraform plan drift"]
+  W["Weekly"] --> W1["ZAP API active scan, k6 K-1/K-3 on staging, restore drill, mutation sample"]
+  R["Pre-release tag"] --> R1["k6 K-2..K-7 on prod shape, chaos full incl. managed DB, real-device checklist, a11y + Telugu sign-off, migration rehearsal"]
+  R1 --> P["Deploy prod"] --> PS["Read-only prod smoke + synthetics"]
+```
+
+| Stage | Contents | Blocking? | Budget (wall-clock p90) |
+|---|---|---|---|
+| **PR** | Go: `gofmt`/golangci-lint, module boundary checks (doc 08 §4.3), unit + rapid(100), integration (`-race`, template DBs, 2 shards), authz matrix, contract checks (spec lint, oasdiff, codegen drift, `tsc`), migrations round-trip (when changed); Frontend: ESLint, `tsc`, Vitest (affected apps via pnpm filtering), i18n parity; Security: govulncheck, osv-scanner, gitleaks, CodeQL; E2E smoke (2 tests); **IaC (when `infra/` changed): `terraform`/`tofu fmt -check`, `validate`, `tflint`, `checkov` (fail on HIGH), `plan` against staging with plan posted as PR comment (no apply)** | Yes, all | **≤ 15 min** |
+| **main** | All PR checks + full E2E (Chromium + WebKit smoke), ZAP baseline on ephemeral stack, Trivy images, push images to registry, deploy to staging (IaC apply of reviewed plan), **post-deploy smoke + staging golden flow + staging ZAP baseline** | Yes (staging smoke blocks promotion) | ≤ 35 min incl. deploy |
+| **nightly** | rapid 10k, fuzz (5 min/target), race `-count=50` on concurrency tests, visual regression, pseudo-locale run, Lighthouse CI, chaos subset (C-1, C-3, C-4), PA/OTP sandbox contract suites, integration subset against staging managed DB, EXPLAIN snapshot checks, **`terraform plan` drift detection on staging + prod (read-only)**, invariants reconciliation in prod | Failures → issue auto-filed, triaged next working day; red nightly 2 days in a row blocks release | ≤ 60 min |
+| **weekly** | ZAP API active scan (ephemeral), k6 K-1 + K-3 (2 h) on staging, backup restore drill (§15.3), mutation testing sample on T1 packages `[OPEN — e.g., gremlins/go-mutesting, verify]` | Findings triaged in 5 working days | – |
+| **pre-release** | k6 K-2..K-7 on prod-shape staging, chaos full set (incl. C-3b/C-3c/C-9b), migration rehearsal, real-device checklist, Telugu native sign-off, a11y manual audit (major releases), UAT sign-off (pilot/beta) | Yes — release gates §22.3 | 1–2 days |
+| **production deploy** | Read-only smoke (§19.3); continuous synthetics | Auto-rollback on fail where supported | ≤ 5 min |
+
+**GitHub Actions minutes:** standard GitHub-hosted runners are free for public repositories; larger runners are always billed; private repos on GitHub Free get 2,000 min/month (GitHub docs "GitHub Actions billing", accessed 2026-10-04). rovo is public (Apache-2.0), so the budget constraint is **wall-clock and concurrency**, not minutes. Still: use path filters, Go build/test cache, pnpm store cache, Playwright browser cache, Docker layer cache, and cancel superseded runs. If the repo is ever private before launch, the PR pipeline (~15 min × ~3 parallel jobs) at ~10 PRs/day would exceed 2,000 min within a week → budget for paid minutes or self-hosted runners `[OPEN: 21]`.
+
+**Fork PRs:** no secrets; sandbox contract tests, staging deploys and plan-against-staging are skipped (run on `main` and nightly instead).
+
+### 21.2 Coverage targets (measured, gated by module)
+
+| Module / package | Target | Measured by |
+|---|---|---|
+| `ordering/internal/domain` (state machine), `dispatch` ranking + offer lifecycle | ≥ 90 % statements **and** 100 % transition-table rows exercised | Go coverage + transition-row coverage report from the matrix test |
+| `pricing` (quote engine), `promotions` (coupons) | ≥ 90 % + all golden families present | Go coverage |
+| `ledger`, settlement/payouts, commission, rider pay | ≥ 90 % | Go coverage |
+| `payments` (webhooks, reconciliation, refunds) | ≥ 85 % | unit + integration coverage (merged) |
+| `identity`/`authz` | ≥ 90 %; 100 % operations in HTTP matrix | coverage + matrix completeness |
+| Other Go modules | ≥ 70 % | – |
+| **Go overall** | **≥ 70 %** (unit + integration merged via `-coverpkg=./...`; E2E coverage of the `api` binary via `go build -cover` + `GOCOVERDIR` reported, not gated) | Codecov-free alternative: coverage summary posted as PR comment by a small script `[OPEN: 21]` |
+| Frontend shared packages (money format, cart, i18n utils, API hooks) | ≥ 85 % | Vitest v8 coverage |
+| Each frontend app | ≥ 60 % | Vitest |
+
+Rules: coverage may not drop by > 1 percentage point on a T1 package in a PR without a reviewer-approved justification; coverage is a floor, not the goal — reviewers check assertions, not lines.
+
+### 21.3 Runtime budgets and how we keep them
+
+- Go unit < 90 s; integration < 8 min (2 shards; template DBs; parallel tests); Vitest < 4 min; E2E smoke < 10 min; full E2E < 25 min sharded ×3.
+- A test-time report (slowest 20 tests) is posted weekly; any single Go test > 5 s or E2E spec > 90 s needs a ticket.
+
+### 21.4 Flaky-test policy
+
+1. **Definition:** a test that both passes and fails on the same commit.
+2. **Detection:** Playwright `retries: 1` in CI — pass-on-retry marks it flaky in the report; Go tests have **no retries**; nightly `-count=50` and a weekly "rerun main ×5" job surface flakes.
+3. **Quarantine:** within 1 working day, the owner either fixes it or quarantines it (`test.fixme` with issue link in Playwright; `testutil.Quarantine(t, "ISSUE-123")` in Go, which skips in PR/main but runs in nightly and reports). Quarantined tests are listed on a dashboard/issue label `flaky`.
+4. **SLA:** fix or delete within **10 working days**; T1 tests cannot stay quarantined across a release — release gate.
+5. **Budget:** flake rate (flaky runs / total runs, 7-day window) ≤ 2 % for E2E, 0 % target for Go.
+6. **Root-cause bias:** most flakes are real races (SSE timing, missing awaits on network idle, shared seed data). Fixes prefer proper waits on state (`expect.poll` on test API, web-first assertions) over timeouts. `waitForTimeout` is lint-banned in E2E.
+
+---
+
+## 22. Definition of Done, bug severity, triage SLAs, release gates
+
+### 22.1 Definition of Done (story level)
+
+A story is done when:
+
+1. Acceptance criteria (with requirement IDs) are met and demoed in local or staging.
+2. Tests at the right layers exist per tier (§2.2) and are tagged with requirement IDs (§23); T1 changes include unit + property/golden + integration (+ E2E if user-visible).
+3. OpenAPI updated first (spec-first), codegen regenerated, contract checks green; no unapproved breaking change.
+4. `x-rovo-permission` declared and authz matrix/IDOR tests updated for new/changed operations.
+5. All UI strings in `en` **and** `te` (machine/draft `te` allowed only behind the `te-pending` allow-list, which must be empty at release); screens checked at 360 px in both locales; axe clean (no serious/critical).
+6. Money: amounts in paise end-to-end; ledger journals for new money flows designed with Finance-ops review and balancing tests.
+7. Migrations: forward + down tested; destructive changes labelled and reviewed.
+8. Observability: logs/metrics/traces for new flows; alerts for new failure modes (doc 24).
+9. Security/privacy: no secrets/PII in logs (redaction tests), threat-model delta noted if new surface (doc 19).
+10. Docs updated (API descriptions, runbooks if ops-affecting); feature flag defaults decided.
+11. CI fully green, no new quarantined tests, code reviewed (two reviewers for T1).
+
+### 22.2 Bug severity and triage SLAs
+
+| Severity | Definition (examples) | Triage | Fix / mitigation target |
+|---|---|---|---|
+| **S1 Critical** | Money wrong by ≥ 1 paisa in any bill/ledger/payout; ledger imbalance; double charge; data leak/IDOR; auth bypass; golden flow blocked for any actor; orders stuck with no workaround; production down | **≤ 30 min** during operating hours (10:00–23:00 IST in pilot), ≤ 2 h otherwise; on-call paged | Mitigate ≤ 4 h (flag off, rollback, manual ops), fix + hotfix ≤ 24 h; post-incident review |
+| **S2 Major** | Feature broken with workaround (e.g., admin manual assign needed often); wrong Telugu text that misleads (e.g., refund message); serious a11y blocker; perf SLO breach at peak | ≤ 1 working day | ≤ 3 working days or next release, whichever first |
+| **S3 Minor** | Cosmetic/functional issue with easy workaround; non-misleading translation issue; minor layout overflow in `te` | Weekly triage | Within 2 sprints |
+| **S4 Trivial** | Polish, typos in non-critical text | Weekly triage | Backlog |
+
+Priority is set separately (by Product) but **S1 is always P0**. Any bug found in a T1 module gets a regression test before closure. Pilot bugs reported by restaurants/riders in Telugu are triaged by a Telugu-speaking team member.
+
+### 22.3 Release quality gates (feeds doc 29 production readiness)
+
+| Gate | Criterion |
+|---|---|
+| G1 | All PR/main checks green on the release commit; staging post-deploy smoke + golden flow green |
+| G2 | **0 open S1/S2** (S2 waiver only by Product + Engineering lead, written) |
+| G3 | Nightly green on 3 consecutive runs; no quarantined T1 tests |
+| G4 | k6 SLOs met on prod-shape staging (§12); capacity report attached |
+| G5 | Backup restore drill passed within the last 7 days with measured RTO within target (doc 23) |
+| G6 | ZAP: no FAIL; no unwaived High/Critical vulnerabilities (SCA/SAST/image); IaC checks clean; `terraform plan` for prod reviewed with no unexpected changes |
+| G7 | `te` catalog 100 % complete, `te-pending` empty, native-speaker sign-off for changed strings; visual `te` snapshots reviewed |
+| G8 | No serious/critical axe violations; manual a11y audit for major releases |
+| G9 | Migrations rehearsed on prod-shape data; rollback/forward-fix plan written |
+| G10 | Invariants/reconciliation clean on staging after full E2E + chaos; reconciliation clean in prod for the last 7 days (after launch) |
+| G11 | Real-device checklist passed on classes A, B, D (+E for iOS-affecting changes) |
+| G12 | Pre-launch only: pilot exit criteria (§17) met; external pentest findings High+ closed `[OPEN: budget]`; maker-checker bootstrap (≥ 2 `ADMIN_SUPER`, ≥ 1 `ADMIN_FINANCE`) per doc 12 |
+
+---
+
+## 23. Traceability
+
+### 23.1 Requirement ID prefixes → suites
+
+Doc 01 uses IDs of the form `<PREFIX>-<AREA>-<NNN>` (e.g., `CUS-AUTH-001`, `RES-MENU-004`, `RDR-FLOW-010`, `ADM-PAYO-003`, `NFR-PERF-006`) plus business rules `BR-<AREA>-<NNN>` (e.g., `BR-FEE-*`, `BR-COD-*`, `BR-REF-*`, `BR-TIME-*`). Security requirements appear as `NFR-SEC-*` and in doc 19 as `SEC-*`. Tags in tests use the full ID; the report groups by prefix and area.
+
+| Prefix | Domain | Primary suites | Secondary |
+|---|---|---|---|
+| `CUS-` | Customer app: onboarding/OTP, address & serviceability, browse/search, cart & quote, checkout (COD/online), tracking, cancel, rating, support | Go unit (pricing, coupons, serviceability), integration (PostGIS, orders), E2E golden + F-4/F-5/F-9/F-10/F-11/F-14, Vitest customer app | i18n, a11y, PWA §11, k6 K-1/K-2 |
+| `RES-` | Restaurant/partner: onboarding/KYC, menu (variants, add-ons, availability), hours, inbox & alerts, accept/reject/ready, payouts view | Unit (state machine, hours), integration (menu, inbox SSE), authz/IDOR (outlet scoping), E2E golden + F-1/F-2/F-10, Vitest restaurant app | Real-device (tablet, sound), k6 K-3 |
+| `RDR-` | Rider: onboarding/KYC, online/offline, location, offers & timeout, pickup/drop, COD cash & deposit, earnings | Unit (dispatch ranking, rider pay, COD limit), River job tests, race tests, E2E golden + F-3/F-7/F-8/F-12, Vitest rider app | Real-device (network, GPS), chaos C-1, k6 K-4 |
+| `ADM-` | Admin: zones & pricing config, restaurant/rider approval, manual assign, refunds, payouts, reports, audit, maker-checker | Integration (maker-checker, audit hash chain), authz (city scope), E2E admin steps + F-3/F-6, Vitest admin app | a11y keyboard, ZAP |
+| `SEC-` | Auth, sessions, CSRF, rate limits, webhook security, PII/DPDP, audit, headers | Authz matrix + IDOR, session/token tests, rate-limit tests, webhook signature/replay, fuzz, ZAP, SCA, IaC checks, redaction tests | Pentest, ASVS checklist (§14.1) |
+| `BR-` (business rules: `BR-FEE`, `BR-COD`, `BR-REF`, `BR-COMM`, `BR-RPAY`, `BR-PAYOUT`, `BR-TIME`, `BR-DISP`, `BR-CAN`, `BR-COUP`, …) and `CUS-PAY`/`ADM-PAYO`/`RES-PAYO` | Fees, COD, refunds, commission, rider pay, payouts, GST lines, timers, dispatch, cancellation | Golden tables, rapid invariants INV-L*, PA contract suite, E2E ledger assertions + F-1/F-4/F-6 | Reconciliation job, restore drill |
+| `NFR-` (`NFR-PERF`, `NFR-AVAIL`, `NFR-PRIV`, `NFR-SEC`, `NFR-AUD`, …) | Performance, availability, privacy, security, audit, i18n, a11y, PWA budgets | k6, chaos, Lighthouse, i18n parity, axe | Real-device |
+
+### 23.2 Tagging convention and report
+
+- **Go:** comment directly above the test or table case: `// REQ: CUS-CHK-003, BR-FEE-002`; table cases may carry a `req []string` field (golden YAML has `req:`).
+- **Playwright:** `test('checkout COD', { tag: ['@CUS-CHK-003', '@BR-COD-001', '@golden'] }, …)`.
+- **Vitest:** `describe('[CUS-CART-004] bill summary', …)`.
+- **Manual (UAT/real-device/a11y):** checklist rows reference IDs.
+- A `tools/trace` script (Phase 2) parses tags across Go, TS and checklists, joins with the requirement list exported from doc 01 (Markdown table → CSV), and publishes a **traceability matrix artifact** per main build: requirement → tests (layer, last result). **Gate:** every **P0** requirement in V1 scope (doc 01 priorities / doc 02) has ≥ 1 automated test at the layer its tier requires, or an explicit manual-test reference; uncovered `Must` requirements block release (G1).
+
+---
+
+## 24. What we are deliberately not doing
+
+| Not doing | Why |
+|---|---|
+| Mocking the database for integration tests / SQLite | PostGIS, River, `pg_notify`, CAS semantics can't be faked faithfully |
+| Pact / consumer-driven contracts | Monorepo with spec-first codegen on both sides gives compile-time contract checks |
+| Paid visual-testing SaaS, paid device clouds at V1 | Free Playwright screenshots + a small physical device shelf (5 device classes) suffice for one city |
+| Native mobile test frameworks (Appium/Espresso) | No native apps in V1 |
+| Load testing production with real traffic present | Risk to real orders; capacity proven on prod shape in staging |
+| Active DAST against production | Risk; passive checks only in prod |
+| 100 % coverage targets everywhere | Effort goes to T1 modules where defects cost money |
+| Fixed "magic" OTP in any environment | Too easy to leak into prod config; OTP sink instead |
+| Separate QA team gatekeeping | Developers own tests; QA Architect owns strategy, tooling, gates and exploratory testing |
+| Full Storybook | MSW mock mode + component tests cover V1; reconsider when the design system grows |
+
+---
+
+## 25. Open questions
+
+| # | Question | Owner |
+|---|---|---|
+| OQ-1 | Delivery-fee slab boundary inclusivity and whether slabs apply to road-factored distance; slab table must cover max radius × road factor (CH-3) | Product (01) / Backend (16) |
+| OQ-2 | GST rates/sections per line, invoice rounding level (line vs invoice) and whether display totals round to the rupee `[LEGAL]` | Solution (14) + tax advisor |
+| OQ-3 | Does River's fetch honour stubbed `Config.Test.Time` for scheduled jobs (decides E2E time-travel vs short timeouts)? Phase 2 spike | Backend + QA |
+| OQ-4 | Customer cancel windows, accept-timeout outcome (auto-cancel vs escalate), undeliverable refund policy | Backend (13) / Product |
+| OQ-5 | Offline queueing allowed for rider delivery milestones? | Frontend (18) / UX (06) |
+| OQ-6 | Four PWAs confirmed by doc 17 (F2); visual baseline set grows to 4 apps × 2 locales — confirm repo storage for PNG baselines (Git LFS or not) | Frontend (17) / Solution (26) |
+| OQ-7 | Production synthetic test order: yes/no | Product + Finance + Release (29) |
+| OQ-8 | Telugu reviewer: paid/volunteer, turnaround SLA | Product |
+| OQ-9 | External pentest budget and timing | Security (19) / Release (29) |
+| OQ-10 | Exact managed prod shape and staging scale-up cost for capacity runs | DevOps (22/25) |
+| OQ-11 | MSW handler generation for OpenAPI 3.1 (`openapi-msw` vs `@mswjs/source` 3.1 support) | Frontend (17) |
+| OQ-12 | SSE load tool: `xk6-sse` vs custom Go harness | QA (Phase 2 spike) |
+
+---
+
+## 26. Challenges to the baseline
+
+| ID | Baseline item | Challenge | Proposal |
+|---|---|---|---|
+| CH-1 | P2 OpenAPI **3.1** spec-first with Go codegen + TS client | oapi-codegen's 3.1 support is described as *initial* (v2.8.0 release notes / search results, accessed 2026-10-04); kin-openapi now lists 3.1; MSW's `fromOpenApi` documents 2.0/3.0 only. Toolchain gaps will surface as contract-test noise | Keep 3.1, but restrict the spec to a **tested 3.1 subset** (kitchen-sink compatibility fixture in CI, §7.1, with lint banning constructs any tool mishandles). Fallback: author in a 3.0-compatible subset. |
+| CH-2 | §3 Time conventions | Baseline doesn't forbid DB-side time. Any `now()` in business SQL makes timeouts/cancel windows untestable with a fake clock and breaks E2E time control | Rule: business time is passed as a parameter from `platform/clock`; `now()` only for audit defaults; lint enforced. |
+| CH-3 | §5 fee slabs vs §3 Geo radius | Max radius 7 km is straight-line (serviceability), but slabs use distance × road factor 1.3 → a 7 km radius order is ~9.1 km "road", beyond the 6–8 km top slab → fee undefined. Slab boundary inclusivity also unspecified | Define slabs on the same distance basis as the quote, add a top slab (or cap) covering `max_radius × road_factor`, and pin boundary inclusivity (golden tests ready). |
+| CH-4 | §3 Money rounding "half up at line level" | Ambiguous for tax: per-item-line GST vs per-tax-line on aggregated base give different paise totals | Decide one rule (proposed: compute tax per tax line on the aggregated base for each rate, round half-up once) and encode it in golden tables; get `[LEGAL]` sign-off on invoice compliance. |
+| CH-5 | §4a staging "scaled down" | A scaled-down staging can't validate capacity or burstable-DB credit behaviour | Staging IaC must support a **temporary prod-shape scale-up** (variables only) for capacity and chaos runs; budget it per release. |
+| CH-6 | §4a + doc 08 SSE through CDN/LB | Managed load balancers/CDNs impose idle and **maximum** stream durations that differ from local Caddy/Compose; this is only observable in staging | Add staging SSE soak (C-9b, K-3) and post-deploy SSE heartbeat check as release gates; doc 22 must document LB/CDN timeouts. |
+| CH-7 | doc 08 §9.1 still describes "V1 on one VM / Compose" (pre-§4a) | Conflicts with §4a managed production; test environments and capacity numbers in this doc follow §4a | Solution/DevOps to reconcile doc 08 §9 with §4a. |
+| CH-8 | P6/doc 08: in-process general rate limits | With ≥ 2 API tasks in managed production (§4a), in-process limits loosen ×N and rate-limit tests in staging won't match local | Accept for general limits (doc 08 already does), but rate-limit **tests** for auth/OTP must run against the Postgres limiter in staging; edge WAF limits tested in staging smoke. |
+| CH-10 | Load model: doc 01 NFR-PERF-006 (300 orders/h peak) vs QA brief (25 % of 2,000/day = 500/h) | Two different peak assumptions will produce two different capacity verdicts | Tests use 500/h × 3; Product to confirm one peak figure in doc 01 and re-baseline after 4 pilot weeks. |
+| CH-9 | Baseline is silent on testability hooks | Without mandated `/_test/*`, fake providers and seeders from day one, E2E for a 4-actor flow with timers is impractical | Adopt §20 as Phase 2 requirements (backlog items in doc 27). |
+
+---
+
+## 27. Sources
+
+All accessed 2026-10-04.
+
+| Claim | Source |
+|---|---|
+| River `Config.Test` → `TestConfig{DisableUniqueEnforcement, Time rivertype.TimeGenerator}` | https://github.com/riverqueue/river/blob/master/client.go (raw source) |
+| `rivertest` helpers (`RequireInserted[Tx]`, `RequireNotInserted[Tx]`, `RequireManyInserted[Tx]`, `NewWorker`, `Work`, `WorkJob`) | https://pkg.go.dev/github.com/riverqueue/river/rivertest ; https://riverqueue.com/docs/testing |
+| rapid: import path `pgregory.net/rapid`, shrinking, `StateMachine`, `-rapid.checks` | https://github.com/flyingmutant/rapid |
+| testcontainers-go Postgres module, PostGIS image usage, snapshot/restore | https://golang.testcontainers.org/modules/postgres/ ; https://testcontainers.com/modules/postgis/ |
+| kin-openapi supports OpenAPI 3.1; `openapi3filter.ValidateRequest/ValidateResponse` | https://github.com/getkin/kin-openapi (README) |
+| oasdiff supports OpenAPI 3.0/3.1/3.2; `oasdiff/oasdiff-action/breaking` | https://www.oasdiff.com/ |
+| oapi-codegen initial OpenAPI 3.1 support (v2.8.0) | https://github.com/oapi-codegen/oapi-codegen/releases ; https://www.jvt.me/posts/2025/05/04/oapi-codegen-trick-openapi-3-1/ |
+| MSW Source `fromOpenApi` supports OpenAPI 2.0 and 3.0 | https://source.mswjs.io/docs/api/from-open-api ; https://source.mswjs.io/docs/integrations/open-api |
+| ZAP baseline is passive, 1-min spider default, exit codes, rule config file | https://www.zaproxy.org/docs/docker/baseline-scan/ ; https://github.com/zaproxy/action-baseline |
+| `@axe-core/playwright` AxeBuilder, WCAG tags, limits of automated a11y | https://playwright.dev/docs/accessibility-testing |
+| OWASP ASVS 5.0.0 current; chapter list V1–V17 | https://owasp.org/www-project-application-security-verification-standard/ ; https://github.com/OWASP/ASVS/tree/v5.0.0 (CSV `5.0/docs_en/…5.0.0_en.csv`) |
+| GitHub Actions: standard runners free for public repos; larger runners always billed; 2,000 min/month for private repos on Free | https://docs.github.com/en/billing/concepts/product-billing/github-actions |
+| k6 SSE extension `xk6-sse` | https://pkg.go.dev/github.com/phymbert/xk6-sse |
+| Chromium CPU/network throttling via CDP (`Emulation.setCPUThrottlingRate`, `Network.emulateNetworkConditions`) | https://chromedevtools.github.io/devtools-protocol/ (not re-verified in detail — `[VERIFY]`) |
+| Cloudflare ~100 s proxy idle timeout (cited by doc 08) | doc 08 §6.2 source |
+
+Unverified/tool-choice items marked `[VERIFY]` in text: `openapi-msw`, Squawk migration linter, mutation-testing tool, Cloudflare Turnstile test keys, cloud provider load-testing policies.

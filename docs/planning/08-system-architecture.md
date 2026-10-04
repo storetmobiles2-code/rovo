@@ -14,13 +14,14 @@ Tags: `[ASSUMPTION]` = believed true, must be validated; `[OPEN]` = needs a deci
 
 ## 0. Summary (one screen)
 
-- **One Go binary** (`rovo`), three run modes: `rovo api` (HTTP + SSE), `rovo worker` (River jobs, schedulers, dispatch timers), `rovo migrate` (goose + River migrations). Same image, different command.
-- **One PostgreSQL 18 + PostGIS database** is the only stateful backend in V1. It holds business data, the job queue (River), the event log, idempotency keys, sessions, rate-limit counters and the ledger. **No Redis, no message broker in V1** (ADR-006, ADR-007).
-- **Four static PWAs** (customer, restaurant, rider, admin) built with Vite and served from a CDN. They talk to the API over REST/JSON (OpenAPI 3.1 spec-first) and receive live updates over **SSE**. *(Baseline P7 lists three apps with a combined `partner` app. This doc recommends splitting `partner` into `restaurant` and `rider`; see ADR-009 §Consequences. Frontend Architect makes the final call `[OPEN]`.)*
-- **Modules communicate in-process** through Go interfaces (sync) and through **domain events persisted in the same transaction** as the state change. They are delivered by River jobs (async). No module reads or writes another module's tables.
-- **Real-time:** a state change commits → `pg_notify` (transactional, so it is only delivered on commit) → every API replica's SSE hub fans it out to subscribed clients. SSE messages are **invalidation hints plus small payloads**. REST stays the source of truth, so a missed SSE message is harmless.
-- **Money:** integer paise and an append-only double-entry ledger. A licensed payment aggregator (PA) moves all electronic money (doc 14).
-- **Scaling path:** 1 VM → 2 API replicas behind Caddy (still no Redis) → managed Postgres → Redis/Valkey only for proven needs → extract dispatch/notifications only if they become hot spots. Kubernetes only when the readiness criteria in §9.4 are met.
+- **One Go binary** (`rovo`), three run modes: `rovo api` (HTTP + SSE), `rovo worker` (River jobs, schedulers, dispatch timers), `rovo migrate` (goose + River migrations, run as a one-off job before each deploy). The same OCI image (amd64 + arm64) runs on a laptop, in CI, in staging and in production.
+- **Environments (baseline §4a, user directive 2026-10-04):** *local* = Docker Compose on the developer machine with fakes for every paid provider. *Staging and production* = **managed services on a standard hyperscaler in an India region** (managed container runtime, managed PostgreSQL + PostGIS with PITR, object storage + CDN, secrets manager/KMS, WAF), provisioned with **Terraform/OpenTofu** (ADR-026). DevOps picks the specific cloud (docs 22/25). This document stays cloud-neutral: the application depends only on **standard interfaces** (ADR-025): Postgres wire protocol + PostGIS, S3-compatible object storage, Redis protocol (optional), OTLP, OCI images and env-var config with runtime-injected secrets.
+- **One PostgreSQL 18 + PostGIS database** is the only *required* stateful backend. It holds business data, the job queue (River), the event log, idempotency keys, sessions, rate-limit counters and the ledger. **No message broker.** **Redis is not required at launch.** Production can enable a managed Redis-compatible cache by configuration alone when a trigger in ADR-007 fires.
+- **Four static PWAs** (customer, restaurant, rider, admin), built with Vite and served from object storage + CDN. Each app host proxies `/api/*` to the Go API (**same-origin API**, per docs 12 and 17), so there is no CORS and each app gets host-only cookies. Clients talk REST/JSON (OpenAPI 3.1 spec-first) and receive live updates via **SSE**. The baseline's combined `partner` app is split into `restaurant` + `rider` (doc 17 decision F2, endorsed in ADR-009).
+- **Modules communicate in-process** through Go interfaces (sync) and through **domain events persisted in the same transaction** as the state change, delivered by River jobs (async). No module reads or writes another module's tables.
+- **Real-time:** a state change commits → `pg_notify` (transactional, so it is delivered only on commit) → every API replica's SSE hub fans it out to subscribed clients. SSE messages are **invalidation hints plus small payloads**. REST is the source of truth, so a missed SSE message is harmless.
+- **Money:** integer paise and an append-only double-entry ledger. A licensed payment aggregator moves all electronic money (doc 14).
+- **Scaling path:** production starts at 2 API tasks + 1–2 worker tasks on managed containers with a managed (Multi-AZ, or single-AZ at pilot) Postgres → scale tasks horizontally → bigger DB instance + read replica → managed Redis by config for proven needs → extract dispatch or notifications only if they become hot spots. Kubernetes only if the chosen managed runtime requires it or the criteria in §9.5 are met.
 
 ---
 
@@ -38,14 +39,14 @@ flowchart LR
     ROVO[[rovo platform]]
 
     subgraph External systems
-        PA[(Payment Aggregator<br/>Razorpay / Cashfree / PhonePe PG)]
+        PA[(Payment Aggregator<br/>Razorpay / Cashfree / PhonePe PG / Paytm PG)]
         OTP[(SMS provider - DLT<br/>MSG91 / Gupshup / ...)]
         WA[(WhatsApp Business<br/>Cloud API)]
         WP[(Web Push services<br/>FCM / Mozilla autopush / Apple WebPush)]
-        EM[(Email provider<br/>Resend / Brevo / SES)]
+        EM[(Email provider<br/>SES / Resend / Brevo)]
         MAP[(Map tiles<br/>OpenFreeMap or self-hosted PMTiles)]
-        OBJ[(Object storage<br/>Cloudflare R2, S3 API)]
-        OBS[(Observability SaaS<br/>OTLP backend, Sentry, uptime checker)]
+        OBJ[(Object storage<br/>S3-compatible API)]
+        OBS[(Observability backend<br/>OTLP: cloud-native or Grafana Cloud;<br/>Sentry; uptime checker)]
         BANK[(Platform bank account<br/>manual payouts V1)]
     end
 
@@ -54,73 +55,115 @@ flowchart LR
     D -- go online, accept offers, pickup, deliver, deposit COD --> ROVO
     A -- onboard, configure zones and pricing, support, settle --> ROVO
 
-    ROVO -- create orders, refunds, webhooks, settlement reports --> PA
+    ROVO -- create orders, refunds; receive webhooks; fetch settlement reports --> PA
     C -- UPI intent / card / netbanking checkout --> PA
     ROVO -- OTP + transactional SMS --> OTP
     ROVO -- OTP + utility templates --> WA
     ROVO -- push messages (VAPID) --> WP
     ROVO -- receipts, statements, admin mail --> EM
     C & R & D & A -- vector tiles --> MAP
-    ROVO -- menu images, KYC docs, invoices, backups --> OBJ
+    ROVO -- menu images, KYC docs, invoices, exports --> OBJ
     ROVO -- traces, metrics, logs, errors --> OBS
     A -- payouts recorded with UTR --> BANK
 ```
 
-**Trust boundaries:** (1) the internet ↔ Cloudflare edge; (2) Cloudflare ↔ origin VM (Caddy, origin locked to Cloudflare IPs plus authenticated origin pulls, see doc 22); (3) API ↔ third-party providers (outbound only, except PA webhooks, which are inbound and signature-verified); (4) admin surface. Admin is a separate SPA, but in V1 it is served by the **same API process**, under `/admin/v1/*` routes with separate RBAC and TOTP. A separate origin is optional (doc 12).
+**Trust boundaries:**
+1. Internet ↔ edge (CDN + WAF).
+2. Edge ↔ load balancer ↔ API tasks in a private network. The origin only accepts traffic from the edge (doc 22).
+3. API/worker ↔ managed DB and cache over **private networking only**. No public DB endpoint.
+4. API/worker ↔ third-party providers. Outbound only, except PA and messaging webhooks, which arrive inbound and are signature-verified on the dedicated `api.<domain>` host (bearer-only, no cookies, per doc 12).
+5. Admin surface on `admin.<domain>`: an edge access gate plus admin audience, RBAC and TOTP (doc 12). It is served by the same API process under `/api/v1/admin/*`.
 
 ---
 
 ## 2. Containers (C4 level 2)
 
-```mermaid
-flowchart TB
-    subgraph Edge[Cloudflare: DNS, CDN, WAF, TLS]
-        PAGES[Static hosting<br/>customer / restaurant / rider / admin PWAs]
-        PROXY[Proxied API hostname<br/>api.rovo.example]
-    end
-
-    subgraph VM[Single VM, Docker Compose]
-        CADDY[Caddy reverse proxy<br/>TLS to origin, HTTP/2, gzip/zstd,<br/>SSE flush, request limits]
-        API[rovo api<br/>Go, net/http<br/>REST + SSE hub + webhooks]
-        WORKER[rovo worker<br/>Go, River workers,<br/>periodic jobs, dispatch timers]
-        PG[(PostgreSQL 18 + PostGIS<br/>business data, River queue,<br/>event log, ledger, sessions)]
-        OTELC[OpenTelemetry Collector<br/>optional sidecar]
-        VALKEY[(Valkey / Redis<br/>NOT deployed in V1)]
-    end
-
-    R2[(Cloudflare R2<br/>images, docs, invoices, backups)]
-    EXT[PA, SMS, WhatsApp, Push, Email]
-    OBS[(OTLP backend + Sentry)]
-
-    Browser((PWA in browser)) -->|HTTPS static| PAGES
-    Browser -->|HTTPS REST, SSE| PROXY --> CADDY --> API
-    API <-->|pgx pool + 1 LISTEN conn| PG
-    WORKER <-->|pgx pool, River| PG
-    API -->|presign PUT/GET| R2
-    Browser -->|direct upload with presigned URL| R2
-    WORKER --> EXT
-    API --> EXT
-    EXT -->|webhooks| PROXY
-    API & WORKER --> OTELC --> OBS
-    API -.future.-> VALKEY
-```
+### 2.1 Logical containers (same in every environment)
 
 | Container | Tech | Responsibility | Scales by | State |
 |---|---|---|---|---|
 | Customer PWA | React + TS, Vite, vite-plugin-pwa | Discovery, cart, checkout, tracking, ratings, support | CDN | none (IndexedDB cache only) |
 | Restaurant PWA | same stack | Order inbox with loud alert loop, menu and availability, hours, payouts view | CDN | none |
 | Rider PWA | same stack | Online/offline, foreground location ping, offers, pickup and drop flow, COD cash, earnings | CDN | none |
-| Admin SPA | same stack (installable is optional) | Onboarding, zones, pricing, live ops board, support, finance, audit | CDN | none |
-| `rovo api` | Go 1.27, net/http ServeMux, oapi-codegen strict server | Auth, REST, SSE, PA webhooks, presigned uploads | Replicas (stateless apart from SSE connections) | none |
-| `rovo worker` | Go, River | Event fan-out, notifications, dispatch offers/expiry, payment polling, reconciliation, settlement statements, cleanups | Replicas (River handles concurrency with `SKIP LOCKED`) | none |
-| PostgreSQL + PostGIS | PG 18.x, PostGIS 3.x | System of record. Also River queue, LISTEN/NOTIFY bus, sessions, rate limits | Vertical → managed → read replica | yes |
-| Object storage | Cloudflare R2 (S3 API) | Menu/restaurant images, KYC documents (private bucket), invoices PDF, DB backups | n/a | yes |
-| Caddy | Caddy 2 | Origin TLS, routing, compression, `flush_interval -1` for SSE, body-size limits, access logs | 1 per VM | none |
-| Valkey/Redis | — | **Not in V1.** Adapter slot only (ADR-007) | — | — |
+| Admin SPA | same stack (no service worker) | Onboarding, zones, pricing, live ops board, support, finance, audit | CDN | none |
+| `rovo api` | Go 1.27, net/http ServeMux, oapi-codegen strict server | Auth, REST, SSE, webhooks, presigned uploads | Horizontal tasks (stateless apart from live SSE connections) | none |
+| `rovo worker` | Go, River | Event fan-out, notifications, dispatch offers and expiry, payment polling, reconciliation, settlement statements, cleanups | Horizontal tasks (River coordinates via `SKIP LOCKED`; leader election for periodic jobs) | none |
+| `rovo migrate` | same image | goose + River migrations, run as a one-off task/job per deploy | — | none |
+| PostgreSQL + PostGIS | PG 18.x, PostGIS 3.x | System of record. Also the River queue, the LISTEN/NOTIFY bus, sessions, rate limits | Instance size → read replica | yes |
+| Object storage | S3-compatible API | Public media bucket (images), private docs bucket (KYC, invoices, exports) | n/a | yes |
+| Redis-compatible cache | Valkey/Redis protocol | **Optional; disabled at launch** (ADR-007). Enabled by config. | managed | ephemeral |
+| Edge | CDN + WAF + TLS | Static apps, `/api/*` path routing to the API, rate limiting, bot protection | managed | none |
 
-**Why the worker is a separate process even on one VM:** a burst of jobs (notification storm, reconciliation) cannot starve HTTP latency. The API can be restarted without dropping scheduled dispatch timers. The two scale independently later. Both run from the same image. For a tiny dev setup, `rovo all` runs both in one process.
+**Why the worker is a separate process/service:** a burst of jobs (notification storm, reconciliation) cannot starve HTTP latency. API deploys don't interrupt dispatch timers. The two scale independently. Both come from the same image. Local dev may run `rovo all` (both in one process) for convenience.
 
----
+### 2.2 Production / staging shape (managed cloud, provider-neutral)
+
+```mermaid
+flowchart TB
+    subgraph Edge[Edge: managed CDN + WAF + TLS<br/>e.g. CloudFront+WAF / Cloud CDN+Cloud Armor / Front Door; Cloudflare optional in front]
+        STATIC[Static app origins<br/>object storage buckets:<br/>customer / restaurant / rider / admin]
+        ROUTE[Path routing: /api/* → LB<br/>api.domain/webhooks/* → LB]
+    end
+
+    subgraph VPC[Private network - India region]
+        LB[Managed L7 load balancer<br/>idle timeout ≥ 120 s for SSE]
+        subgraph RUNTIME[Managed container runtime<br/>e.g. ECS Fargate / Cloud Run with min instances + CPU always allocated / Azure Container Apps]
+            API1[rovo api task 1]
+            API2[rovo api task 2]
+            WK1[rovo worker task 1..n<br/>always-on, no scale-to-zero]
+            MIG[rovo migrate<br/>one-off task per release]
+        end
+        PG[(Managed PostgreSQL 18 + PostGIS<br/>PITR, automated backups,<br/>Multi-AZ or single-AZ at pilot)]
+        CACHE[(Managed Redis-compatible cache<br/>NOT provisioned at launch)]
+    end
+
+    SM[Secrets manager + KMS]
+    OBJ[(Object storage<br/>public-media, private-docs)]
+    OBS[(OTLP backend: cloud-native<br/>or Grafana Cloud; Sentry)]
+    EXT[PA, SMS, WhatsApp, Push, Email]
+    REG[Container registry<br/>cloud registry and/or GHCR]
+
+    Browser((PWA)) --> Edge
+    STATIC --- Browser
+    ROUTE --> LB --> API1 & API2
+    API1 & API2 & WK1 & MIG --> PG
+    API1 & API2 -. future .-> CACHE
+    API1 & API2 & WK1 --> OBJ
+    Browser -->|presigned PUT| OBJ
+    API1 & API2 & WK1 --> EXT
+    EXT -->|webhooks| ROUTE
+    API1 & API2 & WK1 -->|OTLP| OBS
+    SM -.runtime injection.-> RUNTIME
+    REG -.images.-> RUNTIME
+```
+
+Requirements this shape places on DevOps (docs 22/25):
+- **Always-on compute** for both API (SSE) and worker (timers, River). No scale-to-zero in production. On Cloud Run this means min instances ≥ 1 with instance-based billing (CPU always allocated). On Container Apps it means min replicas ≥ 1.
+- **Long-lived HTTP streams:** LB/edge idle timeouts must exceed the 20 s SSE heartbeat. Any hard maximum request duration (for example a platform request timeout) only causes a client reconnect, which the design tolerates (§6.2).
+- **The LISTEN connection is direct to Postgres.** It must not go through a transaction-pooling proxy (PgBouncer transaction mode, or connection proxies that pin or refuse `LISTEN`). The worker and API pools may use a proxy.
+- **Migrations** run as a one-off task before the new task definition rolls out. They follow expand/contract only (doc 21).
+- **Secrets** (DB password or IAM auth token, PA keys, provider keys, VAPID private key) are injected as env vars or files by the runtime from the secrets manager. The app never calls a cloud secrets SDK (ADR-025).
+- **Object storage** is accessed through the S3 API. On GCP that means GCS XML-API interoperability with HMAC keys. On Azure it means an S3-compatible gateway or a second `BlobStore` adapter. See ADR-025.
+
+### 2.3 Local development shape (Docker Compose)
+
+```mermaid
+flowchart LR
+    DEV((Developer browser)) --> VITE[Vite dev servers<br/>customer :5173, restaurant :5174,<br/>rider :5175, admin :5176<br/>proxy /api → :8080]
+    VITE --> API[rovo api :8080]
+    subgraph Compose[docker compose: deploy/compose/compose.yaml]
+        PG[(postgis/postgis:18-3.x<br/>+ seed: Mahabubnagar city, zones,<br/>localities, demo restaurants/riders)]
+        MINIO[(MinIO: S3 API :9000)]
+        MAIL[Mailpit SMTP :1025 / UI :8025]
+        LGTM[grafana/otel-lgtm<br/>OTLP :4317/:4318, UI :3000]
+        VALKEY[(Valkey - profile 'cache', off by default)]
+        FAKES[fake providers inside rovo:<br/>fakepay, fakeotp, fakepush log sink]
+    end
+    API --> PG & MINIO & MAIL & LGTM
+    WORKER[rovo worker] --> PG & MAIL & LGTM
+```
+
+The full golden flow runs offline. `PAYMENTS_PROVIDER=fake` simulates checkout, delayed webhooks and failures. `OTP_PROVIDER=fake` writes OTPs to logs and a dev-only endpoint. Push and SMS go to log sinks. A PA sandbox (Razorpay test mode) can be enabled with real test keys and a tunnel for webhooks (doc 26 §8).
 
 ## 3. Components: the Go modular monolith (C4 level 3)
 
@@ -318,7 +361,7 @@ Table names are indicative. `10-database-schema.md` is authoritative. "Public in
 #### reporting
 - **Responsibility:** operational dashboards and finance exports built from **read-only SQL views** that each owning module publishes (`<module>_report.*` views) plus event-fed summary tables. This is the one sanctioned cross-module read path, and it is read-only.
 - **Owned tables:** `daily_city_metrics`, `restaurant_daily_metrics`, `rider_daily_metrics` (rebuilt by periodic jobs).
-- **Public interface:** `Dashboard(ctx, cityID, range)`, `Export(ctx, ExportRequest)` (CSV to R2, presigned link).
+- **Public interface:** `Dashboard(ctx, cityID, range)`, `Export(ctx, ExportRequest)` (CSV to the private bucket, presigned link).
 - **Emits:** none. **Consumes:** `OrderDelivered`, `OrderCancelled`, `PaymentCaptured`, `RatingSubmitted` (counters).
 
 ### 3.3 Event catalogue conventions
@@ -391,10 +434,10 @@ sequenceDiagram
     participant W as rovo worker
     actor R as Restaurant PWA
 
-    C->>API: POST /v1/quotes {cart, address_id, coupon}
+    C->>API: POST /api/v1/quotes {cart, address_id, coupon}
     API->>PG: read menu, zones, pricing config; insert quote (TTL 10 min)
     API-->>C: 201 quote {breakdown, total_paise, quote_id}
-    C->>API: POST /v1/orders {quote_id, payment_method: ONLINE}<br/>Idempotency-Key: k1
+    C->>API: POST /api/v1/orders {quote_id, payment_method: ONLINE}<br/>Idempotency-Key: k1
     API->>PG: BEGIN; insert idempotency_keys(k1, in_progress)
     API->>PG: ValidateQuote, Reserve coupon,<br/>insert order (PENDING_PAYMENT, v=1), lines, snapshots,<br/>insert payment_intent (CREATED), event OrderCreated; COMMIT
     API->>PA: create PA order {amount, receipt=order_id, notes}<br/>(outside tx, retried with same receipt)
@@ -404,7 +447,7 @@ sequenceDiagram
     C->>PA: open checkout (UPI intent / card / netbanking)
     PA-->>C: success {payment_id, signature}
     par Fast path (client)
-        C->>API: POST /v1/payments/confirm {pa_order_id, payment_id, signature}
+        C->>API: POST /api/v1/payments/confirm {pa_order_id, payment_id, signature}
         API->>API: verify HMAC(order_id|payment_id) with key secret
         API->>PG: BEGIN; payment_intent CAPTURED (CAS); event PaymentCaptured; COMMIT
     and Authoritative path (webhook)
@@ -437,7 +480,7 @@ sequenceDiagram
     participant W as rovo worker
     actor R as Restaurant PWA
 
-    C->>API: POST /v1/orders {quote_id, payment_method: COD}<br/>Idempotency-Key: k2
+    C->>API: POST /api/v1/orders {quote_id, payment_method: COD}<br/>Idempotency-Key: k2
     API->>PG: check COD eligibility: city/zone COD enabled,<br/>total ≤ COD max, customer not COD-blocked (no-show count)
     alt not eligible
         API-->>C: 422 problem+json {code: COD_NOT_AVAILABLE, reason}
@@ -463,7 +506,7 @@ sequenceDiagram
     actor C as Customer PWA
 
     Note over W: On OrderPlaced, schedule job ordering.accept_timeout at +N min [ASSUMPTION N=4]
-    R->>API: POST /v1/restaurant/orders/{id}/accept {prep_minutes: 20}<br/>Idempotency-Key, If-Match: "v2"
+    R->>API: POST /api/v1/restaurant/orders/{id}/accept {prep_minutes: 20}<br/>Idempotency-Key, If-Match: "v2"
     API->>PG: BEGIN; UPDATE orders SET status='ACCEPTED', version=3, prep_eta=...<br/>WHERE id=$1 AND status='PLACED' AND version=2
     alt 1 row updated
         API->>PG: insert order_status_history; event OrderAccepted; pg_notify; COMMIT
@@ -494,16 +537,16 @@ sequenceDiagram
     W->>PG: insert delivery_offer(D1, PENDING, expires_at=now+45s);<br/>delivery → OFFERED; event DeliveryOffered; pg_notify; job dispatch.expire_offer @ +45s; COMMIT
     API-->>D1: SSE offer + Web Push (high urgency), in-app sound
     alt D1 declines or no response
-        D1->>API: POST /v1/rider/offers/{id}/decline  (or nothing)
+        D1->>API: POST /api/v1/rider/offers/{id}/decline  (or nothing)
         W->>PG: expire_offer: CAS offer PENDING→EXPIRED/DECLINED;<br/>next candidate D2 (exclude D1); new offer +45s
         API-->>D2: SSE offer
-        D2->>API: POST /v1/rider/offers/{id}/accept
+        D2->>API: POST /api/v1/rider/offers/{id}/accept
         API->>PG: BEGIN; lock delivery FOR UPDATE; check offer PENDING and now < expires_at;<br/>offer ACCEPTED; delivery ASSIGNED(rider=D2); rider_availability.active=1;<br/>event DeliveryAssigned; COMMIT
         API-->>D2: 200 assigned (restaurant address, pickup code)
     else cascade exhausted (k attempts or T minutes)
         W->>PG: widen radius r1, r2; retry; after max → event DispatchExhausted
         API-->>OPS: SSE ops board alert + push
-        OPS->>API: POST /admin/v1/deliveries/{id}/assign {rider_id}
+        OPS->>API: POST /api/v1/admin/deliveries/{id}/assign {rider_id}
     end
 ```
 
@@ -522,7 +565,7 @@ sequenceDiagram
     participant W as rovo worker
     actor C as Customer PWA
 
-    D->>API: POST /v1/rider/deliveries/{id}/arrived-restaurant
+    D->>API: POST /api/v1/rider/deliveries/{id}/arrived-restaurant
     API->>PG: delivery ASSIGNED→AT_RESTAURANT; event
     D->>API: POST .../picked-up {pickup_code?}
     API->>PG: delivery → PICKED_UP; event DeliveryPickedUp; COMMIT
@@ -552,7 +595,7 @@ sequenceDiagram
     participant PA as Payment Aggregator
     actor C as Customer PWA
 
-    R->>API: POST /v1/restaurant/orders/{id}/reject {reason: ITEM_UNAVAILABLE}
+    R->>API: POST /api/v1/restaurant/orders/{id}/reject {reason: ITEM_UNAVAILABLE}
     API->>PG: CAS PLACED→REJECTED; event OrderRejected; COMMIT
     API-->>C: SSE order.status REJECTED ("refund initiated")
     W->>PG: OrderRejected → payments: insert refund(key=order:{id}:full, amount=captured, status=PENDING)
@@ -580,7 +623,7 @@ sequenceDiagram
 | `ops:city:{city_id}` | admins scoped to that city | `dispatch.exhausted`, `order.stuck`, `restaurant.alert_escalated` |
 | `user:{user_id}` | any logged-in user | `inbox.new` (notification inbox badge) |
 
-Each browser tab opens **one** SSE stream: `GET /v1/stream`. The server derives the topics from the principal (customers get `user:` plus their active `order:` topics, and so on). Clients may narrow with `?topics=` within their entitlement. Authorization is checked at subscribe time and again when an event is routed (is the order still owned by this user?).
+Each browser tab opens **one** SSE stream: `GET /api/v1/stream`. The server derives the topics from the principal (customers get `user:` plus their active `order:` topics, and so on). Clients may narrow with `?topics=` within their entitlement. Authorization is checked at subscribe time and again when an event is routed (is the order still owned by this user?).
 
 ### 6.2 Delivery path: worker → API process
 
@@ -597,16 +640,17 @@ flowchart LR
 - **Payload ≤ 8000 bytes** (Postgres limit). We send a small envelope `{topic, type, entity_id, entity_version, minimal fields}`. Clients either apply the minimal fields (status, ETA) or invalidate the TanStack Query cache and refetch over REST.
 - **Missed events are harmless.** On (re)connect the client refetches the active resources. The SSE `id:` field carries `entity_version`, and `Last-Event-ID` is used only to skip stale duplicates. No server-side replay buffer in V1. This deliberately avoids building a durable stream.
 - **The LISTEN connection** is a dedicated pgx connection per API replica, outside the pool and not through PgBouncer in transaction mode (LISTEN does not work there). The connection reconnects with backoff. While it is down, `/readyz` reports degraded, and clients fall back to polling because the server sends `event: degraded`.
-- **Heartbeats:** an SSE comment line `: ping` every **20 s**. Cloudflare closes proxied streams that are idle for ~100 s on Free/Pro/Business plans (https://community.cloudflare.com/t/100-second-proxy-read-timeout-524-gateway-error-increase/684447, accessed 2026-10-04). Caddy uses `flush_interval -1` on the stream route.
-- **Fallback:** if SSE fails 3 times within 60 s, the client switches to polling `GET /v1/orders/{id}` every 10 s (customers) or `GET /v1/restaurant/orders?status=PLACED` every 5 s (restaurant inbox) until SSE recovers.
-- **HTTP/2** end-to-end through Cloudflare and Caddy, so the SSE stream does not consume one of the browser's six HTTP/1.1 connections per host.
+- **Heartbeats:** an SSE comment line `: ping` every **20 s**, which is shorter than every idle timeout in the chain. Examples: Cloudflare (if placed in front) closes idle proxied streams after ~100 s on non-Enterprise plans (https://community.cloudflare.com/t/100-second-proxy-read-timeout-524-gateway-error-increase/684447, accessed 2026-10-04). Managed L7 load balancers default to around 60 s idle timeouts, and DevOps should set ≥ 120 s. Any proxy in the path (local Caddy/Vite dev proxy, edge) must not buffer `text/event-stream`. The response sets `Cache-Control: no-store` and `X-Accel-Buffering: no`.
+- **Maximum stream duration:** the server closes each stream after 30 min with a `retry: 2000` hint, so connections rebalance across tasks after deploys and scale-outs, and no platform request-duration limit is ever hit unexpectedly.
+- **Fallback:** if SSE fails 3 times within 60 s, the client switches to polling `GET /api/v1/orders/{id}` every 10 s (customers) or `GET /api/v1/restaurant/orders?status=PLACED` every 5 s (restaurant inbox) until SSE recovers.
+- **HTTP/2** (or HTTP/3) between browser and edge, so the SSE stream does not consume one of the browser's six HTTP/1.1 connections per host.
 - **Capacity:** each SSE connection costs one goroutine plus a small buffer (~10–20 KB). 5,000 concurrent streams fit comfortably in a single 1–2 GB API process `[ASSUMPTION: validate in load test, doc 20]`. Per-subscriber send buffers are bounded (16 messages). A slow consumer is disconnected rather than allowed to block the hub.
 - **Background delivery:** SSE only works while the PWA is in the foreground. Anything that must reach a backgrounded or closed app (new order for restaurant, new offer for rider, order delivered for customer) is **also** sent via Web Push, with SMS/WhatsApp escalation for restaurants (doc 15).
 - **Later (multi-replica at scale):** if `NOTIFY` throughput becomes a bottleneck, the `platform/pubsub` interface switches to Redis/Valkey pub/sub or NATS without touching modules. `NOTIFY` takes a global lock at commit, which matters at roughly thousands of notifies per second. That is far beyond V1 volume.
 
 ### 6.3 Rider location ingestion
 
-- The rider PWA posts `POST /v1/rider/location {lat,lng,accuracy,ts}` every 30–60 s while online and in the foreground (P12). The write is an upsert into `rider_locations` with no event emission (high frequency, low value). A sparse sample, at most 1 per 5 min, goes to `rider_location_samples` with 30-day retention `[ASSUMPTION; DPDP review in doc 19]`.
+- The rider PWA posts `POST /api/v1/rider/location {lat,lng,accuracy,ts}` every 30–60 s while online and in the foreground (P12). The write is an upsert into `rider_locations` with no event emission (high frequency, low value). A sparse sample, at most 1 per 5 min, goes to `rider_location_samples` with 30-day retention `[ASSUMPTION; DPDP review in doc 19]`.
 - The location is used by dispatch candidate search. It is not streamed to customers in V1 (no live map).
 
 ---
@@ -615,7 +659,7 @@ flowchart LR
 
 ### 7.1 Idempotency-Key on POST
 
-- **Required** on: `POST /v1/orders`, `/v1/payments/*`, `/v1/orders/{id}/cancel`, restaurant accept/reject/ready, rider offer accept/decline and delivery milestones, admin refunds/payouts/manual assign. **Optional but honoured** on all other POSTs. The client generates a UUIDv4/v7 per *user intent*, not per HTTP attempt.
+- **Required** on: `POST /api/v1/orders`, `/api/v1/payments/*`, `/api/v1/orders/{id}/cancel`, restaurant accept/reject/ready, rider offer accept/decline and delivery milestones, admin refunds/payouts/manual assign. **Optional but honoured** on all other POSTs. The client generates a UUIDv4/v7 per *user intent*, not per HTTP attempt.
 - **Storage:** `idempotency_keys(key, principal_id, method, route, request_hash, status IN ('in_progress','completed'), response_status, response_body JSONB, created_at, expires_at)` with `PRIMARY KEY(principal_id, key)`. TTL is 24 h, swept by a periodic job.
 - **Algorithm:**
   1. `INSERT … ON CONFLICT DO NOTHING RETURNING` in its own short transaction.
@@ -636,7 +680,7 @@ flowchart LR
 ### 7.3 Transactional events (outbox) detail
 
 The emitting code calls `events.Record(ctx, tx, evt)`, which in the same transaction:
-1. inserts the envelope into `event_log` (append-only, partitioned by month, 90-day hot retention, then archived to R2), and
+1. inserts the envelope into `event_log` (append-only, partitioned by month, 90-day hot retention, then archived to object storage), and
 2. calls River `InsertTx` for one `event.fanout` job.
 
 The fan-out worker looks up the static subscription table (code, not config) and enqueues one job per subscriber `(handler, event_id)` with River **unique jobs** to prevent duplicates. Each subscriber job runs its handler in its own transaction and records `processed_events`.
@@ -649,15 +693,15 @@ Because River lives in the same database, `InsertTx` **is** the transactional ou
 
 | What | Where | TTL / invalidation | Notes |
 |---|---|---|---|
-| Static PWA assets | Cloudflare CDN + service worker precache | content-hashed filenames, `immutable, max-age=1y`; `index.html` `no-cache` | Workbox precache, versioned SW |
-| Menu images | R2 behind Cloudflare (custom domain) | `max-age=7d`, versioned object keys | The client resizes and compresses (WebP/JPEG, max 1200px) before upload. No server-side image pipeline in V1. |
-| Map tiles | provider CDN (OpenFreeMap) + browser HTTP cache | provider headers | Self-hosted PMTiles on R2 as fallback (ADR-015) |
-| `GET /v1/restaurants/{id}/menu` | in-process LRU in API (keyed by `menu_version`) + HTTP `ETag` + `Cache-Control: private, max-age=30` | invalidated by `MenuChanged` via NOTIFY | Menus are the hottest read |
+| Static PWA assets | CDN + service worker precache | content-hashed filenames, `immutable, max-age=1y`; `index.html` `no-cache` | Workbox precache, versioned SW |
+| Menu images | `public-media` bucket behind the CDN (`img.<domain>`) | `max-age=7d`, versioned object keys | The client resizes and compresses (WebP/JPEG, max 1200px) before upload. No server-side image pipeline in V1. |
+| Map tiles | provider CDN (OpenFreeMap) + browser HTTP cache | provider headers | Self-hosted PMTiles in object storage as fallback (ADR-015) |
+| `GET /api/v1/restaurants/{id}/menu` | in-process LRU in API (keyed by `menu_version`) + HTTP `ETag` + `Cache-Control: private, max-age=30` | invalidated by `MenuChanged` via NOTIFY | Menus are the hottest read |
 | Restaurant list for a location | in-process, keyed by `(zone_id, filters)`, TTL 30 s | `RestaurantOpened/Closed` busts zone key | Open/closed must be fresh. Short TTL is fine. |
 | Zones, cities, pricing configs | in-process, loaded at boot, refreshed on `ZoneChanged`/`PricingConfigChanged` NOTIFY + 5-min safety refresh | | Small data |
-| Session lookup | in-process LRU (token hash → principal), TTL 60 s | `SessionRevoked` NOTIFY busts immediately | Saves a DB hit per request |
+| Session state (partner audience) | in-process LRU (session id → state), TTL ≤ 30 s; admin uncached (doc 12 AUTH-D05) | `SessionRevoked` NOTIFY busts immediately | Customer requests verify the EdDSA JWT only. No DB hit. |
 | Quotes | DB (`quotes`), TTL 10 min | n/a | Must survive restarts |
-| Rate-limit counters | in-process token buckets for general API limits (single replica); **Postgres** for OTP/auth limits (must survive restarts and be shared across replicas) | | Redis adapter later (ADR-007) |
+| Rate-limit counters | **edge WAF rate rules** for coarse per-IP limits; in-process token buckets for general per-user API limits (per task); **Postgres** for OTP/auth limits (must survive restarts and be shared across tasks) | | Redis adapter later (ADR-007) |
 
 Not cached: order state, payment state, ledger balances (always read from the primary).
 
@@ -665,38 +709,44 @@ Not cached: order state, payment state, ledger balances (always read from the pr
 
 ## 9. Deployment topology and scaling path
 
-### 9.1 V1 (launch): one VM
+Doc 22 (DevOps) owns concrete services, sizes and costs. This section defines the **architectural stages** and their triggers.
 
-`Caddy → rovo api (1) + rovo worker (1) + Postgres/PostGIS (1)` on one ARM VM via Docker Compose. Cloudflare in front. Nightly `pg_dump` plus continuous WAL archiving to R2 (doc 23). Sizing target: P11-scale city, ≈ 500–2,000 orders/day, peak ≈ 3 orders/min, under 1,000 concurrent SSE `[ASSUMPTION; Product to confirm volume in doc 01]`. That is roughly a hundredth of the capacity of this setup.
+### 9.1 Local and CI
 
-### 9.2 Stage 2: higher availability on the same DB
+Docker Compose (§2.3). CI uses ephemeral service containers (Postgres+PostGIS, MinIO) for integration tests. Optional free-tier dev/preview environments are allowed for demos only (doc 25).
 
-Triggers: p95 API latency over 300 ms at peak, CPU over 60% sustained, or a need for zero-downtime deploys.
-- Run **2 API replicas** (same VM or 2 VMs) behind Caddy with health checks. SSE works across replicas because every replica LISTENs. Sticky sessions are **not** required.
-- Run 2 worker replicas. River coordinates with `SKIP LOCKED` and leader election for periodic jobs.
-- In-process general rate limiting becomes per-replica, which is acceptable (it only loosens limits by ×N). OTP limits are already in Postgres.
-- **Still no Redis.**
+### 9.2 Production at launch (pilot)
 
-### 9.3 Stage 3: managed or standalone database
+- Edge CDN + WAF → L7 LB → **2 `rovo api` tasks** (for zero-downtime deploys and to survive one task failing, not for load) + **1 `rovo worker` task** (2 once River leader election and job concurrency are proven in staging) on a managed container runtime.
+- **Managed PostgreSQL 18 + PostGIS**, automated backups + PITR, encryption with KMS, private networking. **Multi-AZ** is recommended. A documented single-AZ pilot decision is acceptable per baseline §4a, with the upgrade trigger "first paid restaurant payout cycle completed or GMV > ₹10 lakh/month, whichever first" `[OPEN: Lead Architect/DevOps]`.
+- **No Redis provisioned.** Object storage + CDN for apps and media. Secrets manager. OTLP to the chosen backend.
+- Sizing target: a single small city, ≈ 500–2,000 orders/day, peak ≈ 3–5 orders/min, under 1,000 concurrent SSE streams `[ASSUMPTION; Product to confirm volume in doc 01]`. The smallest task sizes (0.5 vCPU / 1 GB) and a small burstable DB instance are expected to suffice. The load test in doc 20 confirms this.
+- Staging uses the same Terraform with smaller sizes, single-AZ, and the PA in sandbox mode. It can be stopped when idle.
 
-Triggers: DB CPU over 60%, storage over 70% of the VM disk, recovery point objective (RPO) or recovery time objective (RTO) beyond what self-managed backups can meet, or a second city.
-- Move Postgres to a dedicated VM or a managed provider with PostGIS and PITR. Add PgBouncer (transaction mode) for the pool. LISTEN keeps a direct connection (see §6.2).
-- Add a read replica for reporting/exports only.
-- Introduce **Valkey/Redis** only if: (a) general rate limiting must be global and precise, (b) session-cache misses dominate DB load, or (c) NOTIFY contention appears. The adapters already exist behind interfaces (ADR-007).
+### 9.3 Scale horizontally (same architecture)
 
-### 9.4 Stage 4: selective extraction (only if needed)
+Triggers: API p95 > 300 ms at peak, task CPU > 60% sustained, or SSE connections per task > ~3,000.
+- Autoscale API tasks on CPU/connection count. Every task LISTENs, so SSE works across tasks with **no sticky sessions**.
+- Scale worker tasks on River queue latency (oldest available job age).
+- Per-task in-process rate limits loosen by a factor of N tasks. Acceptable, because edge WAF and Postgres-backed auth limits remain.
 
-Candidates, in order: **notifications** (bursty, provider-bound, no transactional coupling) and **dispatch** (latency-sensitive matching). Extraction recipe: the module already owns its tables, consumes events and exposes a Go interface. Swap the interface for an HTTP (or then-justified gRPC) client, move its tables to its own schema/DB, and replace River-in-same-DB with a broker (NATS JetStream) for cross-service events.
+### 9.4 Scale the data tier
 
-**Kubernetes readiness criteria** (all should hold before adopting K8s):
-1. ≥ 3 independently deployed services, or ≥ 6 long-running replicas, that Compose can no longer manage safely.
-2. A team member owns platform ops with on-call, and the cost of a managed control plane is budgeted.
-3. Multi-node scheduling or autoscaling is a demonstrated need (load varies more than 3× within a day and costs matter).
-4. Images, health probes, config and graceful shutdown are already 12-factor. This is true from day one by design (P14), so moving is mechanical.
+Triggers: DB CPU > 60% sustained, connection count near the limit, storage growth, or reporting queries affecting OLTP.
+- Vertical scale the DB instance, then add a **read replica** for reporting/exports.
+- Add a connection pooler for the worker and API pools (the LISTEN connection stays direct).
+- **Enable managed Redis** (by config: `CACHE_BACKEND=redis`, `RATELIMIT_BACKEND=redis`, `PUBSUB_BACKEND=redis`) only when an ADR-007 trigger fires: precise global rate limits, session-cache misses dominating DB load, or NOTIFY contention.
 
-Until then, Compose plus a simple deploy script is the right tool (ADR-016).
+### 9.5 Selective extraction (only if needed)
 
----
+Candidates, in order: **notifications** (bursty, provider-bound, no transactional coupling) and **dispatch** (latency-sensitive matching). Recipe: the module already owns its tables, consumes events and exposes a Go interface. Swap the interface for an HTTP (or then-justified gRPC) client, move its tables to its own schema/DB, and replace River-in-same-DB with a broker (e.g. NATS JetStream, or the cloud's managed queue behind the `platform/queue` interface) for cross-service events.
+
+**Kubernetes readiness criteria.** Adopt managed Kubernetes (EKS/GKE/AKS) only if:
+1. the chosen managed container service can't meet a hard requirement (e.g. always-on workers, long-lived streams, private networking), **or**
+2. there are ≥ 3 independently deployed services or ≥ 10 long-running tasks where K8s tooling pays for itself, **and**
+3. someone owns platform operations (on-call, upgrades) and the control-plane cost is budgeted.
+
+Images, probes (`/healthz`, `/readyz`), config and graceful shutdown are 12-factor from day one (P14), so a move to K8s is a Terraform/Helm change, not an application change.
 
 ## 10. Multi-city expansion path
 
@@ -719,9 +769,9 @@ Designed in from day one (ADR-020):
 | **OTP SMS provider down** | send errors / DLR failure rate | Fallback chain: WhatsApp authentication template → secondary SMS provider → (customers only) voice OTP `[OPEN]` (doc 15 §6) | auto per request |
 | **All OTP channels down** | | Existing sessions keep working (sessions last 30+ days). New logins are blocked with a status message. Admin login unaffected (email+password+TOTP). | ops |
 | **Web Push service errors** | 4xx/5xx from push endpoints | `410 Gone` deletes the subscription. Others are retried. Restaurant alerts escalate to SMS/WhatsApp/phone call by ops. | auto |
-| **Worker down** | River queue depth / oldest job age metric, heartbeat | API continues taking orders. State changes made via the API still NOTIFY, so SSE works. **Event-driven steps stall:** notifications, dispatch, ledger posting. Alert at oldest job over 60 s. Compose restarts the container. | Jobs are durable and resume. No data loss. |
-| **API down** | uptime check, Caddy health | PWAs show an offline banner and queue nothing that involves money (no offline order placement). Riders can't progress milestones. Their app retries with the same Idempotency-Key. | restart / rollback |
-| **Postgres down** | health checks | Full outage (single point of failure accepted for V1). Static PWAs still load and show a status page. | Restore per doc 23 (RPO ≤ 5 min with WAL archiving `[OPEN: DevOps]`). |
+| **Worker down** | River queue depth / oldest job age metric, heartbeat | API continues taking orders. State changes made via the API still NOTIFY, so SSE works. **Event-driven steps stall:** notifications, dispatch, ledger posting. Alert at oldest job over 60 s. The runtime restarts the task. | Jobs are durable and resume. No data loss. |
+| **API task(s) down** | uptime check, LB health checks | PWAs show an offline banner and queue nothing that involves money (no offline order placement). Riders can't progress milestones. Their app retries with the same Idempotency-Key. | Runtime replaces unhealthy tasks; rollback to the previous task definition/image |
+| **Postgres down** | health checks | Multi-AZ: automatic failover (≈ 1–2 min). In-flight requests fail and clients retry with the same Idempotency-Key. Single-AZ pilot: outage until PITR restore. Static PWAs still load and show a status page. | Managed failover / PITR per doc 23 `[OPEN: DevOps RPO/RTO]` |
 | **LISTEN connection lost** | hub metric | Clients receive `event: degraded` and switch to polling. | auto-reconnect |
 | **Dispatch exhausted (no riders)** | `DispatchExhausted` | Ops board alert. Customer sees "finding a delivery partner". Restaurant is told to hold. After T2 (e.g. 25 min) ops can cancel with full refund. | manual assign |
 | **Restaurant not responding** | accept timeout | Alert loop → escalate to ops after 2 min → auto-reject at 4 min → refund (prepaid) | auto |
@@ -736,10 +786,10 @@ Designed in from day one (ADR-020):
 
 | Not doing | Why | Revisit when |
 |---|---|---|
-| Microservices / service mesh | Team of a few, one city. Distributed transactions around money are high risk. | §9.4 triggers |
+| Microservices / service mesh | Team of a few, one city. Distributed transactions around money are high risk. | §9.5 triggers |
 | gRPC | No internal network boundary. Browsers need REST/JSON anyway. | First extracted service with high-volume internal calls |
 | Kafka / NATS / RabbitMQ | River in Postgres gives durable, transactional jobs with no extra infrastructure | > ~1k jobs/s sustained or cross-service events |
-| Redis in V1 | No proven need at one replica. Postgres covers queue, pub/sub and limits. | §9.3 |
+| Redis at launch | No proven need. Postgres covers queue, pub/sub and limits. Managed Redis can be enabled by config. | §9.4 / ADR-007 triggers |
 | WebSockets | One-way server push is enough. Client → server goes over REST with idempotency. | Two-way chat or high-frequency rider telemetry |
 | Live GPS map for customers | PWA background location is unavailable. Privacy and cost. | Native rider app |
 | Paid routing / ETA APIs | Cost. Straight-line × road factor is adequate in a compact city. | ETA error complaints exceed threshold |
@@ -773,8 +823,8 @@ Designed in from day one (ADR-020):
 ## 14. Open items raised by this document
 
 - `[OPEN]` Product: payment-pending timeout N (proposed 15 min) and restaurant accept timeout (proposed 4 min with escalation at 2 min).
-- `[OPEN]` Frontend Architect: split `partner` into `restaurant` and `rider` PWAs (recommended for separate install identity, manifest, push and permission prompts). Shared code stays in packages.
+- Resolved with Frontend Architect: `partner` is split into `restaurant` and `rider` PWAs (doc 17 F2). Doc 12's host table still lists a single `partner.` host, so doc 12 needs to align `[OPEN → Security Architect]`.
 - `[OPEN]` Backend Architect: confirm table names and the "no cross-module FKs except `cities`/`users`" rule in doc 10. Adopt the `version` column on `orders` and `deliveries`.
 - `[OPEN]` UX: a delivery handover OTP (customer reads a 4-digit code to the rider) for prepaid orders above ₹X. It reduces "not delivered" disputes.
-- `[OPEN]` DevOps: Caddy SSE config, Cloudflare 100 s idle limit, arm64 images, WAL archiving RPO.
-- `[OPEN]` Security: confirm opaque session tokens instead of JWT (ADR-011).
+- `[OPEN]` DevOps (docs 22/25): choose the hyperscaler and the managed container runtime that satisfies always-on API + worker and long-lived SSE. Set LB/edge idle timeouts ≥ 120 s. Make sure the LISTEN connection bypasses any transaction pooler. Decide single-AZ vs Multi-AZ at pilot. Run the S3-compatibility check of the chosen object store (ADR-025).
+- Aligned with doc 12: EdDSA JWT access + opaque rotating refresh + server-side session checks for partner/admin (ADR-011).

@@ -5,7 +5,7 @@
 | **Purpose** | Define how rovo's web frontends are built: framework decision (challenge of baseline P7), app/package layout, routing, state, real-time, auth handling, forms, design system, i18n, images, performance, accessibility, analytics, error tracking, maps, configuration, build and deploy outputs. |
 | **Owner** | Frontend Architect |
 | **Status** | Draft v1 (2026-10-04) |
-| **Depends on** | `00-planning-baseline.md` (P2, P3, P7, P8, P9, P12, P13, P17), `04`–`07` (UX workflows → route lists), `11-api-specification.md` (OpenAPI, SSE event names, error format), `12-auth-rbac.md` (cookies, CSRF, roles), `13-order-state-machine.md`, `14-payment-architecture.md` (checkout and CSP domains), `15-notification-architecture.md` (Web Push, SMS escalation), `16-delivery-zone-architecture.md` (pin-drop, serviceability), `22-deployment-architecture.md` / `25-free-hosting-comparison.md` (static hosting, Cloudflare), `24-observability-strategy.md` (Sentry, RUM) |
+| **Depends on** | `00-planning-baseline.md` (P2, P3, P7, P8, P9, P12, P13, P17), `04`–`07` (UX workflows → route lists), `11-api-specification.md` (OpenAPI, SSE event names, error format), `12-auth-rbac.md` (cookies, CSRF, roles), `13-order-state-machine.md`, `14-payment-architecture.md` (checkout and CSP domains), `15-notification-architecture.md` (Web Push, SMS escalation), `16-delivery-zone-architecture.md` (pin-drop, serviceability), `00` §4a (production on a hyperscaler in an India region; free hosting only for dev/preview), `08-system-architecture.md` (single SSE stream, no replay buffer), `22-deployment-architecture.md` (CDN + object storage, path routing), `25-free-hosting-comparison.md` (preview hosting only), `24-observability-strategy.md` (Sentry, RUM) |
 | **Companion** | `18-mobile-pwa-strategy.md` (service worker, offline, push, native path) |
 
 Tags: `[ASSUMPTION]` = believed true, verify; `[OPEN]` = decision pending; `[LEGAL]` = needs legal review. All web sources were accessed **2026-10-04** unless stated otherwise.
@@ -16,16 +16,16 @@ Tags: `[ASSUMPTION]` = believed true, verify; `[OPEN]` = decision pending; `[LEG
 
 | # | Decision | Status vs baseline |
 |---|---|---|
-| F1 | **Vite + React 19 + TypeScript SPA/PWA**, static output only, no frontend server runtime. Customer app adds **build-time static prerendering of public pages** (home, city, restaurant menu pages) for SEO and WhatsApp link previews. | **P7 CONFIRMED, with an amendment** (prerendering of public pages) |
+| F1 | **Vite + React 19 + TypeScript SPA/PWA**, static output only, no frontend server runtime. In production the files are served from **object storage + the cloud CDN** (e.g. S3 + CloudFront or GCS + Cloud CDN), with Cloudflare optional in front. Customer app adds **build-time static prerendering of public pages** (home, city, restaurant menu pages) for SEO and WhatsApp link previews. | **P7 CONFIRMED, with an amendment** (prerendering of public pages) |
 | F2 | **Four apps, not three**: `apps/customer`, `apps/restaurant`, `apps/rider`, `apps/admin`. The baseline "partner" app is split into restaurant and rider apps. | **P7 CHANGED** (app split) |
-| F3 | **Admin is deployed separately** on its own origin (`admin.<domain>`). It has no service worker, gets a stricter CSP, and sits behind Cloudflare Access (Zero Trust free tier) as an extra gate in front of the app's own email + password + TOTP login. | New |
-| F4 | **Every app calls the API on its own origin under `/api`.** Cross-origin calls are avoided so that patchy 4G does not pay for CORS preflights, and cookies stay host-only. | **Requirement on DevOps** (affects P17, see §15) |
+| F3 | **Admin is deployed separately** on its own origin (`admin.<domain>`). It has no service worker and gets a stricter CSP. An **edge access gate** sits in front of the app's own email + password + TOTP login: a WAF IP allowlist on the CDN, or an identity-aware proxy (Cloudflare Access if Cloudflare is in front; otherwise the cloud's equivalent) [OPEN – DevOps/Security pick]. | New |
+| F4 | **Every app calls the API on its own origin under `/api`.** The CDN routes `/api/*` to the API origin and everything else to the bucket. Cross-origin calls are avoided so that patchy 4G does not pay for CORS preflights, and cookies stay host-only. | Aligned with doc 12 AUTH-D03. **Requirement on DevOps** (§15) |
 | F5 | TanStack Router + TanStack Query, Tailwind, Radix primitives (shadcn-style, copied in), i18next, vite-plugin-pwa, openapi-typescript + openapi-fetch. | P8 CONFIRMED |
 | F6 | **No server-side cart in V1.** The cart is held on the client (one restaurant per cart) and persisted in `localStorage`. A stateless server **quote** endpoint returns the authoritative totals. | Decision (Backend to confirm) |
-| F7 | One SSE connection per app tab, wrapped with reconnect, backoff and `Last-Event-ID`. Each event **invalidates TanStack Query keys**; it does not patch the cache. Polling is the fallback. | P3 CONFIRMED |
+| F7 | One SSE connection per app tab (`GET /api/v1/stream?topics=…`, doc 08), using a small fetch-based client with reconnect, backoff, `reauth` handling and `Last-Event-ID`. On every reconnect the client refetches active queries, because there is no replay buffer. Each event **invalidates TanStack Query keys**; it does not patch the cache. Polling is the fallback. | P3 CONFIRMED |
 | F8 | Self-hosted fonts: system font for Latin text, **Noto Sans Telugu subset** loaded only when Telugu glyphs are on the page. | New |
-| F9 | Images are **resized into variants on upload** (backend worker → R2), not transformed on the fly by Cloudflare Images. | New (requirement on Backend) |
-| F10 | MapLibre GL JS with the **OpenFreeMap** public instance for V1. A **self-hosted Protomaps PMTiles extract** for Telangana on R2 is the plan B. The map is lazy-loaded only on address screens and in admin zone editing. | P13 CONFIRMED |
+| F9 | Images are **resized into variants by a resize-on-upload worker job** and stored in S3-compatible object storage behind the CDN. The cloud's on-the-fly image service is the alternative. | New (requirement on Backend; amends doc 08 "no server-side image pipeline") |
+| F10 | MapLibre GL JS with the **OpenFreeMap** public instance for V1. A **self-hosted Protomaps PMTiles extract** for Telangana in S3-compatible object storage behind the CDN is plan B. The map is lazy-loaded only on address screens and in admin zone editing. | P13 CONFIRMED |
 
 ---
 
@@ -48,8 +48,8 @@ Tags: `[ASSUMPTION]` = believed true, verify; `[OPEN]` = decision pending; `[LEG
 | SEO / link previews | Good for the pages that need it (prerendered HTML + OG + JSON-LD). App pages are noindex. | Best: per-request HTML | Good: SSR, or `ssr:false` + `prerender` for static files ([RR docs](https://reactrouter.com/7.18.3/how-to/pre-rendering.md)) | Excellent for content pages |
 | First visit on low-end Android | Prerendered pages paint before JS runs. JS budget ≤ 170 KB gzip. | Good FCP. App Router runtime and RSC payload add JS weight [ASSUMPTION ~90–110 KB gzip framework baseline – measure]. Hydration costs CPU on low-end phones. | Similar to A in SPA+prerender mode; similar to B with SSR | Best for static pages. App flows still ship React islands. |
 | Repeat visits / PWA / offline | Best: precached shell is instant and offline-capable | Harder: SSR HTML is not precacheable as a shell, so it needs network-first navigation and a custom offline page | Good in SPA mode | Awkward: multi-page app plus islands. Shared state across pages needs extra work. |
-| Hosting cost and terms | **Static files only.** Free and unlimited static requests on Cloudflare ([Workers static assets: "Requests to static assets are free and unlimited"](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)), or served by Caddy behind the Cloudflare CDN. No vendor lock-in. | Needs a server runtime. **Vercel Hobby forbids commercial use**: "Hobby teams are restricted to non-commercial personal use only", where commercial includes "any method of requesting or processing payment from visitors" ([Vercel fair use, updated 2026-09-14](https://vercel.com/docs/limits/fair-use-guidelines)). That rules out rovo. **Cloudflare Workers Free**: 100,000 requests/day, **10 ms CPU** per request, 3 MiB Worker size ([CF Workers limits](https://developers.cloudflare.com/workers/platform/limits/), [OpenNext CF](https://opennext.js.org/cloudflare)). SSR of a React tree within 10 ms CPU is risky, and over-quota requests fail. **Netlify Free**: 300 credits/month, 20 credits/GB bandwidth, 15 credits per production deploy, **sites paused** when credits run out ([Netlify credits](https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/how-credits-work/)). Not acceptable for production. Self-hosting Node on the Oracle VM is possible but adds a process to run, monitor and scale. | SSR mode has the same runtime trade-offs as B. SPA+prerender mode has the same cost as A. | Static mode has the same cost as A |
-| Operational simplicity | Highest: `dist/` folder, cache headers, done | Lowest (runtime, ISR/cache semantics, platform adapters) | Medium | Medium (two paradigms) |
+| Production hosting cost and ops (hyperscaler, India region, per `00` §4a) | **Static files in object storage + CDN.** Cost is close to zero at our scale. For example, the CloudFront flat-rate **Pro plan is $15/month for 10M requests and 50 TB**, and there is also a $0 Free plan with 1M requests and 100 GB ([CloudFront pricing](https://aws.amazon.com/cloudfront/pricing/)). Nothing to patch, scale or keep warm. The same artifact works on any cloud CDN and on free preview hosts. | Needs a **Node SSR runtime as another managed container service** (ECS Fargate / Cloud Run / Container Apps), with ≥ 2 tasks for HA behind the load balancer. Indicative: 2 × (0.5 vCPU, 1 GB) ARM Fargate tasks ≈ **$29/month at US-East list prices** (ARM $0.0000089944/vCPU-s, $0.0000009889/GB-s ([Fargate pricing](https://aws.amazon.com/fargate/pricing/))). Mumbai prices differ [ASSUMPTION – use the AWS calculator]. Add ALB rules, autoscaling, image builds, CVE patching of the Node base image, health checks, logs/traces and on-call for a second runtime. Cloud Run with min instances avoids cold starts but bills idle time. **Preview-only note:** free hosts restrict SSR. Vercel Hobby is "non-commercial personal use only" ([Vercel](https://vercel.com/docs/limits/fair-use-guidelines)). Cloudflare Workers Free allows 100k requests/day and 10 ms CPU ([CF](https://developers.cloudflare.com/workers/platform/limits/)). Netlify Free pauses sites when its 300 credits run out ([Netlify](https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/how-credits-work/)). So SSR also makes previews harder. | SSR mode has the same runtime cost as B. SPA+prerender mode has the same cost as A. | Static mode has the same cost as A |
+| Operational simplicity | Highest: `dist/` → bucket sync + CDN invalidation of `index.html`/`sw.js` | Lowest (second runtime, ISR/cache semantics, CDN↔SSR cache coordination) | Medium | Medium (two paradigms) |
 | Code sharing with a future Expo app | Shared via **framework-agnostic TS packages** (api-client, domain, i18n, utils, zod schemas). Same for all options. | Same. RSC/server actions are **not** reusable in React Native, so it is slightly worse. | Same as A | Same as A |
 | Fit with P8 (TanStack Router/Query) | Native | Replaces the router | Replaces the router (RR7) | Partial |
 | Team learning curve | Lowest | Highest (RSC, caching model) | Medium | Medium |
@@ -75,14 +75,14 @@ Each prerendered page contains `<title>`, `<meta name="description">`, canonical
 
 **Freshness.** The public pages are rebuilt by a nightly GitHub Actions job, plus an on-demand rebuild triggered by a debounced (≥ 15 min) `repository_dispatch` when a restaurant's public profile changes. Prices on prerendered pages are labelled "menu snapshot". Live data replaces them once the SPA mounts.
 
-**When we would revisit SSR:** more than 3 cities with more than 1,000 indexable pages, or Search Console showing real indexing failures for prerendered pages, or a product need for per-request personalised HTML. Until then, SSR adds runtime cost and ops work for no V1 benefit.
+**When we would revisit SSR:** more than 3 cities with more than 1,000 indexable pages, or Search Console showing real indexing failures for prerendered pages, or a product need for per-request personalised HTML. Until then, an SSR tier adds a managed container service (cost, patching, scaling, on-call) for no V1 benefit. Note that the Go API already runs as a managed container. If SSR is needed later, React Router v7 or TanStack Start in SSR mode on the same container platform is the upgrade path, and the route components carry over.
 
 ### 1.4 App split decision
 
 | Question | Decision | Reasoning |
 |---|---|---|
 | Partner = one app or two? | **Two apps: `apps/restaurant` and `apps/rider`** on separate origins (`restaurant.<domain>`, `rider.<domain>`). | Different devices (a shared tablet or cheap phone, often landscape, vs a personal phone in portrait on a two-wheeler). Different permissions (audio, wake lock and notifications vs geolocation, wake lock and notifications). Different PWA identities: separate install name and icon, separate Web Push subscription per origin, and separate Trusted Web Activity packages for Play (doc 18). Different update cadences. Smaller bundles. A combined app would ship the rider's geolocation and offer code to restaurant tablets and the reverse. The cost is one extra Vite build in the same workspace, which is trivial. |
-| Separate admin deploy? | **Yes.** `admin.<domain>`, separate build artifact, separate CSP, no service worker, behind Cloudflare Access (free for ≤ 50 users [ASSUMPTION – verify at [Cloudflare Access](https://www.cloudflare.com/teams-access/)]). The admin API (`/api/v1/admin/*`) only accepts requests that come through the admin origin (Origin + `Sec-Fetch-Site: same-origin` checks, see §6). | Security isolation: an XSS bug in the customer app can never load admin code or ride admin cookies, because cookies are host-only per app origin and the admin API rejects other origins. Admin can ship stricter headers (Trusted Types) without constraining the customer app. |
+| Separate admin deploy? | **Yes.** `admin.<domain>`, separate build artifact, separate CSP, no service worker, behind an edge access gate: a CDN WAF IP allowlist and/or an identity-aware proxy. Cloudflare Access is cited as free for ≤ 50 users if Cloudflare is in front [ASSUMPTION – verify at [Cloudflare Access](https://www.cloudflare.com/teams-access/)]; otherwise the cloud's equivalent applies (doc 12 §3). The admin API (`/api/v1/admin/*`) only accepts requests that come through the admin origin (Origin + `Sec-Fetch-Site: same-origin` checks, see §6). | Security isolation: an XSS bug in the customer app can never load admin code or ride admin cookies, because cookies are host-only per app origin and the admin API rejects other origins. Admin can ship stricter headers (Trusted Types) without constraining the customer app. |
 | [OPEN] Separate registrable domain for admin (e.g. `rovo-ops.in`)? | Optional hardening (~₹1,000/yr). Recommended before any second city. | Removes the "same-site" relationship between subdomains entirely. |
 
 ---
@@ -127,7 +127,7 @@ flowchart LR
 ### 2.1 `packages/api-client`
 
 - **Generation:** `openapi-typescript` turns `openapi.yaml` into `schema.d.ts`. `openapi-fetch` provides a typed `createClient<paths>()`. It is regenerated in CI, and a failing diff blocks the PR ("contract drift").
-- **Middleware chain:** base URL `/api` → `Accept-Language` from i18n → `X-CSRF-Token` on unsafe methods → `Idempotency-Key` on every POST that creates something (UUIDv7 generated **per user intent**, kept until success so retries reuse it) → `X-Client: rovo-customer/1.4.2` → 401 handling (single-flight refresh, §6) → maps `application/problem+json` (RFC 9457) to a typed `ApiError { status, code, title, detail, fieldErrors[] }`.
+- **Middleware chain:** base URL `/api` → `Accept-Language` from i18n → `X-Rovo-Client: customer-web|partner-web|admin-web` on unsafe methods (CSRF layer per doc 12 AUTH-D06) → `Idempotency-Key` on every POST that creates something (UUIDv7 generated **per user intent**, kept until success so retries reuse it) → `X-Rovo-App-Version: customer/1.4.2` (telemetry and min-version checks) → 401 handling (single-flight refresh, §6) → maps `application/problem+json` (RFC 9457) to a typed `ApiError { status, code, title, detail, fieldErrors[] }`.
 - **Auth transport adapter:** `cookie` (web: `credentials: 'same-origin'`) or `bearer` (future native: reads and writes tokens through an injected `TokenStore`). This keeps one client for web and React Native.
 - **Query key factories** (§4.2), **SSE client** (§5) and the **event → invalidation map** live here so all apps share them.
 
@@ -148,7 +148,7 @@ flowchart LR
 
 TanStack Router with **file-based routes**, typed search params validated with zod, and `beforeLoad` guards. Route-level code splitting (`autoCodeSplitting`). Intent preloading on `touchstart`/hover for list → detail links.
 
-### 3.1 Customer (`apps/customer`, origin `<domain>`)
+### 3.1 Customer (`apps/customer`, origin `app.<domain>`; apex redirects here [OPEN])
 
 | Route | Auth | Notes |
 |---|---|---|
@@ -287,43 +287,62 @@ export const qk = {
 
 ## 5. Real-time integration (SSE)
 
-### 5.1 Endpoints (proposal to doc 11)
+### 5.1 Endpoint and events (aligned with doc 08 §Real-time and doc 12 §4.6)
 
-| App | Endpoint | Events (examples, names owned by doc 11) |
-|---|---|---|
-| customer | `GET /api/v1/stream/customer` | `order.status_changed`, `delivery.status_changed` (milestones), `payment.status_changed` |
-| restaurant | `GET /api/v1/stream/restaurant?outlet={id}` | `order.placed` (new inbox item), `order.cancelled`, `delivery.rider_assigned`, `delivery.status_changed` (arriving/picked up), `outlet.availability_changed` |
-| rider | `GET /api/v1/stream/rider` | `delivery_offer.created`, `delivery_offer.expired`, `delivery.cancelled`, `rider.state_changed` (e.g. blocked by cash limit) |
-| admin | `GET /api/v1/admin/stream?city={id}` | `order.*`, `delivery.*`, `restaurant.presence_changed`, `sla.breached` |
-| all | — | `ping` comment line every **25 s** (Cloudflare proxies drop idle streams at ~100 s on non-Enterprise plans ([Cloudflare community](https://community.cloudflare.com/t/100-second-proxy-read-timeout-524-gateway-error-increase/684447))), `reset` (the client must refetch everything) |
+- **One stream per tab:** `GET /api/v1/stream?topics=…` on the app's own host. It is same-origin, so cookies are sent automatically, and **no tokens appear in URLs**. The server derives the allowed topics from the principal. The client narrows them:
 
-Event payloads are **thin**: `{ type, id: entityId, version, occurred_at }`. The client refetches entities via REST, so SSE never becomes a second data contract. The SSE `id:` is a monotonic per-recipient cursor (e.g. the outbox sequence). The server replays from `Last-Event-ID` within a window (≥ 15 min [ASSUMPTION]). Outside the window it sends `reset`.
+  | App | Topics |
+  |---|---|
+  | customer | `order:{id}` for active orders |
+  | restaurant | `inbox:{restaurant_id}` |
+  | rider | `offers`, `delivery:{id}` |
+  | admin | `ops:{city_id}` |
 
-### 5.2 Client wrapper (`createEventStream`)
+- **Events** (names owned by docs 08/11; examples):
+
+  | App | Events |
+  |---|---|
+  | customer | `order.status` |
+  | restaurant | `order.placed` and cancellations |
+  | rider | offer created/expired, delivery cancelled, rider state changed (e.g. blocked by cash limit) |
+  | admin | ops alerts, restaurant presence |
+
+- **Control messages:**
+  - `: ping` comment line every **20 s** (doc 08). This keeps the stream alive under the CDN/LB idle limits: CloudFront's origin read timeout defaults to **30 s** and can be configured up to 180 s ([AWS, 2025-07](https://aws.amazon.com/about-aws/whats-new/2025/07/amazon-cloudfront-origin-response-timeout-controls/)); Cloudflare cuts idle streams at ~100 s ([community](https://community.cloudflare.com/t/100-second-proxy-read-timeout-524-gateway-error-increase/684447)).
+  - `event: reauth`: the server closes the stream when the access token expires (≤ 10 min, doc 12).
+- **Payloads are thin invalidation hints**: `{ type, id, version, occurred_at }`. The client refetches entities via REST, so SSE never becomes a second data contract.
+- **No server-side replay buffer in V1** (doc 08). The SSE `id:` carries `entity_version`, and `Last-Event-ID` only lets the server skip stale duplicates. **Therefore the client refetches every active query on every (re)connect.** Missed events are harmless by design.
+
+### 5.2 Client (`createEventStream` in `packages/api-client`)
 
 ```mermaid
 sequenceDiagram
   participant UI as React app
-  participant W as EventStream wrapper
-  participant API as /api/v1/stream/*
+  participant W as EventStream client (fetch + ReadableStream)
+  participant API as /api/v1/stream
   participant Q as QueryClient
-  UI->>W: start(app, params)
-  W->>API: new EventSource(url + ?lastEventId=…)
-  API-->>W: event order.status_changed {id, version}
-  W->>Q: invalidateQueries(qk.orders.detail(id)), qk.orders.list prefix
-  W->>W: store lastEventId (memory + sessionStorage)
-  API--xW: error / network drop
-  W->>W: close(); backoff 1s,2s,4s… max 30s, ±30% jitter
-  W->>API: reconnect with lastEventId
-  Note over W: after 3 consecutive failures → polling mode<br/>(and keep retrying SSE every 60 s)
+  UI->>W: start(topics)
+  W->>API: fetch(GET, Accept: text/event-stream, Last-Event-ID)
+  API-->>W: 200 stream
+  W->>Q: invalidateQueries(active)  (catch-up after connect)
+  API-->>W: event order.status {id, version}
+  W->>Q: invalidateQueries(qk.orders.detail(id)) + qk.orders.list prefix
+  API-->>W: event reauth / 401
+  W->>W: single-flight refresh (§6) → reconnect
+  API--xW: network drop / 5xx
+  W->>W: backoff 1s,2s,4s… max 30s, ±30% jitter
+  Note over W: 3 failures within 60 s → polling mode<br/>(keep retrying SSE every 60 s)
   UI->>W: visibilitychange=visible / online event
-  W->>API: reconnect immediately + Q.invalidate(active queries)
+  W->>API: reconnect immediately
 ```
 
-- We use native `EventSource` but **close it ourselves on `error` and reconnect with our own backoff**, because the browser's built-in retry has no backoff and gives up on non-200 responses. On reconnect, `lastEventId` is passed as a **query parameter** as well as the header, since a new `EventSource` cannot set headers. The backend must accept both.
-- **401 on the stream** → run the silent refresh (§6), then reconnect. Repeated 401 → redirect to login.
-- **Event → invalidation map** (in `api-client/src/realtime.ts`). Example: `order.status_changed → [qk.orders.detail(id), qk.orders.list prefix, qk.inbox(outlet)]`. **The cache is never patched from event payloads.** Invalidation plus refetch keeps one source of truth and handles out-of-order events.
-- **One stream per tab.** [OPEN] When multiple tabs are open, leader election via `BroadcastChannel` + Web Locks could save connections. Deferred: one tab is the norm on phones.
+- **Fetch-based client.** It is our own ~2 KB parser over `fetch` + `ReadableStream`, not native `EventSource`. That gives us HTTP status visibility (401 → refresh, 403 → stop), custom headers (`Last-Event-ID` on manual reconnects), our own backoff, and an `AbortController`. Doc 12 suggested `@microsoft/fetch-event-source`; we write our own small client instead because that library has not been actively maintained [ASSUMPTION – last release 2021; verify]. It is unit-tested against the SSE spec's parsing rules (multi-line `data:`, comments, `retry:`).
+- **Event → invalidation map** (in `api-client/src/realtime.ts`). Example: `order.status → [qk.orders.detail(id), qk.orders.list prefix, qk.inbox(restaurantId)]`. **The cache is never patched from event payloads.** Invalidation plus refetch keeps one source of truth and handles out-of-order events.
+- **Side effects beyond invalidation:**
+  - Restaurant `order.placed` starts the alert loop (doc 18 §6).
+  - Rider offer events open the offer screen with its countdown.
+  - Both are deduplicated by entity id + version.
+- **One stream per tab.** [OPEN] Multi-tab leader election (`BroadcastChannel` + Web Locks) is deferred, because one tab is the norm on phones.
 - **Hidden-tab policy:**
 
   | App | Policy |
@@ -331,36 +350,35 @@ sequenceDiagram
   | customer | Closes the stream after 60 s hidden. On visible it reconnects and refetches (saves battery and data). |
   | restaurant and rider | **Keep the stream open.** These apps are meant to stay foregrounded (doc 18). |
 
-- **Polling fallback intervals** (only in polling mode, or while SSE is not open):
+- **Polling fallback** (doc 08 values; Query `refetchInterval` tied to a `useRealtimeHealth()` store):
 
   | Data | Interval |
   |---|---|
-  | Customer order detail | 15 s |
-  | Restaurant inbox | 10 s |
+  | Customer order detail | 10 s |
+  | Restaurant inbox | 5 s |
   | Rider state/offers | 5 s while online |
   | Admin live board | 15 s |
 
-  Uses Query `refetchInterval` tied to a `useRealtimeHealth()` store.
 - A connection-health indicator is shown in restaurant, rider and admin apps (green / amber reconnecting / red offline). It is not shown in the customer app unless offline.
 
 ---
 
 ## 6. Auth handling (web)
 
-Security Architect (doc 12) owns token lifetimes and cookie attributes. This section covers the frontend contract.
+Security Architect (doc 12) owns token lifetimes and cookie attributes. This section is the frontend contract and follows doc 12.
 
 | Topic | Design |
 |---|---|
-| Transport | **httpOnly, Secure, host-only cookies** set by the API on each app's origin (because `/api` is same-origin, §15). Access token cookie (≈15 min) `SameSite=Lax`, path `/api`. Refresh cookie `SameSite=Strict` [ASSUMPTION – Lax if the payment-return flow requires it], path `/api/v1/auth/refresh`. Use the `__Host-` prefix where the path allows; the refresh cookie needs `Path=/` to use `__Host-`, so doc 12 decides. JavaScript never sees tokens. |
-| Why `Lax` on the access cookie | After a PA or UPI redirect back to `/checkout/pay/$orderId` (a cross-site top-level navigation), a `Strict` cookie would be missing and the user would look logged out. |
-| CSRF | (1) The API rejects unsafe methods unless `Origin` matches the app origin allowlist **and** `Sec-Fetch-Site` is `same-origin` (when present). (2) **Double-submit token**: the API sets a readable `rovo_csrf` cookie, and the client echoes it in `X-CSRF-Token` on POST/PUT/PATCH/DELETE. (3) JSON-only bodies (`Content-Type: application/json`). Admin API additionally requires the admin origin exactly. |
-| Session bootstrap | The root route `beforeLoad` calls `queryClient.ensureQueryData(qk.me())` → `GET /api/v1/me` (returns user, roles, city scope, `access_expires_at`, locale, consents). 401 → guest. |
-| Silent refresh | (a) **Reactive:** on `401 {code:"token_expired"}`, a **single-flight** `POST /api/v1/auth/refresh` (one in flight; concurrent requests wait), then retry the original request once. (b) **Proactive:** on `visibilitychange → visible` and on a timer 60 s before `access_expires_at`. Refresh failure → clear the Query cache and go to `/login?redirect=…`. |
-| Multi-tab | A `BroadcastChannel('rovo-auth')` broadcasts `logout` and `refreshed` so other tabs follow. |
-| Route guards | `requireAuth(roles[])` in `beforeLoad`: guest → redirect to login with `redirect` search param; wrong role → 403 page. **Each app only admits its own roles.** For example, a RIDER logging into the restaurant app gets "This app is for restaurant partners" with a link to the right app. |
-| OTP UX | `inputmode="numeric"`, `autocomplete="one-time-code"`, paste allowed (WCAG 2.2 SC 3.3.8). **WebOTP API** on Android Chrome if the SMS template ends with `@<customer-domain> #123456` [OPEN: needs DLT template approval; doc 15]. Resend timer 30 s. |
-| Restaurant shared device | Long-lived refresh (e.g. 30 days, doc 12) bound to the device. Staff can "Switch user" without losing the outlet selection. Logout wipes Zustand stores and the Query cache. |
-| Admin | Email + password + TOTP. Session idle timeout 30 min [ASSUMPTION, doc 12]. Re-auth (TOTP) for sensitive actions (refunds > threshold, payout marking, role changes). |
+| Transport | **httpOnly, Secure, host-only cookies** on each app host (same-origin `/api`, §15). Access token `__Host-rovo_at`: 10 min (admin 5 min), `SameSite=Lax` (customer/partner) or `Strict` (admin). Refresh token `__Secure-rovo_rt`: `Path=/api/v1/auth`, `SameSite=Strict`. JavaScript never sees tokens. |
+| Why `Lax` on the access cookie | SMS deep links and the PA return navigation must arrive logged in. Doc 12 adds that the PA's cross-site POST return carries no Lax cookie, so `/checkout/pay/$orderId` must work without assuming a cookie on that first hit. It immediately fetches status with a normal same-origin GET. |
+| CSRF (doc 12 AUTH-D06) | The client always sends `X-Rovo-Client` and `Content-Type: application/json` on unsafe methods. The server enforces Fetch-Metadata/Origin checks (`http.CrossOriginProtection`) and SameSite. **No double-submit token.** Uploads go to pre-signed object-storage URLs (doc 08), never through cookie-authenticated multipart. |
+| Session bootstrap | The root route `beforeLoad` calls `queryClient.ensureQueryData(qk.me())` → `GET /api/v1/me` (user, roles, scope, `access_expires_at`, locale, consents). 401 → guest. |
+| Silent refresh | (a) **Reactive:** on `401 {code:"token_expired"}` or SSE `reauth`, a **single-flight** `POST /api/v1/auth/refresh` **across tabs** using the Web Locks API (`navigator.locks.request('rovo-refresh', …)`, with a `BroadcastChannel` fallback), then retry the original request once. `409 refresh_race` → just retry, because the cookie jar already has the new token (doc 12 §4.3). (b) **Proactive:** on `visibilitychange → visible` and 60 s before `access_expires_at`. Refresh failure → clear the Query cache and Zustand stores and go to `/login?redirect=…`. |
+| Multi-tab | `BroadcastChannel('rovo-auth')` broadcasts `logout` and `refreshed`. |
+| Route guards | `requireAuth(roles[])` in `beforeLoad`: guest → login with a `redirect` search param; wrong role → 403 page. **Each app admits only its own roles.** Restaurant and rider hosts share doc 12's `partner` audience, but each app admits only `RESTAURANT_*` or only `RIDER` respectively, and doc 12 makes these roles mutually exclusive. A rider who opens the restaurant app sees "This app is for restaurant partners" with a link to the rider app. [OPEN → doc 12: add `restaurant.<domain>`/`rider.<domain>` to its host table, or split the audience into `restaurant`/`rider`.] |
+| OTP UX | `inputmode="numeric"`, `autocomplete="one-time-code"`, paste allowed (WCAG 2.2 SC 3.3.8). **WebOTP API** on Android Chrome, using the domain-bound SMS line from doc 12 (`@app.<domain> #123456`; partner apps need their own host line). Resend timer 30 s. |
+| Restaurant shared device | Long-lived refresh family (doc 12: 30-day idle for partner). Staff can "Switch user" without losing the outlet selection. Logout wipes Zustand stores and the Query cache. |
+| Admin | Email + password + TOTP. Idle timeout 30 min (doc 12). Step-up TOTP for sensitive actions. `Clear-Site-Data` on logout. |
 
 ---
 
@@ -431,12 +449,19 @@ Security Architect (doc 12) owns token lifetimes and cookie attributes. This sec
 
 ## 11. Images
 
-- **Decision F9: variants are pre-generated on upload** by the backend worker (libvips via `govips` [ASSUMPTION]):
-  - widths **160, 320, 640, 1024** px
-  - formats **WebP** (q≈75) + **JPEG** fallback; AVIF optional later, since it costs more CPU on the ARM VM
-  - stored in R2 under content-hashed keys
-  - served from `img.<domain>` (R2 custom domain behind the Cloudflare cache) with `Cache-Control: public, max-age=31536000, immutable`
-- **Why not Cloudflare Images:** the free plan includes **5,000 unique transformations/month**, after which new transformations error (`9422`) ([CF Images pricing](https://developers.cloudflare.com/images/pricing/)). 200 restaurants × 50 items × 4 widths × 2 formats ≈ 80,000 unique variants, which is far over that. Vercel Hobby also has 5K transformations and is not allowed commercially anyway.
+- **Decision F9: variants are generated by a resize-on-upload worker job.**
+  - Flow: the client uploads the original via a **pre-signed PUT** to S3-compatible object storage (doc 08; MinIO locally). The API enqueues a River job, and the `rovo worker` resizes with libvips (`govips` [ASSUMPTION]) and writes the variants.
+  - Widths **160, 320, 640, 1024** px.
+  - Formats **WebP** (q≈75) + **JPEG** fallback. AVIF is optional later, because it costs more CPU per image.
+  - Content-hashed object keys.
+  - Served through the CDN on the same app host at `/media/*` (a CDN path behaviour to the media bucket) with `Cache-Control: public, max-age=31536000, immutable`. On a phone over 4G, the same host avoids an extra DNS lookup and TLS handshake. [OPEN – DevOps may prefer one `media.<domain>`.]
+- **Alternative (cloud image service):** an on-the-fly transformer in front of the bucket, e.g. AWS's *Dynamic Image Transformation for Amazon CloudFront* (formerly Serverless Image Handler: Lambda + CloudFront, transforms via URL parameters) ([AWS docs](https://docs.aws.amazon.com/solutions/latest/dynamic-image-transformation-for-amazon-cloudfront/solution-overview.html)). It is not chosen for V1:
+  - It adds a Lambda/API Gateway stack to operate.
+  - It is AWS-specific, which goes against the portability rule in `00` §4a.
+  - Our variant set is small and fixed.
+  The API contract below hides the choice, so switching later is invisible to the frontend.
+- **Not used:** Cloudflare Images. Its free plan includes only 5,000 unique transformations/month ([CF Images pricing](https://developers.cloudflare.com/images/pricing/)). 200 restaurants × 50 items × 4 widths × 2 formats ≈ 80,000 variants, so that would mean a paid plan.
+- **Note to doc 08:** it says "client resizes before upload, no server-side image pipeline in V1". We keep the client downscale (bullet below) **and** add the server worker. The worker guarantees consistent variants, strips EXIF and makes WebP. It is a small job that reuses the existing worker.
 - The API returns an image object `{ id, alt, dominant_color, variants: { "webp": { "160": url, … }, "jpeg": {…} }, width, height }`.
 - The frontend `<Img>` component renders `<picture>` with `srcset`/`sizes`, explicit `width`/`height` (no CLS), `loading="lazy"` + `decoding="async"` below the fold, `fetchpriority="high"` for the LCP image (restaurant hero), and the dominant colour as background placeholder (no blurhash JS).
 - **Data saver:** if `navigator.connection.saveData` or `effectiveType` is `2g`/`slow-2g`, use the 160/320 variants and no hero images [ASSUMPTION: Network Information API on Android Chrome only].
@@ -500,7 +525,7 @@ Techniques:
 
 ### 13.2 Analytics (privacy-friendly, DPDP)
 
-- **Umami** (open source, cookie-less): self-hosted on the API VM with the existing Postgres, or Umami Cloud Hobby (up to 100K events/month [ASSUMPTION – per third-party summaries; verify at umami.is]). The script loads from **our own origin** (proxied path), so there are no third-party requests and adblockers do not break core metrics.
+- **Umami** (open source, cookie-less): self-hosted as a small container on the production container platform (its own database or schema on the managed Postgres) [ASSUMPTION – DevOps confirms], or for dev/preview Umami Cloud Hobby (up to 100K events/month [ASSUMPTION – per third-party summaries; verify at umami.is]). The script loads from **our own origin** (proxied path), so there are no third-party requests and adblockers do not break core metrics.
 - **Two tiers:**
   1. **Anonymous aggregate page and funnel events** with no user ID, IP not stored, and the language/city dimension. Enabled by default. [LEGAL: confirm this is outside DPDP consent scope or covered by "legitimate uses"; otherwise gate it behind consent.]
   2. **User-linked product analytics:** off unless the user consents in the DPDP consent notice (`consents.analytics = true`, stored server-side via `/me/consents`).
@@ -509,7 +534,7 @@ Techniques:
 
 ### 13.3 Error tracking
 
-- **Sentry browser SDK** (`@sentry/react`). The free **Developer plan: 5k errors/month, 1 user, 50 replays, 5M spans, 30-day lookback** ([Sentry pricing](https://sentry.io/pricing/)). [OPEN] Commercial-use terms of the free plan were not stated on the pricing page; check the ToS and apply to Sentry's open-source sponsorship. **Fallback: self-hosted GlitchTip** (Sentry-SDK compatible) on the VM.
+- **Sentry browser SDK** (`@sentry/react`). The free **Developer plan: 5k errors/month, 1 user, 50 replays, 5M spans, 30-day lookback** ([Sentry pricing](https://sentry.io/pricing/)). [OPEN] Commercial-use terms of the free plan were not stated on the pricing page; check the ToS and apply to Sentry's open-source sponsorship. For production, a paid Sentry Team plan or the **self-hosted GlitchTip** container (Sentry-SDK compatible) is decided with doc 24.
 - Sentry is loaded **after first render** (dynamic import in `requestIdleCallback`) to keep it out of the initial budget. Errors before that are captured by a tiny `window.onerror` buffer that is replayed into Sentry.
 - `tunnel: '/api/v1/telemetry/sentry'` keeps events on the same origin (CSP-simple, adblock-proof).
 - `beforeSend` scrubs phone numbers, addresses, OTPs and names (regex + denylist keys).
@@ -549,8 +574,8 @@ Techniques:
 | Aspect | Decision |
 |---|---|
 | Library | **MapLibre GL JS** (BSD-3), lazy-loaded chunk used only in `/account/addresses/*`, checkout "add address", admin `/zones`, `/localities`. The customer tracking page has **no map** (P12). Riders use Google Maps deep links (doc 18). |
-| Tiles V1 | **OpenFreeMap public instance**: "completely free: there are no limits on the number of map views or requests", commercial use "Yes", no API keys or cookies; **attribution required** ("OpenFreeMap © OpenMapTiles Data from OpenStreetMap", added automatically by MapLibre's attribution control) ([openfreemap.org](https://openfreemap.org/)). **Risk:** the ToS says they "may discontinue it at any time without notice" and gives no SLA ([OpenFreeMap ToS](https://openfreemap.org/tos/)). |
-| Plan B (ready before launch) | **Self-hosted Protomaps PMTiles extract** (Telangana or a Mahabubnagar district bbox) on R2, served via HTTP range requests with the `pmtiles` protocol plugin. Protomaps's **hosted API** requires GitHub sponsorship for commercial use ([protomaps.com](https://protomaps.com/)), so we self-host the file and do not use their API. Data © OpenStreetMap contributors (ODbL) attribution is required. The style URL is a runtime config value (§15.2) so the switch is a config change. |
+| Tiles, production | **Self-hosted Protomaps PMTiles extract** (Telangana, or a bbox around Mahabubnagar district; Protomaps basemap build) in our **object storage behind the CDN**, served via HTTP range requests with the `pmtiles` MapLibre protocol plugin. There is no tile server to run. Re-extract quarterly. Protomaps's **hosted API** requires GitHub sponsorship for commercial use ([protomaps.com](https://protomaps.com/)), so we self-host the file and do not use their API. Attribution "© OpenStreetMap contributors" (ODbL) and the Protomaps credit are required. Production uses this rather than a public free service because `00` §4a forbids production dependence on free, no-SLA hosting. |
+| Tiles, local/dev/preview (and emergency fallback) | **OpenFreeMap public instance**: "completely free: there are no limits on the number of map views or requests", commercial use "Yes", no API keys or cookies; **attribution required** ("OpenFreeMap © OpenMapTiles Data from OpenStreetMap", added automatically by MapLibre) ([openfreemap.org](https://openfreemap.org/)). Its ToS says it "may discontinue it at any time without notice" with no SLA ([OpenFreeMap ToS](https://openfreemap.org/tos/)). The style URL is runtime config (§15.2), so switching is a config change. |
 | Attribution | The MapLibre `AttributionControl` stays visible (compact mode on mobile). It must not be hidden by our UI. |
 | No WebGL | Fall back to the **non-map flow**: "Use my current location" (Geolocation API) + locality list + manual fields. The backend still requires lat/lng, so with no geolocation and no map the user picks a locality and the system uses the locality centroid flagged `pin_precision: "locality"` for rider guidance [OPEN with doc 16]. |
 | Geocoding | None paid (P13). A locality search list from our API. Reverse-geocode label = the nearest `locality` via PostGIS (doc 16). |
@@ -560,29 +585,47 @@ Techniques:
 
 ## 15. Environment config, build and deploy outputs
 
-### 15.1 Origins and same-origin API (decision F4 — requirement on DevOps, challenge to P17 detail)
+### 15.1 Environments, origins and same-origin API (decision F4; follows `00` §4a and doc 12 AUTH-D03)
 
-| App | Origin | `/api/*` |
+| App | Production origin | Default path (`/*`) | `/api/*` | `/media/*` |
+|---|---|---|---|---|
+| customer | `https://app.<domain>` (e.g. `app.rovo.in` per doc 12 [ASSUMPTION – domain not final]) | bucket prefix `customer/` | API origin (load balancer → API containers) | media bucket |
+| restaurant | `https://restaurant.<domain>` | `restaurant/` | API origin | media bucket |
+| rider | `https://rider.<domain>` | `rider/` | API origin | media bucket |
+| admin | `https://admin.<domain>` | `admin/` | API origin (edge access gate + WAF IP allowlist) | media bucket |
+
+**Why same-origin:** a separate `api.<domain>` would turn every credentialed JSON request into a CORS **preflighted** request. Preflight caching is per URL, so detail URLs like `/orders/{id}` each pay an extra round-trip on high-latency 4G. Same-origin also makes cookies host-only per app, which isolates admin. `api.<domain>` remains **bearer-only** for future native apps and PA webhooks (doc 12).
+
+**Production pattern (any hyperscaler; doc 22 picks the cloud):**
+- **AWS:** one CloudFront distribution per app hostname (or one distribution with multiple alternate names plus a viewer-request function that selects the bucket prefix by `Host`).
+  - Origins: S3 (private, Origin Access Control) and the API's ALB.
+  - Behaviours:
+    - `/api/*` → ALB: caching disabled, all viewer headers, cookies and query strings forwarded; origin read timeout ≥ 60 s for SSE with 20 s heartbeats (default 30 s, configurable to 180 s ([AWS](https://aws.amazon.com/about-aws/whats-new/2025/07/amazon-cloudfront-origin-response-timeout-controls/))).
+    - `/media/*` → media bucket.
+    - default → app bucket.
+  - A **response headers policy** applies the security headers in §15.6.
+  - Pricing: flat-rate **Pro $15/month** (10M requests, 50 TB) or pay-as-you-go ([CloudFront pricing](https://aws.amazon.com/cloudfront/pricing/)).
+- **GCP:** a global external Application Load Balancer whose URL map sends `/api/*` → backend service (Cloud Run serverless NEG with min instances, or GKE), and default → **backend bucket with Cloud CDN**.
+- **Cloudflare in front (optional):** DNS/WAF/CDN proxying to the cloud CDN or LB. The same path split applies. Remember its ~100 s idle limit for SSE (20 s heartbeats cover it).
+- **SPA fallback gotcha:** do **not** use distribution-wide "custom error response 403/404 → /index.html". That would also rewrite API 404s into HTML. Use a **viewer-request function on the default (static) behaviour only**: if the path has no file extension, try `/{path}/index.html` (prerendered page) or else `/index.html` [ASSUMPTION – the prerendered page list is shipped as a small JSON map in the function, or use the S3 key-exists convention].
+
+**Non-production hosting:**
+
+| Env | Static frontends | API |
 |---|---|---|
-| customer | `https://<domain>` (e.g. `rovo.in` [ASSUMPTION – domain not chosen]) | proxied to Go API |
-| restaurant | `https://restaurant.<domain>` | proxied to Go API |
-| rider | `https://rider.<domain>` | proxied to Go API |
-| admin | `https://admin.<domain>` | proxied to Go API (Cloudflare Access in front) |
-| images | `https://img.<domain>` | R2 public bucket via Cloudflare |
+| local | `vite dev` per app, with a proxy of `/api` → local API container (same-origin in dev too) | Docker Compose |
+| dev/preview | **Free static hosts acceptable**, e.g. Cloudflare Pages: 500 builds/month, 20,000 files/site ([CF Pages limits](https://developers.cloudflare.com/pages/platform/limits/)). Workers static-asset requests are free and unlimited, but Worker-run requests share the 100k/day quota and get **429** when it is exceeded ([CF](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)). A preview needs same-origin `/api`: either a Pages Function proxy (counts toward the Workers quota; fine for demos) or a cross-origin preview API with CORS enabled **only in preview builds** [OPEN – DevOps]. | Free tier or staging |
+| staging | Same IaC as production, scaled down | Same IaC as production |
+| production | Object storage + cloud CDN as above | Managed containers |
 
-**Why:** a separate `api.<domain>` would make every JSON request with credentials a CORS **preflighted** request. Preflight caching is per URL, so detail URLs like `/orders/{id}` each pay an extra round-trip on high-latency 4G. Same-origin also makes cookies host-only per app, which gives admin isolation for free.
-
-Implementation options for DevOps (doc 22 decides):
-- **(A, recommended for V1)** Cloudflare-proxied DNS for all four hostnames → **Caddy on the VM**, which serves each app's `dist/` (versioned release dirs + symlink swap) and reverse-proxies `/api/*` to the Go API. Hashed assets are cached at the Cloudflare edge (cache rule `/assets/*`). There are no Worker request quotas, SSE flows through the same path, and it is one deploy mechanism (SSH/compose).
-- **(B)** Cloudflare Workers static assets (static requests free and unlimited) with Worker **routes** that exclude `/api/*` so it goes to the origin. [OPEN – verify route-exclusion behaviour with static-assets Workers.] **Do not** proxy `/api` *through* a Worker on the free plan: 100k requests/day, and over-quota requests on `run_worker_first` paths get **429** ([CF static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)).
-- **(C, fallback only)** Cloudflare Pages per app (free: 500 builds/month, 20,000 files ([CF Pages limits](https://developers.cloudflare.com/pages/platform/limits/))) + `api.<domain>` with strict CORS (`Access-Control-Allow-Credentials: true`, explicit origins, `Access-Control-Max-Age: 7200`) and the preflight cost accepted.
+Vercel Hobby / Netlify Free are not used even for previews of the commercial app. Vercel Hobby forbids commercial projects ([Vercel](https://vercel.com/docs/limits/fair-use-guidelines)), and Netlify Free pauses sites at its credit limit ([Netlify](https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/how-credits-work/)).
 
 ### 15.2 Configuration
 
 | Kind | Mechanism |
 |---|---|
 | Build-time constants | `VITE_APP_NAME`, `VITE_RELEASE` (git SHA), `VITE_APP_VERSION` (semver). Non-secret only. |
-| Runtime config (per environment, **build once, deploy many**) | The deploy step injects `<script id="rovo-config" type="application/json">{…}</script>` into `index.html` (no extra request, CSP-safe because it is not executable). Keys: `apiBase` (`/api`), `env`, `mapStyleUrl`, `sentryDsn`, `umamiWebsiteId`, `vapidPublicKey`, `razorpayKeyId` (public key id), `supportPhone`, `cityDefault`. |
+| Runtime config (per environment, **build once, deploy many**) | The deploy step injects `<script id="rovo-config" type="application/json">{…}</script>` into `index.html` (no extra request, CSP-safe because it is not executable). Keys: `apiBase` (`/api`), `env`, `mapStyleUrl` (PMTiles style in prod, OpenFreeMap in dev), `mediaBase` (`/media`), `sentryDsn`, `umamiWebsiteId`, `vapidPublicKey`, `razorpayKeyId` (public key id), `supportPhone`, `cityDefault`. |
 | Secrets | **None in frontends.** |
 
 ### 15.3 Build outputs
@@ -608,11 +651,11 @@ apps/customer/dist/
 | `/index.html`, prerendered `*.html`, `/sw.js`, `/manifest.webmanifest` | `no-cache` (revalidate). Prerendered HTML may add `s-maxage=300` at the edge. |
 | `/api/*` | Set by the API. Default `no-store`. Public catalog GETs: `public, max-age=60, stale-while-revalidate=300` (doc 18 SW strategy aligns). |
 
-Keep the **previous 2 releases' `assets/`** on the server so open tabs and old service workers can still lazy-load chunks after a deploy. On a chunk-load failure the router error boundary triggers a one-time hard reload.
+**Deploy procedure (CI, OIDC to the cloud):** upload `assets/` first (never deleting the **previous 2 releases' assets**), then HTML/`sw.js`/manifest, then invalidate the CDN for `/index.html`, `/sw.js`, `/manifest.webmanifest` and prerendered HTML paths. Keeping old assets means open tabs and old service workers can still lazy-load chunks after a deploy. On a chunk-load failure the router error boundary triggers a one-time hard reload.
 
 ### 15.5 SPA fallback
 
-Unknown paths that are not files serve `index.html` with status 200 (Caddy `try_files {path} {path}/index.html /index.html`). Prerendered paths are served as files. Real 404 for `/assets/*` misses. `/api/*` is never rewritten.
+Unknown extensionless paths serve `/index.html` with status 200 via the viewer-request function (CloudFront) or URL-map/bucket config (GCP) on the **static behaviour only** (§15.1). Locally this is Vite. Prerendered paths are served as files. Real 404 for `/assets/*` misses. `/api/*` and `/media/*` are never rewritten.
 
 ### 15.6 Security headers (per app; admin strictest)
 
@@ -621,9 +664,9 @@ Content-Security-Policy:
   default-src 'self';
   script-src 'self' https://checkout.razorpay.com;            # customer only; [OPEN] exact PA domains per doc 14
   style-src 'self';                                            # Tailwind is a static file; React/Radix inline styles are set via CSSOM (allowed)
-  img-src 'self' data: blob: https://img.<domain> https://tiles.openfreemap.org;
+  img-src 'self' data: blob:;                                 # media is same-origin /media/*
   font-src 'self';
-  connect-src 'self' https://tiles.openfreemap.org https://<r2-pmtiles-host>;
+  connect-src 'self';                                          # PMTiles served same-origin (e.g. /tiles/*); dev builds add https://tiles.openfreemap.org
   frame-src https://api.razorpay.com https://checkout.razorpay.com;   # customer only
   worker-src 'self' blob:;                                     # MapLibre workers + SW
   child-src blob:;
@@ -645,7 +688,7 @@ Cross-Origin-Opener-Policy: same-origin-allow-popups   # customer (PA popups); a
 
 ## 16. What we are not doing in V1 (and why)
 
-- **No SSR/RSC or Next.js.** Hosting terms and costs, operational load, and PWA fit (§1).
+- **No SSR/RSC or Next.js.** It would add a second managed container runtime with its own cost, patching and on-call, and it fits the PWA model worse (§1).
 - **No micro-frontends or module federation.** Four small apps in one workspace suffice.
 - **No GraphQL, no WebSockets.** P2/P3.
 - **No server-side cart, no persisted Query cache** (§4).
@@ -658,17 +701,22 @@ Cross-Origin-Opener-Policy: same-origin-allow-popups   # customer (PA popups); a
 
 | To | Requirement |
 |---|---|
-| 11 API | OpenAPI 3.1 with `operationId`s, examples, problem+json errors with stable `code`s and `fieldErrors`. `Idempotency-Key` on all creating POSTs. `/cart/quote`. `/me` with `access_expires_at`, roles, locale, consents. `/config/client`. Public catalog endpoints (`/public/...`) cacheable for prerender and SW. Thin SSE events with ids, replay via `Last-Event-ID` header **or** `?lastEventId=`, `ping` every 25 s, `reset`. Image objects with variants and `dominant_color`. `name_te` returned alongside `name`. |
-| 12 Auth | Cookie names, paths and SameSite as in §6. Double-submit CSRF cookie. Origin/Sec-Fetch-Site enforcement. Per-app role admission. Admin origin binding. |
-| 14 Payments | PA checkout domains for CSP. Return URL `/checkout/pay/{orderId}`. Payment status endpoint for polling. |
-| 15 Notifications | WebOTP-compatible SMS template line. Push (doc 18). |
+| 11 API | OpenAPI 3.1 with `operationId`s and examples. problem+json errors with stable `code`s and `fieldErrors`. `Idempotency-Key` on all creating POSTs. `/cart/quote`. `/me` with `access_expires_at`, roles, locale, consents. `/config/client`. Public catalog endpoints (`/public/...`), cacheable, for prerender and the SW. SSE as in doc 08: `GET /api/v1/stream?topics=`, thin events, `: ping` every 20 s, `event: reauth`. Image objects with variants and `dominant_color`. `name_te` alongside `name`. Push-subscription endpoints (doc 18). |
+| 12 Auth | Host table to include `restaurant.<domain>` and `rider.<domain>` (or split the `partner` audience). WebOTP SMS line per partner host. Everything else is as already specified there (cookies, `X-Rovo-Client`, CrossOriginProtection, Web Locks single-flight refresh). |
+| 08 System | Add the resize-on-upload worker job for image variants (§11). Confirm the four apps. |
+| 14 Payments | PA checkout domains for CSP. Return URL `/checkout/pay/{orderId}` that works without cookies on the first hit. Payment status endpoint for polling. |
+| 15 Notifications | WebOTP-compatible SMS template lines. Push (doc 18). |
 | 16 Zones | Nearest-locality reverse lookup. Serviceability in quote. `pin_precision`. |
-| 22/25 DevOps | Same-origin `/api` per app hostname (§15.1). Keep 2 previous releases' assets. Headers per §15. Cloudflare Access on admin. R2 `img.` domain. Nightly prerender job + `repository_dispatch` hook. |
-| 24 Observability | Sentry tunnel endpoint, RUM endpoint, release/source-map upload in CI. |
+| 22/25 DevOps | Production: object storage + cloud CDN per app host, with path behaviours `/api/*` → API LB (no cache, all cookies/headers, read timeout ≥ 60 s), `/media/*` → media bucket, `/tiles/*` → PMTiles object. SPA fallback via a viewer-request function on the static behaviour only. Security headers policy (§15.6). Keep 2 previous releases' assets. Edge access gate + WAF IP allowlist for admin. Nightly prerender job + `repository_dispatch` hook that rebuilds and syncs the customer bucket. Preview: free static hosts allowed (§15.1). |
+| 24 Observability | Sentry (or GlitchTip) tunnel endpoint, RUM endpoint, release/source-map upload in CI. |
 
 ## Sources (accessed 2026-10-04)
 
 - Vercel Fair Use Guidelines (Hobby commercial-use restriction; page last updated 2026-09-14): https://vercel.com/docs/limits/fair-use-guidelines
+- CloudFront pricing (flat-rate Free/Pro plans): https://aws.amazon.com/cloudfront/pricing/
+- CloudFront origin response timeout controls (2025-07): https://aws.amazon.com/about-aws/whats-new/2025/07/amazon-cloudfront-origin-response-timeout-controls/
+- AWS Fargate pricing (US-East ARM/x86 per-second rates): https://aws.amazon.com/fargate/pricing/
+- AWS Dynamic Image Transformation for Amazon CloudFront: https://docs.aws.amazon.com/solutions/latest/dynamic-image-transformation-for-amazon-cloudfront/solution-overview.html
 - Cloudflare Workers limits (Free: 100,000 req/day, 10 ms CPU): https://developers.cloudflare.com/workers/platform/limits/
 - Cloudflare Workers static assets billing ("free and unlimited"; 429 on over-quota `run_worker_first`): https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/
 - Cloudflare Pages limits (500 builds/month, 20,000 files, 25 MiB/file): https://developers.cloudflare.com/pages/platform/limits/
