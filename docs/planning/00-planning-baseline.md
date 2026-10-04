@@ -82,7 +82,7 @@ Backend Architect owns the full transition tables; other docs must reference the
 |---|---|---|
 | **local** | Docker Compose on the developer machine (Postgres+PostGIS, optional Valkey, MinIO for S3-compatible storage, Mailpit, fake OTP & fake payment providers, local OTel/Grafana LGTM) | Day-to-day development; must run the full golden flow offline with fakes |
 | **ci** | GitHub Actions ephemeral containers | Tests, builds, scans |
-| **dev/preview (optional)** | Free tiers are acceptable here (verified current terms) | Shareable demos, stakeholder previews |
+| **dev/preview (optional)** | **Local Docker Compose only** (user directive 2026-10-04: no free tier that asks for credit-card details). Shared demos: run the local stack and expose it temporarily through a card-free tunnel | Demos, stakeholder previews |
 | **staging** | Same cloud, same IaC as production, scaled down (can be stopped when idle) | Pre-prod validation, PA sandbox, UAT |
 | **production** | **Standard hyperscaler, India region** (AWS ap-south-1 Mumbai / ap-south-2 Hyderabad, GCP asia-south1 Mumbai / asia-south2 Delhi, or Azure Central India / South India — DevOps recommends one primary + one alternative) using **managed services**: managed container runtime, managed PostgreSQL with PostGIS, managed Redis-compatible cache (if needed), object storage, CDN, secrets manager, KMS, managed backups/PITR, WAF | Live business with real money and personal data |
 
@@ -90,7 +90,7 @@ Rules that follow from this:
 1. **Cloud-portable by construction:** the app depends only on standard interfaces — PostgreSQL wire protocol + PostGIS, S3-compatible object storage API, Redis protocol (optional), OTLP, OCI containers, env-var config, secrets injected at runtime. No provider-specific SDK in domain code; provider adapters live behind interfaces.
 2. **Infrastructure as Code** (Terraform/OpenTofu) for staging and production; local uses Compose. The same container images flow local → CI → staging → production.
 3. **Production non-negotiables:** managed Postgres with automated backups + PITR and Multi-AZ (or a documented single-AZ-at-pilot decision with upgrade trigger), TLS everywhere, private networking for DB/cache, secrets manager, KMS-backed encryption, WAF/rate limiting at the edge, centralised logs/metrics/traces with alerting, data residency in India (DPDP-friendly), cost budgets & alerts.
-4. The free-hosting comparison (doc 25) is still produced, but **scoped to dev/preview/demo use**, and paired with a production cloud comparison and a monthly cost estimate in INR.
+4. The free-hosting comparison (doc 25) is still produced, but **scoped to dev/preview/demo use and kept for reference**: development uses **local Docker only** (no card-requiring free tiers, user directive 2026-10-04), and paired with a production cloud comparison and a monthly cost estimate in INR.
 5. Background workers (River) and SSE need always-on compute in production — choose services accordingly (e.g. ECS Fargate services, GKE Autopilot, Cloud Run with instance-based billing/min instances, Azure Container Apps with min replicas) and document the trade-offs.
 
 ## 5. Indicative commercial defaults (all configurable per city/zone/restaurant; validate with local market)

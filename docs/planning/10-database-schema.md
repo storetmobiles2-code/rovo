@@ -54,7 +54,7 @@
 ### 1.2 Standard columns and triggers
 
 - `created_at timestamptz NOT NULL DEFAULT now()` on every table. `updated_at` on mutable tables, maintained by trigger `set_updated_at()`.
-- **Aggregate roots** (`orders`, `deliveries`, `restaurants`, `menu_items`, `carts`, `payments`, `coupons`, `zones`, `fee_configs`, `payouts`, `support_tickets`) carry `version int NOT NULL DEFAULT 1`. The API exposes it as `ETag` (11 §1.9). Transitions use CAS on `(status, version)` (13 §7).
+- **Aggregate roots** (`orders`, `deliveries`, `restaurants`, `menu_items`, `payments`, `coupons`, `zones`, `fee_configs`, `payouts`, `support_tickets`) carry `version int NOT NULL DEFAULT 1`. The API exposes it as `ETag` (11 §1.9). Transitions use CAS on `(status, version)` (13 §7).
 - **Append-only tables** (`*_status_history`, `ledger_journals`, `ledger_postings`, `audit_logs`, `payment_events`, `user_consents`) get trigger `forbid_mutation()`, and the app role lacks `UPDATE/DELETE` on them.
 
 ```sql
@@ -89,9 +89,9 @@ Row-level security is **not** used in V1 (12 §8). City scoping is enforced in r
 |---|---|---|
 | Lifecycle entities | `status` column with explicit states, never deleted | restaurants, riders, users, coupons, zones, payouts, support_tickets |
 | Catalog referenced by history | `archived_at` (hidden from menus, kept for FK integrity inside the module and for analytics) | menu_categories, menu_items, item_variants, addon_groups, addons |
-| Customer-owned convenience data | **hard delete** on user request (orders keep snapshots) | customer_addresses, push_subscriptions, carts, cart_items |
+| Customer-owned convenience data | **hard delete** on user request (orders keep snapshots) | customer_addresses, push_subscriptions |
 | Financial, order and legal records | never deleted inside the retention period; PII redacted after the dispute window (§9) | orders, payments, refunds, ledger_*, invoices |
-| Ephemeral / security | hard delete by TTL sweeper | otp_challenges, idempotency_keys, quotes, refresh_tokens (expired) |
+| Ephemeral / security | hard delete by TTL sweeper | otp_challenges, idempotency_keys, quotes, processed_events, refresh_tokens (expired) |
 
 ### 1.5 Module ownership (08 §3)
 
@@ -440,7 +440,7 @@ CREATE TABLE zones (
   pause_reason            text CHECK (pause_reason IN ('RAIN','RIDER_SHORTAGE','LAW_AND_ORDER','FESTIVAL','TECHNICAL','OTHER')),
   pause_message_i18n      jsonb NOT NULL DEFAULT '{}',
   paused_by               uuid REFERENCES users(id),
-  -- manual surge (16 §6.3): flat surcharge with mandatory expiry
+  -- manual surge (16 §6.2): flat surcharge with mandatory expiry
   surge_reason            text CHECK (surge_reason IN ('RAIN','PEAK','LOW_RIDERS','FESTIVAL','OTHER')),
   surge_fee_paise         bigint CHECK (surge_fee_paise BETWEEN 100 AND 5000),
   surge_rider_bonus_paise bigint CHECK (surge_rider_bonus_paise BETWEEN 0 AND 5000),
@@ -965,7 +965,7 @@ Menu design notes:
 
 ### 5.1 Cart decision: device cart + persisted quote (Lead ruling 12)
 
-**Decision: no server-side cart in V1.** The cart lives on the device in both the guest and logged-in state (17). The client sends the full cart to `POST /api/v1/cart/quote` (11 §4.3). The server prices it and persists the result in `quotes`. It returns a **signed `quoteId`**: `q1.<uuid>.<HMAC-SHA256(server key, uuid ‖ user_id ‖ expires_at)>`, truncated to 128 bits and base64url-encoded. The signature lets the API reject forged, foreign or expired IDs before any DB read. The persisted row lets `POST /orders` use **exactly** the lines and amounts the customer saw.
+**Decision: no server-side cart in V1.** The cart lives on the device in both the guest and logged-in state (17). The client sends the full cart to `POST /api/v1/cart/quote` (11 §2.3, §3). The server prices it and persists the result in `quotes`. It returns a **signed `quoteId`**: `q1.<uuid>.<HMAC-SHA256(server key, uuid ‖ user_id ‖ expires_at)>`, truncated to 128 bits and base64url-encoded. The signature lets the API reject forged, foreign or expired IDs before any DB read. The persisted row lets `POST /orders` use **exactly** the lines and amounts the customer saw.
 
 | Option | Pro | Con | Verdict |
 |---|---|---|---|
@@ -1007,7 +1007,7 @@ CREATE INDEX ix_quotes__sweep ON quotes (expires_at) WHERE consumed_at IS NULL;
 CREATE UNIQUE INDEX ux_quotes__order ON quotes (order_id) WHERE order_id IS NOT NULL;
 ```
 
-**Staleness at order creation** (13 §3, 11 §4.3): the quote is re-validated. Checks: restaurant open and serviceable, items available, `menu_version` unchanged (or, if changed, the re-priced total is equal), coupon still reservable, COD eligibility. Any difference returns `409 QUOTE_CHANGED`, and the problem body carries a **new quote and a line-level diff**. An expired quote returns `409 QUOTE_EXPIRED` with a fresh quote.
+**Staleness at order creation** (13 O-01, 11 §3): the quote is re-validated. Checks: restaurant open and serviceable, items available, `menu_version` unchanged (or, if changed, the re-priced total is equal), coupon still reservable, COD eligibility. Any difference returns `409 QUOTE_CHANGED`, and the problem body carries a **new quote and a line-level diff**. An expired quote returns `409 QUOTE_EXPIRED` with a fresh quote.
 
 ### 5.2 Fee configs (versioned per city / zone)
 
@@ -1337,13 +1337,13 @@ CREATE TABLE order_status_history (            -- append-only
   seq                int NOT NULL,                -- = orders.version after the transition
   from_status        text,                        -- NULL for creation
   to_status          text NOT NULL,
-  command            text NOT NULL,               -- 'Accept', 'PaymentCaptured', 'AcceptTimeout' (13 §3)
+  command            text NOT NULL,               -- 'Accept', 'PaymentCaptured', 'AcceptTimeout' (13 §1.1, §2.1)
   actor_type         text NOT NULL CHECK (actor_type IN ('CUSTOMER','RESTAURANT','RIDER','ADMIN','SYSTEM','PAYMENT_PROVIDER')),
   actor_user_id      uuid REFERENCES users(id),
   actor_role         text,
   reason_code        text,
   reason_text        text,
-  command_id         uuid,                        -- idempotency of the command (13 §7.3)
+  command_id         uuid,                        -- idempotency of the command (13 §7.2)
   metadata           jsonb NOT NULL DEFAULT '{}', -- e.g. {"prepTimeMin":20} / {"implicit":true}
   occurred_at        timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ux_order_status_history__seq UNIQUE (order_id, seq)
@@ -1501,7 +1501,7 @@ CREATE TABLE riders (
 );
 CREATE INDEX ix_riders__city_status ON riders (city_id, status);
 
-CREATE TABLE rider_availability (                 -- rider availability state machine (ruling 11; 13 §4.4)
+CREATE TABLE rider_availability (                 -- rider availability state machine (ruling 11; 13 §4.3)
   rider_id                    uuid PRIMARY KEY REFERENCES riders(id),
   city_id                     uuid NOT NULL REFERENCES cities(id),
   state                       text NOT NULL DEFAULT 'OFFLINE' CHECK (state IN ('OFFLINE','AVAILABLE','ON_BREAK','ON_DELIVERY')),
@@ -1666,7 +1666,7 @@ CREATE TABLE delivery_status_history (            -- append-only (same shape as 
   actor_user_id    uuid REFERENCES users(id),
   rider_id         uuid REFERENCES riders(id),
   location         geography(Point,4326),           -- rider position reported with the milestone
-  geofence_ok      boolean,                         -- within 200 m / 300 m of target (soft check, 13 §4)
+  geofence_ok      boolean,                         -- within 200 m / 300 m of target (soft check, 13 §2.1 D-07/D-09)
   reason_code      text,
   command_id       uuid,
   client_occurred_at timestamptz,                   -- offline-queued milestones (18)

@@ -327,7 +327,7 @@ Definitions:
 | Fault | Prepaid: refund to customer | COD | Restaurant gets | Rider gets | Platform bears |
 |---|---|---|---|---|---|
 | **Within grace / restaurant reject / accept timeout** | 100% | nothing collected | 0 | cancellation pay (if assigned) | rider pay |
-| **CUSTOMER** before `PREPARING` | 100% minus nothing (still effectively free) [ASSUMPTION] | — | 0 | cancellation pay | rider pay |
+| **CUSTOMER** before `PREPARING` (after grace, via support) | 100% (food not yet started) [ASSUMPTION] | — | 0 | cancellation pay | rider pay |
 | **CUSTOMER** at `PREPARING`/`READY_FOR_PICKUP` | refund `total − food value − food GST − platform fee`; delivery fee refunded if not picked up | nothing collectable → **COD strike +1** | compensation (paid by the customer's charge for prepaid; by the platform for COD) | cancellation pay | COD: food value + rider pay |
 | **CUSTOMER** at door (`UNDELIVERABLE`, O-18) | 0% refund | not collected → **COD strike +1** (2 → COD disabled) | full settlement as if delivered | full trip pay | COD: everything |
 | **RESTAURANT** (can't fulfil, wrong/missing items found before pickup) | 100% | — | 0 (+ quality flag; penalty policy [OPEN]) | cancellation pay | rider pay (recoverable from restaurant [OPEN]) |
@@ -452,7 +452,7 @@ Envelope (08 §3.3), stored in `outbox_events`:
 | `RestaurantPaused` / `RestaurantResumed` (`catalog.*.v1`) | `restaurant.status` (inbox), `ops.alert` | `{restaurantId, reasonCode, pausedUntil}` |
 | `ZonePaused` / `ZoneResumed` (`geo.*.v1`) | `ops.alert` | `{zoneId, reasonCode, pausedUntil}` |
 
-SSE frames are **thin** (`{topic, type, id, v}` plus the minimal fields above). Clients refetch the resource over REST. There is no server-side replay buffer; on reconnect clients refetch snapshots (ruling 10; 08 §6.2; 11 §9).
+SSE frames are **thin** (`{topic, type, id, v}` plus the minimal fields above). Clients refetch the resource over REST. There is no server-side replay buffer; on reconnect clients refetch snapshots (ruling 10; 08 §6.2; 11 §4).
 
 ---
 

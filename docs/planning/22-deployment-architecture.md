@@ -18,7 +18,7 @@
 |---|---|---|---|---|---|
 | **local** | Developer laptop | `deploy/compose/compose.yaml` | Seed + synthetic | **Fake** OTP + fake PA (in-binary adapters) | Devs |
 | **ci** | GitHub Actions runners | Service containers / Compose | Ephemeral | Fakes | CI |
-| **preview** (optional) | Oracle Always Free A1, Hyderabad (`25` §9) | Same Compose + `compose.preview.yaml` | Synthetic only | Fakes or PA **sandbox** | Stakeholders via Cloudflare Access |
+| **preview** (optional) | **Local Compose on a developer machine + temporary card-free tunnel** (user directive; Oracle option in `25` §9 kept for reference only) | Same Compose + `compose.preview.yaml` | Synthetic only | Fakes or PA **sandbox** | Stakeholders via Cloudflare Access |
 | **staging** | AWS account `rovo-staging`, `ap-south-1` | OpenTofu `infra/envs/staging` | Synthetic + anonymised fixtures; **never prod PII** | PA **sandbox**, DLT test templates | Team, UAT testers |
 | **production** | AWS account `rovo-prod`, `ap-south-1` (DR `ap-south-2`) | OpenTofu `infra/envs/prod` | Real | PA **live** | Customers |
 
@@ -285,6 +285,9 @@ flowchart LR
 ---
 
 ## 11. Dev/preview environment (free tier)
+
+> **USER DIRECTIVE (2026-10-04, overrides the dev/preview recommendation below):** free tiers that require credit-card details (Oracle Always Free, AWS/GCP/Azure free tiers, Fly, etc.) are **not to be used during development**. The approved development environment is **local Docker Compose** (`deploy/compose`) on developer machines, plus GitHub Actions CI (public repo, no card). A shared demo, when needed, is run from a developer machine running that Compose stack and exposed temporarily with a card-free tunnel (e.g. a Cloudflare Quick Tunnel, which needs no account; verify current terms before use). The Oracle/free-tier research below is kept **for reference only**. Cloud spend (and card details) start with **staging on AWS** when the team prepares for go-live.
+
 
 The free preview stack is defined in `25` §9: Oracle Always Free A1 (Hyderabad), the same Compose + `compose.preview.yaml`, Cloudflare Tunnel + Access, Workers Static Assets.
 

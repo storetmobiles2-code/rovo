@@ -16,6 +16,9 @@
 
 ## 0. Executive summary
 
+> **USER DIRECTIVE (2026-10-04, overrides the dev/preview recommendation below):** free tiers that require credit-card details (Oracle Always Free, AWS/GCP/Azure free tiers, Fly, etc.) are **not to be used during development**. The approved development environment is **local Docker Compose** (`deploy/compose`) on developer machines, plus GitHub Actions CI (public repo, no card). A shared demo, when needed, is run from a developer machine running that Compose stack and exposed temporarily with a card-free tunnel (e.g. a Cloudflare Quick Tunnel, which needs no account; verify current terms before use). The Oracle/free-tier research below is kept **for reference only**. Cloud spend (and card details) start with **staging on AWS** when the team prepares for go-live.
+
+
 **Production (Part B)**
 
 1. **Primary production cloud: AWS, Mumbai `ap-south-1`, with DR in Hyderabad `ap-south-2`.**
@@ -249,6 +252,9 @@ Calculation for A: 0.25×5 + 0.15×5 + 0.15×4 + 0.15×2 + 0.10×5 + 0.10×2 + 0
 ---
 
 ## 9. Dev / preview / demo recommendation
+
+> **USER DIRECTIVE (2026-10-04, overrides the dev/preview recommendation below):** free tiers that require credit-card details (Oracle Always Free, AWS/GCP/Azure free tiers, Fly, etc.) are **not to be used during development**. The approved development environment is **local Docker Compose** (`deploy/compose`) on developer machines, plus GitHub Actions CI (public repo, no card). A shared demo, when needed, is run from a developer machine running that Compose stack and exposed temporarily with a card-free tunnel (e.g. a Cloudflare Quick Tunnel, which needs no account; verify current terms before use). The Oracle/free-tier research below is kept **for reference only**. Cloud spend (and card details) start with **staging on AWS** when the team prepares for go-live.
+
 
 > Per §4a these stacks **must not carry real customers, real money or real KYC data**. Preview uses the **fake OTP and fake payment providers**, or PA **sandbox** keys, and synthetic seed data only.
 
