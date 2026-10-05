@@ -43,7 +43,7 @@ Golden flow end-to-end: **Customer → Restaurant → Order → Delivery Partner
 | Coupons | Admin CRUD, validation, redemption accounting |
 | Analytics | Restaurant today/week summary; admin dashboard KPIs; CSV reports (orders, settlements) |
 | Audit | Append-only `audit_logs` (DB grants + trigger), all admin & auth events, viewer in admin |
-| Apps | `customer`, `restaurant`, `rider`, `admin` PWAs (admin without service worker), en/te, mobile-first |
+| Apps | `customer`, `restaurant`, `rider`, `admin` PWAs (admin without service worker), en/te, mobile-first. **Branding from `docs/brand/`**: colour tokens (ink `#0C1825`, flame `#FF8603`/`#F85000`/`#E03A00`, accessible `#C2410C`), plate mark = customer/restaurant/admin icon, wheel mark = rider icon; follow its contrast rules; optimised raster exports until SVGs exist (never ship the 1 MB original) |
 
 **Explicitly out of this slice** (backlog, not cut): real PA sandbox adapters (interface + Razorpay-style signature code only), real SMS/DLT, KYC document upload pipeline beyond a basic presigned upload, passkeys, bulk CSV menu import, ops phone ordering, voice escalation, OTel collector deployment, AWS apply. Everything in `00` §9 cut list stays cut.
 

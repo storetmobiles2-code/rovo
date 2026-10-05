@@ -203,7 +203,8 @@ Rules (full transition tables and timers in doc 13):
 | Restaurant money flow: split settlement vs collect-and-payout (legal opinion by Phase 2 week 4) [LEGAL] | Model both in the ledger; collect-and-payout path used in tests |
 | GST presentation on fees; discount treatment; TDS section [LEGAL] | Configurable tax lines; seeds as in `10`/`14` |
 | Real zone polygon and locality list (ops) | `[ASSUMPTION]` fixtures |
-| Domain name and brand assets | `rovo.example` placeholders; neutral icon set |
+| Domain name | `rovo.localhost` / `rovo.example` placeholders |
+| Brand assets | **Decided 2026-10-05:** use `docs/brand/` (primary logo, plate/wheel app-icon marks, colour tokens, contrast rules). SVG vectorisation is pending |
 | SMS provider and sender-registration templates | Fake SMS provider; template keys in `15` |
 | Rider minimum guarantee, accident insurance, gig-worker registration specifics [LEGAL] | `MG_TOPUP` adjustment type; gig-worker fields + export implemented |
 

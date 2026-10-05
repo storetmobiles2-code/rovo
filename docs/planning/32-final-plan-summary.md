@@ -386,7 +386,7 @@ Full list: `30` §(d), 50 items. The ones that matter first:
 2. Legal opinion on the money flow (R35).
 3. GST presentation of fees and discount treatment, with a CA.
 4. Real zone polygon and locality list.
-5. Domain name and brand.
+5. Domain name. (Brand logo approved on 2026-10-05; see `docs/brand/`.)
 6. Rider minimum guarantee and insurance.
 7. Whether the ~13-month timeline to public launch is acceptable, or whether to add engineers or shrink V1 (OQ-31).
 8. Whether AWS staging may start before M6 (OQ-32; current directive: no).
