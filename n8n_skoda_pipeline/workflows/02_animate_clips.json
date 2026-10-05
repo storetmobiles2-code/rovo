@@ -98,7 +98,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const cfg = $('Config').first().json;\nconst S = $('Parse shots').first().json.cfg;\nconst V = S.veo;\nconst files = $input.all();\nconst byId = Object.fromEntries(S.shots.map(s => [s.id, s]));\nconst want = id => !(cfg.only && cfg.only.length) || cfg.only.includes(id);\nconst plan = [];\nfor (let i = 0; i < files.length; i++) {\n  const id = String(files[i].binary?.data?.fileName || '').replace(/\\.[^.]+$/, '');\n  const shot = byId[id];\n  if (!shot || !want(id)) continue;\n  const buf = await this.helpers.getBinaryDataBuffer(i, 'data');\n  plan.push({ shot, image: { mimeType: files[i].binary.data.mimeType || 'image/png', data: buf.toString('base64') } });\n}\nfor (const s of S.shots.filter(s => s.mode === 'text_only' && want(s.id))) plan.push({ shot: s });\nif (!plan.length) throw new Error(`Nothing to animate: no approved stills matched a shot id in ${cfg.data_dir}/stills/approved/`);\nconst cost = plan.length * V.duration_seconds * V.price_per_second_usd;\nif (cfg.dry_run) {\n  return [{ json: { is_dry_run: true, shots: plan.map(p => p.shot.id), clips: plan.length, seconds_each: V.duration_seconds,\n    model: V.model, resolution: V.resolution, est_cost_usd: Math.round(cost * 100) / 100,\n    message: 'DRY RUN — nothing was sent to Google. Set dry_run to false in the Config node to generate.' } }];\n}\nreturn plan.map(p => {\n  const inst = { prompt: p.shot.video_prompt };\n  if (p.image) inst.image = { inlineData: p.image };\n  const parameters = { aspectRatio: V.aspect_ratio, resolution: V.resolution, durationSeconds: String(V.duration_seconds) };\n  if (V.send_negative_prompt && S.negative_prompt) parameters.negativePrompt = S.negative_prompt;\n  return { json: { id: p.shot.id, title: p.shot.title, api_base: cfg.api_base, data_dir: cfg.data_dir, veo_model: V.model,\n    poll_s: V.poll_every_seconds, timeout_min: V.timeout_minutes, est_cost_usd: V.duration_seconds * V.price_per_second_usd,\n    request: { instances: [inst], parameters } } };\n});"
+        "jsCode": "const cfg = $('Config').first().json;\nconst S = $('Parse shots').first().json.cfg;\nconst V = S.veo;\nconst files = $input.all();\nconst byId = Object.fromEntries(S.shots.map(s => [s.id, s]));\nconst want = id => !(cfg.only && cfg.only.length) || cfg.only.includes(id);\nconst plan = [];\nfor (let i = 0; i < files.length; i++) {\n  const id = String(files[i].binary?.data?.fileName || '').replace(/\\.[^.]+$/, '');\n  const shot = byId[id];\n  if (!shot || !want(id)) continue;\n  const buf = await this.helpers.getBinaryDataBuffer(i, 'data');\n  plan.push({ shot, image: { mimeType: files[i].binary.data.mimeType || 'image/png', data: buf.toString('base64') } });\n}\nfor (const s of S.shots.filter(s => s.mode === 'text_only' && want(s.id))) plan.push({ shot: s });\nif (!plan.length) throw new Error(`Nothing to animate: no approved stills matched a shot id in ${cfg.data_dir}/stills/approved/`);\nconst cost = plan.length * V.duration_seconds * V.price_per_second_usd;\nif (cfg.dry_run) {\n  return [{ json: { is_dry_run: true, shots: plan.map(p => p.shot.id), clips: plan.length, seconds_each: V.duration_seconds,\n    model: V.model, resolution: V.resolution, est_cost_usd: Math.round(cost * 100) / 100,\n    message: 'DRY RUN — nothing was sent to Google. Set dry_run to false in the Config node to generate.' } }];\n}\nreturn plan.map(p => {\n  const inst = { prompt: p.shot.video_prompt };\n  if (p.image) inst.image = { inlineData: p.image };\n  const parameters = { aspectRatio: V.aspect_ratio, resolution: V.resolution, durationSeconds: Number(V.duration_seconds) };\n  if (V.send_negative_prompt && S.negative_prompt) parameters.negativePrompt = S.negative_prompt;\n  return { json: { id: p.shot.id, title: p.shot.title, api_base: cfg.api_base, data_dir: cfg.data_dir, veo_model: V.model,\n    poll_s: V.poll_every_seconds, timeout_min: V.timeout_minutes, est_cost_usd: V.duration_seconds * V.price_per_second_usd,\n    request: { instances: [inst], parameters } } };\n});"
       }
     },
     {
@@ -120,7 +120,7 @@
           },
           "conditions": [
             {
-              "id": "b440e85f-f5bf-4957-8b29-e672cc222786",
+              "id": "3c5848b9-c53e-4fc4-8b53-509e2f2876b2",
               "leftValue": "={{ $json.is_dry_run === true }}",
               "operator": {
                 "type": "boolean",
@@ -264,7 +264,7 @@
           },
           "conditions": [
             {
-              "id": "894d907d-8aeb-4220-9d69-1d60d56002ff",
+              "id": "c30c231c-395e-4993-962e-8ea13e16a373",
               "leftValue": "={{ $json.status }}",
               "operator": {
                 "type": "string",
@@ -297,7 +297,7 @@
           },
           "conditions": [
             {
-              "id": "d00ec018-7f3e-42f2-91a2-0d551fbbd773",
+              "id": "6f1c6b6c-12a2-4c81-ac49-8664bb5053f4",
               "leftValue": "={{ $json.status }}",
               "operator": {
                 "type": "string",

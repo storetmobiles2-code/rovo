@@ -221,7 +221,7 @@ if (cfg.dry_run) {
 return plan.map(p => {
   const inst = { prompt: p.shot.video_prompt };
   if (p.image) inst.image = { inlineData: p.image };
-  const parameters = { aspectRatio: V.aspect_ratio, resolution: V.resolution, durationSeconds: String(V.duration_seconds) };
+  const parameters = { aspectRatio: V.aspect_ratio, resolution: V.resolution, durationSeconds: Number(V.duration_seconds) };
   if (V.send_negative_prompt && S.negative_prompt) parameters.negativePrompt = S.negative_prompt;
   return { json: { id: p.shot.id, title: p.shot.title, api_base: cfg.api_base, data_dir: cfg.data_dir, veo_model: V.model,
     poll_s: V.poll_every_seconds, timeout_min: V.timeout_minutes, est_cost_usd: V.duration_seconds * V.price_per_second_usd,

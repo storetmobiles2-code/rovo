@@ -63,6 +63,9 @@ Only ~1–3 s of each clip ends up in the 14 s edit, so draft quality is a good 
 * `config/shots.json` — every still prompt, camera/video prompt, crop framing, models, resolution. `crop_only` shots use your **real pixels** (plate/lamp/wheel) as the start frame so the number plate cannot be re-invented; `ai_scene` shots put the real car into the cave with an identity rule ("keep wheels, grille, plate…").
 * `config/edl.json` — the cut: which clip, where to start (`src_in`, seconds), how many beats, speed ramps, punch/shake/flash, sweeps, shard wipes, whip direction, title. 90 BPM, 1 beat = 20 frames. `audio.py` reads the same file, so the sound re-syncs when you re-cut.
 
+## No-n8n alternative
+`GEMINI_API_KEY=… python3 scripts/direct_generate.py stills|animate --data <folder>` runs the same stills + Veo logic from a terminal (key only from the environment; `animate` is a dry-run unless `--yes`).
+
 ## Rehearse for free (mock Google API)
 ```bash
 python3 tests/mock_gemini.py --port 8099          # fake Gemini/Veo: same endpoints, response shapes, async polling
@@ -77,7 +80,7 @@ In each workflow's *Config* node set `api_base` to `http://host.docker.internal:
 | Dry-run cost guard; missing/failed-clip check | ✅ |
 | One-command `setup_n8n.sh` into an empty n8n | ✅ |
 | `finish.py` / `audio.py` | ✅ run on **stand-in footage** (re-timed earlier renders). Timing, ramps, whips, wipes, title, loudness (−14.1 LUFS) work; the **look on real Veo footage is untested** |
-| **Real Google API calls** | ⚠️ **not run** (no key in my sandbox). Request/response shapes follow Google's published docs (Veo `predictLongRunning` + `inlineData` start frame, poll, `generateVideoResponse…video.uri`; Gemini `generateContent` image output). `smoke_test.sh` checks key + model ids for free. If Google changed a field name, the error shows in the n8n node that failed |
+| **Real Google API** | 🟡 key + model list ✅; Veo request body validated ✅ (found + fixed the `durationSeconds` type bug); **generation blocked: free-tier quota 0** until billing is enabled. Originally: not run (no key in my sandbox). Request/response shapes follow Google's published docs (Veo `predictLongRunning` + `inlineData` start frame, poll, `generateVideoResponse…video.uri`; Gemini `generateContent` image output). `smoke_test.sh` checks key + model ids for free. If Google changed a field name, the error shows in the n8n node that failed |
 | Docker image | ⚠️ `Dockerfile` not built (no Docker daemon in my sandbox); the identical install steps ran natively |
 | AI quality | ⚠️ Gemini/Veo can drift on car details. Built-in mitigations: `crop_only` real-pixel macros, identity rule, negative prompt, still-approval gate, per-shot re-run (`only`). Check the plate in every clip |
 
@@ -86,7 +89,9 @@ In each workflow's *Config* node set `api_base` to `http://host.docker.internal:
 * **"access to the file is not allowed"** → `N8N_RESTRICT_FILE_ACCESS_TO=/data` (set) and keep files under `/data`.
 * **404 / model not found** → run `scripts/smoke_test.sh`; fix `image_model` / `veo.model` in `shots.json` (names change; the preflight node also warns).
 * **400 about `negativePrompt`** → set `"send_negative_prompt": false` in `shots.json`.
-* **403** → wrong key, or the project has no billing.
+* **403** → wrong key.
+* **429 `RESOURCE_EXHAUSTED … free_tier … limit: 0`** → the key's Google project is on the free tier. Image + Veo generation need **billing enabled** on that project (AI Studio → API keys → *Set up billing*). Verified against the real API on 2026-10-05: key valid, models visible, request body accepted, then refused for quota.
+* **400 `durationSeconds … needs to be a number`** → fixed (was sent as a string; Google's docs page shows a string but the live API wants a number).
 * **Clip missing + `*.FAILED.txt`** → usually Google's safety filter; soften the prompt, run 02 again with `only: ['<shot id>']`.
 * Veo keeps results **2 days** — workflow 02 downloads immediately.
 * `rear34.jpg` is a cropped photo; the AI may invent the missing parts — drop shot `S06` if it looks wrong and re-cut `edl.json`.
