@@ -91,5 +91,13 @@ In each workflow's *Config* node set `api_base` to `http://host.docker.internal:
 * Veo keeps results **2 days** — workflow 02 downloads immediately.
 * `rear34.jpg` is a cropped photo; the AI may invent the missing parts — drop shot `S06` if it looks wrong and re-cut `edl.json`.
 
+
+## Validation gate — "does it match the reference?"
+```bash
+python3 tests/validate_vs_reference.py --ref reference.mp4 --ref-window 16.0:29.2 --cand data/out/final.mp4 --sheet gate.jpg
+```
+Measures the reference's *edit portion* (16.0–29.2 s; the rest is tutorial) and your render: format, cut rate, whip-blur on cuts, colour/mood, tempo, loudness (automatic PASS/FAIL), and writes a **reference-vs-candidate contact sheet**.
+Numbers are necessary but **not sufficient** — a flat "sliding sticker" edit passes most of them. The real gate is the visual checklist it prints (real camera motion around the car, macro cuts, crystal wipes, crown + mirror reflection, **badge → crystal-gem closer**, car/plate identical to your photos). Don't ship until every box is ticked.
+
 ## Rebuild the workflows
 `python3 tools/build_workflows.py` regenerates `workflows/*.json` (single source of truth).

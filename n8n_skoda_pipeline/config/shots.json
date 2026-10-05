@@ -40,7 +40,11 @@
       "title": "Number-plate macro",
       "mode": "crop_only",
       "source": "front.jpg",
-      "crop": { "cx": 0.40, "cy": 0.61, "h": 0.42 },
+      "crop": {
+        "cx": 0.4,
+        "cy": 0.61,
+        "h": 0.42
+      },
       "video_prompt": "Extreme macro push-in on the front number plate and chrome grille, shallow depth of field, out-of-focus emerald crystals slide through the foreground, cold green light glints sweep across the chrome, a faint mist drifts. The plate text TS 09 EF 6141 stays perfectly sharp and unchanged."
     },
     {
@@ -48,7 +52,11 @@
       "title": "Headlamp macro + flare",
       "mode": "crop_only",
       "source": "front.jpg",
-      "crop": { "cx": 0.79, "cy": 0.53, "h": 0.36 },
+      "crop": {
+        "cx": 0.79,
+        "cy": 0.53,
+        "h": 0.36
+      },
       "video_prompt": "Macro rack-focus on the headlamp, the LED daytime running light ignites with a bright horizontal anamorphic flare, emerald crystal reflections drift across the lens glass, very slow push-in, dark cave background with bokeh. The lamp shape stays unchanged."
     },
     {
@@ -72,7 +80,11 @@
       "title": "Alloy wheel macro",
       "mode": "crop_only",
       "source": "side.jpg",
-      "crop": { "cx": 0.137, "cy": 0.76, "h": 0.70 },
+      "crop": {
+        "cx": 0.137,
+        "cy": 0.76,
+        "h": 0.7
+      },
       "video_prompt": "Macro push-in on the alloy wheel, bright light glints sweep across the spokes, wet floor reflecting an emerald glow, blurred crystals in the background. The wheel stays round and unchanged."
     },
     {
@@ -82,6 +94,18 @@
       "source": "side.jpg",
       "still_prompt": "Place this exact car in a vast dark crystal cave, side profile hero shot, a giant crown of translucent emerald crystals rising behind it, a perfect mirror reflection on the black floor, floating glowing spores, volumetric mist. Vertical 9:16.",
       "video_prompt": "Slow majestic crane-style pull-back and rise from the side profile revealing a giant crown of emerald crystals behind the car, the crystals pulse with inner light, perfect mirror reflection on the floor, glowing spores float upward. Calm, premium, stable. The car stays unchanged."
+    },
+    {
+      "id": "S09_badge_gem",
+      "title": "Badge macro → crystal gem (reference closer)",
+      "mode": "crop_only",
+      "source": "front.jpg",
+      "crop": {
+        "cx": 0.4,
+        "cy": 0.435,
+        "h": 0.26
+      },
+      "video_prompt": "Extreme macro on the round Škoda badge on the bonnet, slow push-in; the chrome badge ripples and crystallises into a perfect faceted emerald gem that catches the light, light rays glint across its facets, cave darkness behind. The badge position and size stay the same."
     },
     {
       "id": "T01_crystal_whip",

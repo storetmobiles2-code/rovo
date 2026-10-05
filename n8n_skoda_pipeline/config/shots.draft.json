@@ -96,6 +96,18 @@
       "video_prompt": "Slow majestic crane-style pull-back and rise from the side profile revealing a giant crown of emerald crystals behind the car, the crystals pulse with inner light, perfect mirror reflection on the floor, glowing spores float upward. Calm, premium, stable. The car stays unchanged."
     },
     {
+      "id": "S09_badge_gem",
+      "title": "Badge macro → crystal gem (reference closer)",
+      "mode": "crop_only",
+      "source": "front.jpg",
+      "crop": {
+        "cx": 0.4,
+        "cy": 0.435,
+        "h": 0.26
+      },
+      "video_prompt": "Extreme macro on the round Škoda badge on the bonnet, slow push-in; the chrome badge ripples and crystallises into a perfect faceted emerald gem that catches the light, light rays glint across its facets, cave darkness behind. The badge position and size stay the same."
+    },
+    {
       "id": "T01_crystal_whip",
       "title": "Crystal whip (transition element)",
       "mode": "text_only",
