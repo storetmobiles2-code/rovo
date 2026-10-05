@@ -1,0 +1,191 @@
+{
+  "id": "d7dc0a51d86855b3",
+  "name": "03 · Skoda — Edit, motion design & sound (finish)",
+  "nodes": [
+    {
+      "id": "0e49ef6e-0ddc-5dab-bc11-31894f93baad",
+      "name": "Notes 0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        -330
+      ],
+      "parameters": {
+        "content": "## 03 · FINISH\nRuns the **open-source finishing engine** (`scripts/finish.py` + `audio.py`):\n\n- beat-synced cut from `config/edl.json` (90 BPM, 1 beat = 20 frames)\n- speed ramps, whip-blur / zoom-punch transitions, impact flashes, crystal-shard wipes\n- auto star-glints locked to the brightest real highlights, light sweeps\n- unified emerald grade, bloom, anamorphic streaks, grain\n- kinetic title lock-up (ŠKODA / SUPERB)\n- synthesised score + whooshes + impacts cut to the same beat grid\n\nSet `preview: true` for a fast half-res draft.",
+        "width": 560,
+        "height": 330,
+        "color": 4
+      }
+    },
+    {
+      "id": "2b5133b0-a273-5bf4-8abc-14f2fd0c6ef5",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "1049d91e-efe0-51d8-a2b8-32e3dd5f2770",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// ✏️  EDIT ME — the only place where paths and the API address live.\nreturn [{ json: {\n  // Real Google API. For a free rehearsal against the bundled mock server use:\n  //   http://host.docker.internal:8099/v1beta      (n8n in Docker)   or   http://127.0.0.1:8099/v1beta   (n8n on the host)\n  api_base: 'https://generativelanguage.googleapis.com/v1beta',\n  data_dir: '/data',          // folder that contains inputs/, config/, stills/, clips/, scripts/, out/\n  preview: true,              // true = quick 540×960 draft, false = final 1080×1920\n  output_name: 'SKODA_SUPERB_CRYSTAL_CAVE_V02',\n  workers: 4,\n}}];"
+      }
+    },
+    {
+      "id": "12d0de32-deb4-5127-8892-0a8c1947177c",
+      "name": "Check clips",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=python3 {{ $json.data_dir }}/scripts/finish.py --check --edl {{ $json.data_dir }}/config/edl.json --clips {{ $json.data_dir }}/clips"
+      }
+    },
+    {
+      "id": "9960adb7-c2c9-569e-a6e6-c47b6cd44ca3",
+      "name": "Score (audio.py)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=mkdir -p {{ $('Config').first().json.data_dir }}/audio && python3 {{ $('Config').first().json.data_dir }}/scripts/audio.py --edl {{ $('Config').first().json.data_dir }}/config/edl.json --out {{ $('Config').first().json.data_dir }}/audio/score.wav"
+      }
+    },
+    {
+      "id": "31ed1a12-9d2b-592b-9200-64baa9bb8907",
+      "name": "Render (finish.py)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=mkdir -p {{ $('Config').first().json.data_dir }}/out && python3 {{ $('Config').first().json.data_dir }}/scripts/finish.py --edl {{ $('Config').first().json.data_dir }}/config/edl.json --clips {{ $('Config').first().json.data_dir }}/clips --audio {{ $('Config').first().json.data_dir }}/audio/score.wav --out {{ $('Config').first().json.data_dir }}/out/{{ $('Config').first().json.output_name }}{{ $('Config').first().json.preview ? '_PREVIEW' : '' }}.mp4 --scale {{ $('Config').first().json.preview ? 0.5 : 1.0 }} --workers {{ $('Config').first().json.workers }}"
+      }
+    },
+    {
+      "id": "4e8054e1-3fcc-5040-aba5-6d6c41e988af",
+      "name": "Probe output",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate,duration -of json {{ $('Config').first().json.data_dir }}/out/{{ $('Config').first().json.output_name }}{{ $('Config').first().json.preview ? '_PREVIEW' : '' }}.mp4"
+      }
+    },
+    {
+      "id": "62fb1a16-7bc1-5417-921c-b399e8c61b05",
+      "name": "Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nlet probe = {}; try { probe = JSON.parse($input.first().json.stdout); } catch (e) {}\nreturn [{ json: { done: true, file: `${cfg.data_dir}/out/${cfg.output_name}${cfg.preview ? '_PREVIEW' : ''}.mp4`, streams: probe.streams,\n  hint: cfg.preview ? 'This is a half-res draft. Set preview:false in Config for the final 1080×1920 render.' : 'Final render complete.' } }];"
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Check clips",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check clips": {
+      "main": [
+        [
+          {
+            "node": "Score (audio.py)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score (audio.py)": {
+      "main": [
+        [
+          {
+            "node": "Render (finish.py)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render (finish.py)": {
+      "main": [
+        [
+          {
+            "node": "Probe output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Probe output": {
+      "main": [
+        [
+          {
+            "node": "Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 7200,
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "active": false,
+  "tags": []
+}

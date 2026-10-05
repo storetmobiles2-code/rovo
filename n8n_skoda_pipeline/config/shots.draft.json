@@ -1,0 +1,105 @@
+{
+  "meta": {
+    "project": "SKODA_SUPERB_CRYSTAL_CAVE",
+    "car": "white Škoda Superb (2nd generation, facelift), alloy wheels, bi-xenon headlamps with LED daytime lights, chrome-bar grille",
+    "plate": "TS 09 EF 6141",
+    "look": "dark emerald crystal cave, glossy black wet mirror floor, huge translucent emerald-green crystals glowing from inside, volumetric mist, cold rim light, anamorphic cinema lens, subtle film grain"
+  },
+  "veo": {
+    "model": "veo-3.1-fast-generate-preview",
+    "resolution": "720p",
+    "duration_seconds": 4,
+    "aspect_ratio": "9:16",
+    "send_negative_prompt": true,
+    "price_per_second_usd": 0.1,
+    "poll_every_seconds": 20,
+    "timeout_minutes": 15
+  },
+  "image_model": "gemini-3.1-flash-image",
+  "negative_prompt": "text overlays, subtitles, watermark, logo changes, deformed car, warped wheels, extra wheels, melted body, distorted number plate, people, cartoon, low quality",
+  "identity_rule": "Keep the car EXACTLY as in the photo: same body shape, white paint, wheels, headlamps, grille, badges and the number plate reading TS 09 EF 6141. Change only the environment and lighting.",
+  "shots": [
+    {
+      "id": "S01_reveal_orbit",
+      "title": "Void reveal + orbit (hook)",
+      "mode": "ai_scene",
+      "source": "front.jpg",
+      "still_prompt": "Place this exact car on a glossy black mirror-like floor in a pitch-black void, low front three-quarter view. A thin emerald rim light traces the body edges. Small emerald crystals are just beginning to grow from the floor around the wheels. Soft sharp reflection of the car in the floor. Cinematic automotive commercial still, vertical 9:16.",
+      "video_prompt": "Slow cinematic orbit around the car starting from the front three-quarter and sweeping toward the side, emerald crystals rapidly grow and ignite around it, a bright light sweep runs along the bodywork, reflections ripple on the wet black floor, tiny dust motes drift through the beams. Smooth stable camera, photoreal, the car stays rigid and unchanged."
+    },
+    {
+      "id": "S02_cave_hero_pushin",
+      "title": "Cave impact hero push-in",
+      "mode": "ai_scene",
+      "source": "front.jpg",
+      "still_prompt": "Place this exact car in a vast dark crystal cave, low-angle hero shot from the front, a giant crown of translucent emerald crystals rising behind it, wet black reflective floor, volumetric mist, cold green rim lights, dramatic and symmetrical. Vertical 9:16.",
+      "video_prompt": "Fast confident dolly push-in from a low angle toward the front of the car, giant emerald crystals glint and pulse behind it, mist swirls across the floor, the headlamps shine through the haze, slight handheld energy, ends tight on the grille. The car stays unchanged."
+    },
+    {
+      "id": "S03_plate_macro",
+      "title": "Number-plate macro",
+      "mode": "crop_only",
+      "source": "front.jpg",
+      "crop": {
+        "cx": 0.4,
+        "cy": 0.61,
+        "h": 0.42
+      },
+      "video_prompt": "Extreme macro push-in on the front number plate and chrome grille, shallow depth of field, out-of-focus emerald crystals slide through the foreground, cold green light glints sweep across the chrome, a faint mist drifts. The plate text TS 09 EF 6141 stays perfectly sharp and unchanged."
+    },
+    {
+      "id": "S04_lamp_macro",
+      "title": "Headlamp macro + flare",
+      "mode": "crop_only",
+      "source": "front.jpg",
+      "crop": {
+        "cx": 0.79,
+        "cy": 0.53,
+        "h": 0.36
+      },
+      "video_prompt": "Macro rack-focus on the headlamp, the LED daytime running light ignites with a bright horizontal anamorphic flare, emerald crystal reflections drift across the lens glass, very slow push-in, dark cave background with bokeh. The lamp shape stays unchanged."
+    },
+    {
+      "id": "S05_side_tracking",
+      "title": "Side tracking with crystal wipes",
+      "mode": "ai_scene",
+      "source": "side.jpg",
+      "still_prompt": "Place this exact car in a dark emerald crystal cave, perfect side profile, wet black mirror floor with a crisp reflection, big out-of-focus emerald crystals in the foreground at both edges, volumetric mist, cold rim light. Vertical 9:16.",
+      "video_prompt": "Smooth lateral tracking shot parallel to the car, giant out-of-focus emerald crystals sweep through the foreground like wipes, reflections slide across the wet floor, mist drifts, then the foreground clears to reveal the full side profile. Steady speed. The car stays unchanged."
+    },
+    {
+      "id": "S06_rear_reveal",
+      "title": "Rear quarter reveal",
+      "mode": "ai_scene",
+      "source": "rear34.jpg",
+      "still_prompt": "Place this exact car in a dark emerald crystal cave, rear three-quarter view, the tail lamp glowing red, emerald highlights on the white paint, wet black floor, crystals framing the car, volumetric mist. Vertical 9:16.",
+      "video_prompt": "Slow dolly around the rear quarter starting from behind a crystal cluster, the red tail lamp glows, emerald light slides across the white paint, mist curls, camera glides left to right and slightly upward. The car stays unchanged."
+    },
+    {
+      "id": "S07_wheel_macro",
+      "title": "Alloy wheel macro",
+      "mode": "crop_only",
+      "source": "side.jpg",
+      "crop": {
+        "cx": 0.137,
+        "cy": 0.76,
+        "h": 0.7
+      },
+      "video_prompt": "Macro push-in on the alloy wheel, bright light glints sweep across the spokes, wet floor reflecting an emerald glow, blurred crystals in the background. The wheel stays round and unchanged."
+    },
+    {
+      "id": "S08_finale_hero",
+      "title": "Finale crown hero (pull-back)",
+      "mode": "ai_scene",
+      "source": "side.jpg",
+      "still_prompt": "Place this exact car in a vast dark crystal cave, side profile hero shot, a giant crown of translucent emerald crystals rising behind it, a perfect mirror reflection on the black floor, floating glowing spores, volumetric mist. Vertical 9:16.",
+      "video_prompt": "Slow majestic crane-style pull-back and rise from the side profile revealing a giant crown of emerald crystals behind the car, the crystals pulse with inner light, perfect mirror reflection on the floor, glowing spores float upward. Calm, premium, stable. The car stays unchanged."
+    },
+    {
+      "id": "T01_crystal_whip",
+      "title": "Crystal whip (transition element)",
+      "mode": "text_only",
+      "video_prompt": "Camera whips very fast past enormous translucent emerald crystals that fill the frame, heavy directional motion blur, dark background, bright facet glints, no car, no people, no text."
+    }
+  ]
+}

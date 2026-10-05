@@ -1,0 +1,401 @@
+{
+ "_comment": "DRAFT: for 4 s / 720p Veo clips (src_in scaled to fit). Copy over edl.json while testing.",
+ "fps": 30,
+ "bpm": 90,
+ "grade": {
+  "exposure": 1.0,
+  "contrast": 1.1,
+  "sat": 1.05,
+  "teal": 0.1,
+  "bloom": 0.55,
+  "grain": 0.016,
+  "vignette": 0.5
+ },
+ "title": {
+  "text": "ŠKODA",
+  "sub": "SUPERB",
+  "delay_frames": 8
+ },
+ "segments": [
+  {
+   "id": "01_hook",
+   "clip": "S01_reveal_orbit.mp4",
+   "src_in": 0.0,
+   "beats": 2,
+   "speed": [
+    [
+     0,
+     1.0
+    ],
+    [
+     1,
+     1.0
+    ]
+   ],
+   "zoom": [
+    1.0,
+    1.08
+   ],
+   "glints": true,
+   "chimes": true,
+   "sweep": {
+    "at": 0.45,
+    "width": 70,
+    "angle": 65,
+    "gain": 0.5
+   },
+   "out": {
+    "type": "whip",
+    "dir": 0,
+    "len": 110,
+    "zoom": 0.05
+   }
+  },
+  {
+   "id": "02_impact_hero",
+   "clip": "S02_cave_hero_pushin.mp4",
+   "src_in": 0.45,
+   "beats": 2,
+   "speed": [
+    [
+     0,
+     1.3
+    ],
+    [
+     1,
+     0.7
+    ]
+   ],
+   "punch": 0.12,
+   "shake": 16,
+   "flash": 0.5,
+   "impact": 1.15,
+   "glints": true,
+   "sweep": {
+    "at": 0.5,
+    "width": 70,
+    "angle": 62,
+    "gain": 0.6
+   },
+   "out": {
+    "type": "whip",
+    "dir": 0,
+    "len": 130,
+    "zoom": 0.05
+   }
+  },
+  {
+   "id": "03_plate_macro",
+   "clip": "S03_plate_macro.mp4",
+   "src_in": 0.54,
+   "beats": 1,
+   "speed": [
+    [
+     0,
+     1.0
+    ],
+    [
+     1,
+     1.0
+    ]
+   ],
+   "punch": 0.05,
+   "impact": 0.5,
+   "out": {
+    "type": "whip",
+    "dir": 15,
+    "len": 130,
+    "zoom": 0.04
+   }
+  },
+  {
+   "id": "04_tail_macro",
+   "clip": "S06_rear_reveal.mp4",
+   "src_in": 0.27,
+   "beats": 1,
+   "speed": [
+    [
+     0,
+     1.0
+    ],
+    [
+     1,
+     1.0
+    ]
+   ],
+   "punch": 0.05,
+   "impact": 0.5,
+   "out": {
+    "type": "whip",
+    "dir": 175,
+    "len": 130,
+    "zoom": 0.04
+   }
+  },
+  {
+   "id": "05_lamp_macro",
+   "clip": "S04_lamp_macro.mp4",
+   "src_in": 0.72,
+   "beats": 1,
+   "speed": [
+    [
+     0,
+     1.0
+    ],
+    [
+     1,
+     1.0
+    ]
+   ],
+   "flash": 0.0,
+   "flash_at": [
+    [
+     0.55,
+     0.25
+    ]
+   ],
+   "glints": true,
+   "impact": 0.8,
+   "out": {
+    "type": "whip",
+    "dir": 0,
+    "len": 130,
+    "zoom": 0.04
+   }
+  },
+  {
+   "id": "06_orbit",
+   "clip": "S01_reveal_orbit.mp4",
+   "src_in": 1.44,
+   "beats": 2,
+   "speed": [
+    [
+     0,
+     1.0
+    ],
+    [
+     1,
+     0.8
+    ]
+   ],
+   "punch": 0.08,
+   "shake": 10,
+   "glints": true,
+   "impact": 0.9,
+   "wipe": {
+    "plate": "shard_00",
+    "dir": "lr",
+    "frames": 7
+   },
+   "out": {
+    "type": "whip",
+    "dir": 0,
+    "len": 120,
+    "zoom": 0.04
+   }
+  },
+  {
+   "id": "07_side_track",
+   "clip": "S05_side_tracking.mp4",
+   "src_in": 0.45,
+   "beats": 2,
+   "speed": [
+    [
+     0,
+     1.2
+    ],
+    [
+     1,
+     0.9
+    ]
+   ],
+   "punch": 0.06,
+   "glints": true,
+   "sweep": {
+    "at": 0.6,
+    "width": 65,
+    "angle": 68,
+    "gain": 0.5
+   },
+   "out": {
+    "type": "whip",
+    "dir": 0,
+    "len": 130,
+    "zoom": 0.04
+   }
+  },
+  {
+   "id": "08_crystal_whip",
+   "clip": "T01_crystal_whip.mp4",
+   "src_in": 0.45,
+   "beats": 1,
+   "speed": [
+    [
+     0,
+     1.4
+    ],
+    [
+     1,
+     1.2
+    ]
+   ],
+   "impact": 0.5,
+   "out": {
+    "type": "whip",
+    "dir": 160,
+    "len": 130,
+    "zoom": 0.04
+   }
+  },
+  {
+   "id": "09_rear_reveal",
+   "clip": "S06_rear_reveal.mp4",
+   "src_in": 0.9,
+   "beats": 2,
+   "speed": [
+    [
+     0,
+     1.0
+    ],
+    [
+     1,
+     0.85
+    ]
+   ],
+   "punch": 0.08,
+   "shake": 11,
+   "flash": 0.14,
+   "impact": 0.8,
+   "glints": true,
+   "wipe": {
+    "plate": "shard_02",
+    "dir": "rl",
+    "frames": 7
+   },
+   "out": {
+    "type": "whip",
+    "dir": 0,
+    "len": 130,
+    "zoom": 0.04
+   }
+  },
+  {
+   "id": "10_wheel_macro",
+   "clip": "S07_wheel_macro.mp4",
+   "src_in": 0.68,
+   "beats": 1,
+   "speed": [
+    [
+     0,
+     1.0
+    ],
+    [
+     1,
+     1.0
+    ]
+   ],
+   "punch": 0.05,
+   "impact": 0.7,
+   "sweep": {
+    "at": 0.4,
+    "width": 55,
+    "angle": 100,
+    "gain": 0.9
+   },
+   "out": {
+    "type": "whip",
+    "dir": 190,
+    "len": 130,
+    "zoom": 0.04
+   }
+  },
+  {
+   "id": "11_side_clear",
+   "clip": "S05_side_tracking.mp4",
+   "src_in": 2.25,
+   "beats": 1,
+   "speed": [
+    [
+     0,
+     1.0
+    ],
+    [
+     1,
+     1.0
+    ]
+   ],
+   "punch": 0.05,
+   "impact": 0.5,
+   "wipe": {
+    "plate": "shard_04",
+    "dir": "lr",
+    "frames": 7
+   },
+   "out": {
+    "type": "whip",
+    "dir": 90,
+    "len": 120,
+    "zoom": 0.05
+   }
+  },
+  {
+   "id": "12_finale_hero",
+   "clip": "S08_finale_hero.mp4",
+   "src_in": 0.18,
+   "beats": 3,
+   "speed": [
+    [
+     0,
+     1.0
+    ],
+    [
+     1,
+     0.8
+    ]
+   ],
+   "punch": 0.1,
+   "shake": 18,
+   "flash": 0.4,
+   "impact": 1.2,
+   "glints": true,
+   "zoom": [
+    1.0,
+    1.07
+   ],
+   "sweep": {
+    "at": 0.3,
+    "width": 75,
+    "angle": 66,
+    "gain": 0.45
+   },
+   "out": {
+    "type": "whip",
+    "dir": 0,
+    "len": 130,
+    "zoom": 0.04
+   }
+  },
+  {
+   "id": "13_title",
+   "clip": "S02_cave_hero_pushin.mp4",
+   "src_in": 2.34,
+   "beats": 2,
+   "speed": [
+    [
+     0,
+     1.0
+    ],
+    [
+     1,
+     0.6
+    ]
+   ],
+   "title": true,
+   "dim": [
+    0.9,
+    0.12
+   ],
+   "fade_out": 10
+  }
+ ]
+}

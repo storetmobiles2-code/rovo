@@ -1,0 +1,10 @@
+.env
+data/inputs/*
+data/stills/*
+data/clips/*
+data/out/*
+data/audio/*
+!data/**/.gitkeep
+!data/stills/approved
+__pycache__/
+*.pyc

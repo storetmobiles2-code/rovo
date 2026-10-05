@@ -1,0 +1,499 @@
+{
+  "id": "4a48190c9e4a5b47",
+  "name": "01 · Skoda — Start frames (photos → cave stills)",
+  "nodes": [
+    {
+      "id": "d58831e1-58a1-5c9d-87f3-86d33897a1ac",
+      "name": "Notes 0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        -330
+      ],
+      "parameters": {
+        "content": "## 01 · START FRAMES\n**Photos in** `/data/inputs/` (front.jpg, side.jpg, rear34.jpg)\n\n1. Reads `config/shots.json`\n2. Preflight: checks your API key + model names\n3. `ai_scene` shots → Gemini image model puts the **real car** into the crystal cave\n4. `crop_only` shots → pure ffmpeg crops of your real photo (keeps the real plate/lamp/wheel pixels)\n5. Writes `/data/stills/*.png` + a contact sheet\n\n**Cost:** ≈ $0.07 per generated still.\n**Next:** look at `stills/_contact_sheet.jpg`, copy the ones you like into `stills/approved/`, then run workflow 02.",
+        "width": 560,
+        "height": 330,
+        "color": 4
+      }
+    },
+    {
+      "id": "ac4abbbe-3fca-57ab-b004-5f5c5b25cfe1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "5923625a-a0cf-5945-8435-5d3b4fc366dc",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// ✏️  EDIT ME — the only place where paths and the API address live.\nreturn [{ json: {\n  // Real Google API. For a free rehearsal against the bundled mock server use:\n  //   http://host.docker.internal:8099/v1beta      (n8n in Docker)   or   http://127.0.0.1:8099/v1beta   (n8n on the host)\n  api_base: 'https://generativelanguage.googleapis.com/v1beta',\n  data_dir: '/data',          // folder that contains inputs/, config/, stills/, clips/, scripts/, out/\n  auto_approve: false,         // true = copy every still into stills/approved/ automatically\n}}];"
+      }
+    },
+    {
+      "id": "536ad63f-633f-5b7d-a6e6-304487a0c0e2",
+      "name": "Read shots.json",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('Config').first().json.data_dir }}/config/shots.json",
+        "options": {}
+      }
+    },
+    {
+      "id": "edde18ba-896e-5a5e-8487-966c36bc7ab7",
+      "name": "Parse shots",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "operation": "fromJson",
+        "binaryPropertyName": "data",
+        "destinationKey": "cfg",
+        "options": {}
+      }
+    },
+    {
+      "id": "4e54d6e0-00bb-5b7b-ab26-4596d441abc0",
+      "name": "Preflight: list models",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Config').first().json.api_base }}/models?pageSize=1000",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gemini_key",
+          "name": "Gemini API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 6000
+    },
+    {
+      "id": "281ad591-6895-5d9a-87a6-fe32a24abd7e",
+      "name": "Check models",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Stops early (cheaply) if the key is bad, and warns if a configured model id is not available to this key.\nconst cfg = $('Config').first().json;\nconst S = $('Parse shots').first().json.cfg;\nconst names = ($input.first().json.models || []).map(m => String(m.name || '').replace(/^models\\//, ''));\nconst warnings = [];\nfor (const [label, id] of [['image model', S.image_model], ['video model', S.veo.model]]) {\n  if (!names.includes(id)) {\n    const sim = names.filter(n => n.split('-')[0] === id.split('-')[0]).slice(0, 10).join(', ');\n    warnings.push(`${label} \"${id}\" is not in your key's model list. Similar: ${sim || '(none)'} — fix it in config/shots.json`);\n  }\n}\nreturn [{ json: { ...cfg, warnings, models_visible: names.length } }];"
+      }
+    },
+    {
+      "id": "f946bdf0-6233-5f65-83fc-f5e365c5c498",
+      "name": "Shots → items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const cfg = $('Check models').first().json;\nconst S = $('Parse shots').first().json.cfg;\nreturn S.shots.filter(s => s.mode !== 'text_only').map(s => ({ json: {\n  ...s, data_dir: cfg.data_dir, api_base: cfg.api_base, image_model: S.image_model,\n  identity_rule: S.identity_rule, car: S.meta.car, plate: S.meta.plate,\n}}));"
+      }
+    },
+    {
+      "id": "c55f2b9d-7a26-532c-bb63-f90e0e2584a9",
+      "name": "AI or crop?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bd094b2c-0383-46e8-b725-129a312360e6",
+              "leftValue": "={{ $json.mode }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "ai_scene"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "fd4ddbbc-b76c-57b5-b161-7e9fd3e018a9",
+      "name": "Read photo",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        -140
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.data_dir }}/inputs/{{ $json.source }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "d30c4b28-ebfe-514d-ab66-673b9ba11865",
+      "name": "Build edit request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        -140
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst out = [];\nfor (let i = 0; i < items.length; i++) {\n  const meta = $('AI or crop?').itemMatching(i).json;\n  const buf = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const mime = items[i].binary.data.mimeType || 'image/jpeg';\n  const prompt = `${meta.still_prompt}\\n\\n${meta.identity_rule}\\nThe car is a ${meta.car}.`;\n  out.push({ json: { ...meta, body: {\n    contents: [{ role: 'user', parts: [ { text: prompt }, { inlineData: { mimeType: mime, data: buf.toString('base64') } } ] }],\n    generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '9:16' } },\n  }}});\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "8a75e8c2-5d55-5cdf-b600-a9b58c72dfd4",
+      "name": "Gemini: edit image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        -140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.api_base }}/models/{{ $json.image_model }}:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 300000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gemini_key",
+          "name": "Gemini API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 6000
+    },
+    {
+      "id": "34ca248e-bbc9-5e4d-9105-d1faa460ffa0",
+      "name": "Extract image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        -140
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst out = [];\nfor (let i = 0; i < items.length; i++) {\n  const meta = $('Build edit request').itemMatching(i).json;\n  const res = items[i].json;\n  const parts = (res.candidates?.[0]?.content?.parts) || [];\n  const img = parts.map(p => p.inlineData || p.inline_data).find(Boolean);\n  if (!img?.data) {\n    const why = res.promptFeedback?.blockReason || res.candidates?.[0]?.finishReason || 'no image part';\n    const txt = parts.map(p => p.text).filter(Boolean).join(' ').slice(0, 300);\n    throw new Error(`Shot ${meta.id}: Gemini returned no image (${why}). ${txt}`);\n  }\n  const mime = img.mimeType || img.mime_type || 'image/png';\n  const bin = await this.helpers.prepareBinaryData(Buffer.from(img.data, 'base64'), `${meta.id}.png`, mime);\n  const { body, ...rest } = meta;\n  out.push({ json: rest, binary: { data: bin } });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "261ffdfb-ade4-55c0-ab20-41fb3dd8fba1",
+      "name": "Write still",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        2660,
+        -140
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $json.data_dir }}/stills/{{ $json.id }}.png",
+        "dataPropertyName": "data",
+        "options": {}
+      }
+    },
+    {
+      "id": "64a0b9db-ef30-5949-add4-18c6fd1dcd62",
+      "name": "Crop real photo (ffmpeg)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        140
+      ],
+      "parameters": {
+        "executeOnce": false,
+        "command": "=mkdir -p {{ $json.data_dir }}/stills && ffmpeg -v error -y -i {{ $json.data_dir }}/inputs/{{ $json.source }} -vf \"crop=w='trunc(ih*{{ $json.crop.h }}*9/16/2)*2':h='trunc(ih*{{ $json.crop.h }}/2)*2':x='max(0,min(iw-out_w,{{ $json.crop.cx }}*iw-out_w/2))':y='max(0,min(ih-out_h,{{ $json.crop.cy }}*ih-out_h/2))',scale=1080:1920:flags=lanczos,unsharp=5:5:0.8\" -frames:v 1 {{ $json.data_dir }}/stills/{{ $json.id }}.png && echo cropped {{ $json.id }}"
+      }
+    },
+    {
+      "id": "3da3a3c6-5692-52da-93f9-592f6407236c",
+      "name": "Merge branches",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2900,
+        0
+      ],
+      "parameters": {
+        "mode": "append"
+      }
+    },
+    {
+      "id": "f4c89597-7eb0-5f87-8ab0-c2fc03e29ed6",
+      "name": "Contact sheet",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        3120,
+        0
+      ],
+      "parameters": {
+        "executeOnce": true,
+        "command": "=cd {{ $('Config').first().json.data_dir }}/stills && ffmpeg -v error -y -pattern_type glob -i 'S*.png' -vf \"scale=270:-1,tile=8x2:padding=6:color=black\" -frames:v 1 _contact_sheet.jpg && if [ \"{{ $('Config').first().json.auto_approve }}\" = \"true\" ]; then mkdir -p approved && cp -f S*.png approved/; fi && ls -1 S*.png"
+      }
+    },
+    {
+      "id": "20c67e6e-2656-53ec-bf25-93972f983e0f",
+      "name": "Next steps",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3340,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const cfg = $('Check models').first().json;\nconst files = String($input.first().json.stdout || '').trim().split('\\n').filter(Boolean);\nreturn [{ json: {\n  stills_created: files.length, files,\n  warnings: cfg.warnings,\n  next: [\n    `1. Open ${cfg.data_dir}/stills/_contact_sheet.jpg and check every still (car identical? plate right? cave look?).`,\n    `2. Copy the good ones into ${cfg.data_dir}/stills/approved/ (keep the file names). Re-run this workflow to redo a bad one.`,\n    '3. Run workflow \"02 · Animate\" (it starts in DRY-RUN mode and shows the cost first).',\n  ],\n}}];"
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Read shots.json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read shots.json": {
+      "main": [
+        [
+          {
+            "node": "Parse shots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse shots": {
+      "main": [
+        [
+          {
+            "node": "Preflight: list models",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preflight: list models": {
+      "main": [
+        [
+          {
+            "node": "Check models",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check models": {
+      "main": [
+        [
+          {
+            "node": "Shots → items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shots → items": {
+      "main": [
+        [
+          {
+            "node": "AI or crop?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI or crop?": {
+      "main": [
+        [
+          {
+            "node": "Read photo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Crop real photo (ffmpeg)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read photo": {
+      "main": [
+        [
+          {
+            "node": "Build edit request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build edit request": {
+      "main": [
+        [
+          {
+            "node": "Gemini: edit image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini: edit image": {
+      "main": [
+        [
+          {
+            "node": "Extract image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract image": {
+      "main": [
+        [
+          {
+            "node": "Write still",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write still": {
+      "main": [
+        [
+          {
+            "node": "Merge branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crop real photo (ffmpeg)": {
+      "main": [
+        [
+          {
+            "node": "Merge branches",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge branches": {
+      "main": [
+        [
+          {
+            "node": "Contact sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contact sheet": {
+      "main": [
+        [
+          {
+            "node": "Next steps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 7200,
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "active": false,
+  "tags": []
+}

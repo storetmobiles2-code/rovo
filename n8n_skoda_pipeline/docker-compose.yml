@@ -1,0 +1,21 @@
+services:
+  n8n:
+    build: .
+    container_name: skoda-n8n
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"          # open http://localhost:5678  (local only)
+    env_file: .env
+    environment:
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - WEBHOOK_URL=http://localhost:5678/
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # lets n8n reach the free mock API on your host (rehearsal mode)
+    volumes:
+      - n8n_home:/home/node                    # n8n database + (encrypted) credentials
+      - ./data:/data                           # inputs/, stills/, clips/, out/, audio/
+      - ./config:/data/config                  # shots.json + edl.json  (edit these)
+      - ./scripts:/data/scripts:ro             # finish.py, audio.py, fx.py, fonts, shard assets
+      - ./workflows:/data/workflows:ro         # the 3 importable workflows
+volumes:
+  n8n_home:

@@ -1,0 +1,625 @@
+{
+  "id": "d8a5355a8eb15097",
+  "name": "02 · Skoda — Animate approved stills (Veo)",
+  "nodes": [
+    {
+      "id": "eb456755-52ba-580c-bf2c-fe90f236d549",
+      "name": "Notes 0",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        -360
+      ],
+      "parameters": {
+        "content": "## 02 · ANIMATE\nTakes every PNG in `/data/stills/approved/` and turns it into an 8 s clip with **Veo** (image-to-video, 9:16, 1080p).\n\n⚠️ **Starts in DRY-RUN** — it only prints the cost. Set `dry_run: false` in *Config* to spend money.\n\nAll clips are generated **in parallel**; the loop below polls every 20 s until each one is done, downloads it to `/data/clips/<shot>.mp4` and writes `<shot>.FAILED.txt` if a clip is blocked/failed (the rest continue).\n\nVeo keeps results only **2 days** — download happens automatically.\n\nTip: set `only: ['S01_reveal_orbit']` to test with one clip first (≈ $1).",
+        "width": 600,
+        "height": 330,
+        "color": 4
+      }
+    },
+    {
+      "id": "edfaf8bb-f1a4-5bd5-997c-61a732aede32",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "d4ab453a-ed84-5d10-b3aa-f7fe1494c171",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// ✏️  EDIT ME — the only place where paths and the API address live.\nreturn [{ json: {\n  // Real Google API. For a free rehearsal against the bundled mock server use:\n  //   http://host.docker.internal:8099/v1beta      (n8n in Docker)   or   http://127.0.0.1:8099/v1beta   (n8n on the host)\n  api_base: 'https://generativelanguage.googleapis.com/v1beta',\n  data_dir: '/data',          // folder that contains inputs/, config/, stills/, clips/, scripts/, out/\n  dry_run: true,               // ← set false to actually generate (costs money)\n  only: [],                   // e.g. ['S01_reveal_orbit'] to run just some shots\n}}];"
+      }
+    },
+    {
+      "id": "7dfbccd1-6070-5d92-8a4d-f6900f34e2ab",
+      "name": "Read shots.json",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('Config').first().json.data_dir }}/config/shots.json",
+        "options": {}
+      }
+    },
+    {
+      "id": "8c8b72fa-2efe-5b50-96e2-34df620b83f2",
+      "name": "Parse shots",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "operation": "fromJson",
+        "binaryPropertyName": "data",
+        "destinationKey": "cfg",
+        "options": {}
+      }
+    },
+    {
+      "id": "0e7443b2-c7c4-50f5-8304-5b6ff379c14b",
+      "name": "Read approved stills",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('Config').first().json.data_dir }}/stills/approved/*.png",
+        "options": {}
+      }
+    },
+    {
+      "id": "9131de6d-b4e8-5130-93da-0d02d1781636",
+      "name": "Plan shots + cost",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst S = $('Parse shots').first().json.cfg;\nconst V = S.veo;\nconst files = $input.all();\nconst byId = Object.fromEntries(S.shots.map(s => [s.id, s]));\nconst want = id => !(cfg.only && cfg.only.length) || cfg.only.includes(id);\nconst plan = [];\nfor (let i = 0; i < files.length; i++) {\n  const id = String(files[i].binary?.data?.fileName || '').replace(/\\.[^.]+$/, '');\n  const shot = byId[id];\n  if (!shot || !want(id)) continue;\n  const buf = await this.helpers.getBinaryDataBuffer(i, 'data');\n  plan.push({ shot, image: { mimeType: files[i].binary.data.mimeType || 'image/png', data: buf.toString('base64') } });\n}\nfor (const s of S.shots.filter(s => s.mode === 'text_only' && want(s.id))) plan.push({ shot: s });\nif (!plan.length) throw new Error(`Nothing to animate: no approved stills matched a shot id in ${cfg.data_dir}/stills/approved/`);\nconst cost = plan.length * V.duration_seconds * V.price_per_second_usd;\nif (cfg.dry_run) {\n  return [{ json: { is_dry_run: true, shots: plan.map(p => p.shot.id), clips: plan.length, seconds_each: V.duration_seconds,\n    model: V.model, resolution: V.resolution, est_cost_usd: Math.round(cost * 100) / 100,\n    message: 'DRY RUN — nothing was sent to Google. Set dry_run to false in the Config node to generate.' } }];\n}\nreturn plan.map(p => {\n  const inst = { prompt: p.shot.video_prompt };\n  if (p.image) inst.image = { inlineData: p.image };\n  const parameters = { aspectRatio: V.aspect_ratio, resolution: V.resolution, durationSeconds: String(V.duration_seconds) };\n  if (V.send_negative_prompt && S.negative_prompt) parameters.negativePrompt = S.negative_prompt;\n  return { json: { id: p.shot.id, title: p.shot.title, api_base: cfg.api_base, data_dir: cfg.data_dir, veo_model: V.model,\n    poll_s: V.poll_every_seconds, timeout_min: V.timeout_minutes, est_cost_usd: V.duration_seconds * V.price_per_second_usd,\n    request: { instances: [inst], parameters } } };\n});"
+      }
+    },
+    {
+      "id": "d4b5702a-76d0-5c13-8ecf-e232e6cc71f5",
+      "name": "Dry run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b440e85f-f5bf-4957-8b29-e672cc222786",
+              "leftValue": "={{ $json.is_dry_run === true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "91859aa1-d736-5a3e-af50-531734e369df",
+      "name": "DRY RUN — nothing sent (read the cost here)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        -120
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "f6c7339c-ec69-54d4-8cef-421faa93052a",
+      "name": "Veo: start",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.api_base }}/models/{{ $json.veo_model }}:predictLongRunning",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 300000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gemini_key",
+          "name": "Gemini API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 6000
+    },
+    {
+      "id": "7535c4ee-81b6-5310-8511-16865279ff62",
+      "name": "Init poll",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map((it, i) => {\n  const m = $('Dry run?').itemMatching(i).json;\n  if (!it.json.name) throw new Error(`Shot ${m.id}: Veo did not return an operation name: ${JSON.stringify(it.json).slice(0, 300)}`);\n  return { json: { id: m.id, title: m.title, op_name: it.json.name, started: Date.now(), api_base: m.api_base, data_dir: m.data_dir, poll_s: m.poll_s, timeout_min: m.timeout_min } };\n});"
+      }
+    },
+    {
+      "id": "5c2d3bb6-5042-559e-8de6-51d1ccecb3ab",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2000,
+        120
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.poll_s }}",
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "6a3ca19c-7da8-57db-bb2a-ac669afc8ed9",
+      "name": "Poll operation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        120
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.api_base }}/{{ $json.op_name }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gemini_key",
+          "name": "Gemini API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 6000
+    },
+    {
+      "id": "2ec656b9-b742-56dc-8c18-b6e90774f04e",
+      "name": "Evaluate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const init = $('Init poll').all();\nreturn $input.all().map(it => {\n  const r = it.json;\n  const m = (init.find(x => x.json.op_name === r.name) || {}).json || {};\n  const elapsed = (Date.now() - (m.started || Date.now())) / 60000;\n  let status = 'pending', error = null, video_uri = null;\n  if (r.error) { status = 'failed'; error = JSON.stringify(r.error); }\n  else if (r.done) {\n    const g = r.response?.generateVideoResponse;\n    video_uri = g?.generatedSamples?.[0]?.video?.uri || r.response?.generatedVideos?.[0]?.video?.uri || null;\n    if (video_uri) status = 'ok';\n    else { status = 'failed'; error = 'No video returned (usually blocked by a safety filter). ' + JSON.stringify(g?.raiMediaFilteredReasons || r.response || {}).slice(0, 500); }\n  } else if (elapsed > (m.timeout_min || 15)) { status = 'failed'; error = `Timed out after ${m.timeout_min} min`; }\n  return { json: { ...m, status, error, video_uri, elapsed_min: Math.round(elapsed * 10) / 10 } };\n});"
+      }
+    },
+    {
+      "id": "efeb777f-662a-5623-ba05-a9f7e432e91a",
+      "name": "Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2660,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "894d907d-8aeb-4220-9d69-1d60d56002ff",
+              "leftValue": "={{ $json.status }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              },
+              "rightValue": "pending"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5d67ca8c-5eeb-51f9-84d8-768a37370609",
+      "name": "Succeeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2880,
+        40
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d00ec018-7f3e-42f2-91a2-0d551fbbd773",
+              "leftValue": "={{ $json.status }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "ok"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "fa07398f-bdc9-5836-86fa-d06dfa34266a",
+      "name": "Download clip",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3100,
+        -40
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.video_uri }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 600000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gemini_key",
+          "name": "Gemini API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 6000
+    },
+    {
+      "id": "19c1f1da-8b83-5a8b-aecd-f6a294efa2b4",
+      "name": "Name clip",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3320,
+        -40
+      ],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map((it, i) => ({ json: { ...$('Succeeded?').itemMatching(i).json }, binary: it.binary }));"
+      }
+    },
+    {
+      "id": "46a1b214-097f-5a27-9e91-878b920fcdee",
+      "name": "Write clip",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        3540,
+        -40
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $json.data_dir }}/clips/{{ $json.id }}.mp4",
+        "dataPropertyName": "data",
+        "options": {}
+      }
+    },
+    {
+      "id": "7b4ebd9f-6622-5c3e-8865-4667ce34328a",
+      "name": "Failure note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3100,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const out = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  const txt = `Shot ${j.id} FAILED after ${j.elapsed_min} min\\n${j.error}\\n\\nFix the prompt / still in shots.json and re-run workflow 02 with only: ['${j.id}'].\\n`;\n  out.push({ json: j, binary: { data: await this.helpers.prepareBinaryData(Buffer.from(txt), `${j.id}.FAILED.txt`, 'text/plain') } });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "22d60ee3-c42e-5a25-addb-2cfff3b5cd8f",
+      "name": "Write failure note",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        3320,
+        200
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $json.data_dir }}/clips/{{ $json.id }}.FAILED.txt",
+        "dataPropertyName": "data",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Read shots.json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read shots.json": {
+      "main": [
+        [
+          {
+            "node": "Parse shots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse shots": {
+      "main": [
+        [
+          {
+            "node": "Read approved stills",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read approved stills": {
+      "main": [
+        [
+          {
+            "node": "Plan shots + cost",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan shots + cost": {
+      "main": [
+        [
+          {
+            "node": "Dry run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry run?": {
+      "main": [
+        [
+          {
+            "node": "DRY RUN — nothing sent (read the cost here)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Veo: start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Veo: start": {
+      "main": [
+        [
+          {
+            "node": "Init poll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init poll": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Poll operation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll operation": {
+      "main": [
+        [
+          {
+            "node": "Evaluate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate": {
+      "main": [
+        [
+          {
+            "node": "Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finished?": {
+      "main": [
+        [
+          {
+            "node": "Succeeded?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Succeeded?": {
+      "main": [
+        [
+          {
+            "node": "Download clip",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failure note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download clip": {
+      "main": [
+        [
+          {
+            "node": "Name clip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Name clip": {
+      "main": [
+        [
+          {
+            "node": "Write clip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failure note": {
+      "main": [
+        [
+          {
+            "node": "Write failure note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 7200,
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "active": false,
+  "tags": []
+}
