@@ -1,0 +1,3 @@
+dist/*.cmd text eol=crlf
+dist/*.command text eol=lf
+*.sh.tpl text eol=lf

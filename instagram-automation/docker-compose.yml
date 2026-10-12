@@ -1,0 +1,86 @@
+# Instagram automation: n8n (free, self-hosted) + NotebookLM/Claude/Instagram bridge.
+# Start with:  docker compose up -d --build
+#   n8n:          http://localhost:5680
+#   Reel review:  http://localhost:8766
+# Ports differ from the YouTube automation stack, so both can run side by side.
+name: instagram-automation
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.42.6
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5680:5678"
+    environment:
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      # Published on host port 5680, so OAuth callbacks and links must say so.
+      - N8N_EDITOR_BASE_URL=http://localhost:5680/
+      - WEBHOOK_URL=http://localhost:5680/
+      - GENERIC_TIMEZONE=${TIMEZONE:-UTC}
+      - TZ=${TIMEZONE:-UTC}
+      - N8N_SECURE_COOKIE=false
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      # The workflow reads BRIDGE_URL and BRIDGE_TOKEN through $env.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      - BRIDGE_URL=http://bridge:8000
+      - BRIDGE_TOKEN=${BRIDGE_TOKEN}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n:/home/node/workflows:ro
+    depends_on:
+      - bridge
+
+  bridge:
+    build: ./bridge
+    restart: unless-stopped
+    ports:
+      # API and review pages; the public media server (8001) is reachable only through the tunnel.
+      - "127.0.0.1:8766:8000"
+    environment:
+      - BRIDGE_TOKEN=${BRIDGE_TOKEN}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-opus-5-5}
+      - CLAUDE_EFFORT=${CLAUDE_EFFORT:-medium}
+      - CLAUDE_FALLBACKS=${CLAUDE_FALLBACKS:-default}
+      - VIDEO_FORMAT=${VIDEO_FORMAT:-short}
+      - VIDEO_STYLE=${VIDEO_STYLE:-auto}
+      - VIDEO_LANGUAGE=${VIDEO_LANGUAGE:-en}
+      - VIDEO_INSTRUCTIONS=${VIDEO_INSTRUCTIONS:-}
+      - DELETE_NOTEBOOK_AFTER=${DELETE_NOTEBOOK_AFTER:-false}
+      - JOB_TIMEOUT_MINUTES=${JOB_TIMEOUT_MINUTES:-60}
+      - INSTAGRAM_LOGIN=${INSTAGRAM_LOGIN:-instagram}
+      - INSTAGRAM_ACCESS_TOKEN=${INSTAGRAM_ACCESS_TOKEN}
+      - INSTAGRAM_USER_ID=${INSTAGRAM_USER_ID:-}
+      - INSTAGRAM_REQUIRE_APPROVAL=${INSTAGRAM_REQUIRE_APPROVAL:-true}
+      - APPROVAL_TIMEOUT_HOURS=${APPROVAL_TIMEOUT_HOURS:-72}
+      - INSTAGRAM_SHARE_TO_FEED=${INSTAGRAM_SHARE_TO_FEED:-true}
+      - INSTAGRAM_THUMB_OFFSET_MS=${INSTAGRAM_THUMB_OFFSET_MS:-}
+      - INSTAGRAM_MAX_HASHTAGS=${INSTAGRAM_MAX_HASHTAGS:-5}
+      - CAPTION_FOOTER=${CAPTION_FOOTER:-🤖 Video made with AI (NotebookLM) from the source material.}
+      - GRAPH_API_VERSION=${GRAPH_API_VERSION:-v25.0}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-}
+      - REVIEW_URL=http://localhost:8766
+    volumes:
+      - bridge_data:/data
+      - ./skills:/skills:ro
+      # NotebookLM login created on this computer by `notebooklm login` (shared with the YouTube stack).
+      - ${NOTEBOOKLM_HOME:-~/.notebooklm}:/root/.notebooklm
+
+  # Free Cloudflare quick tunnel: gives the bridge's media server a temporary
+  # public https URL so Instagram can fetch each Reel (Instagram Login mode).
+  # No Cloudflare account needed. The URL changes on every restart.
+  tunnel:
+    image: cloudflare/cloudflared:2026.9.3
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:20241 --url http://bridge:8001
+    depends_on:
+      - bridge
+
+volumes:
+  n8n_data:
+  bridge_data:

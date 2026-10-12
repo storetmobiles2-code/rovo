@@ -13,3 +13,18 @@ One-file installers:
 - Windows: [`youtube-automation/dist/YouTubeAutomation-Setup.cmd`](youtube-automation/dist/YouTubeAutomation-Setup.cmd)
 
 Setup guide: [`youtube-automation/README.md`](youtube-automation/README.md)
+
+## Instagram automation
+
+[`instagram-automation/`](instagram-automation/) is the same idea for Instagram Reels: a
+document dropped into Google Drive becomes a vertical NotebookLM video with a
+Claude-written caption, which waits on a local review page until you approve
+it and is then posted as a Reel. It runs on separate ports, so it can sit
+alongside the YouTube stack.
+
+One-file installers:
+
+- macOS: [`instagram-automation/dist/InstagramAutomation-Setup.command`](instagram-automation/dist/InstagramAutomation-Setup.command)
+- Windows: [`instagram-automation/dist/InstagramAutomation-Setup.cmd`](instagram-automation/dist/InstagramAutomation-Setup.cmd)
+
+Setup guide: [`instagram-automation/README.md`](instagram-automation/README.md)
