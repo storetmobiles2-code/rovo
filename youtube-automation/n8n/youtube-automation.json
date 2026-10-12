@@ -1,0 +1,253 @@
+{
+  "id": "ytAutoDriveNlmClaude",
+  "name": "YouTube automation: Drive -> NotebookLM -> Claude -> YouTube",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "nodes": [
+    {
+      "id": "0b7f6a52-1d4e-4a43-9d0c-5a1f7d2e0001",
+      "name": "New file in Drive folder",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "parameters": {
+        "authentication": "oAuth2",
+        "pollTimes": {
+          "item": [{ "mode": "everyX", "value": 5, "unit": "minutes" }]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": { "__rl": true, "value": "", "mode": "list" },
+        "event": "fileCreated",
+        "options": {}
+      }
+    },
+    {
+      "id": "0b7f6a52-1d4e-4a43-9d0c-5a1f7d2e0002",
+      "name": "Download file",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [220, 300],
+      "parameters": {
+        "operation": "download",
+        "fileId": { "__rl": true, "value": "={{ $json.id }}", "mode": "id" },
+        "options": {
+          "googleFileConversion": {
+            "conversion": {
+              "docsToFormat": "application/pdf",
+              "slidesToFormat": "application/pdf",
+              "sheetsToFormat": "text/csv",
+              "drawingsToFormat": "application/pdf"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "0b7f6a52-1d4e-4a43-9d0c-5a1f7d2e0003",
+      "name": "Start NotebookLM job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BRIDGE_URL }}/jobs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "X-Bridge-Token", "value": "={{ $env.BRIDGE_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            { "parameterType": "formBinaryData", "name": "file", "inputDataFieldName": "data" },
+            { "parameterType": "formData", "name": "title_hint", "value": "={{ $('New file in Drive folder').item.json.name }}" },
+            { "parameterType": "formData", "name": "mime_type", "value": "={{ $binary.data.mimeType }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0b7f6a52-1d4e-4a43-9d0c-5a1f7d2e0004",
+      "name": "Wait 2 minutes",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [660, 300],
+      "webhookId": "5d1c2b7e-8f0a-4c51-9a47-0d6f3b2e9c11",
+      "parameters": {
+        "amount": 2,
+        "unit": "minutes"
+      }
+    },
+    {
+      "id": "0b7f6a52-1d4e-4a43-9d0c-5a1f7d2e0005",
+      "name": "Check job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 300],
+      "parameters": {
+        "url": "={{ $env.BRIDGE_URL }}/jobs/{{ $json.job_id || $json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "X-Bridge-Token", "value": "={{ $env.BRIDGE_TOKEN }}" }]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0b7f6a52-1d4e-4a43-9d0c-5a1f7d2e0006",
+      "name": "Video ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1100, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "c1a0f0de-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "done",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0b7f6a52-1d4e-4a43-9d0c-5a1f7d2e0007",
+      "name": "Job failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1320, 480],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "c1a0f0de-0000-4000-8000-000000000002",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "error",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "0b7f6a52-1d4e-4a43-9d0c-5a1f7d2e0008",
+      "name": "Stop: job failed",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [1540, 420],
+      "parameters": {
+        "errorMessage": "=NotebookLM/Claude job {{ $json.id }} failed: {{ $json.error }}"
+      }
+    },
+    {
+      "id": "0b7f6a52-1d4e-4a43-9d0c-5a1f7d2e0009",
+      "name": "Download video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 200],
+      "parameters": {
+        "url": "={{ $env.BRIDGE_URL }}/jobs/{{ $json.id }}/video",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "X-Bridge-Token", "value": "={{ $env.BRIDGE_TOKEN }}" }]
+        },
+        "options": {
+          "response": {
+            "response": { "responseFormat": "file", "outputPropertyName": "data" }
+          },
+          "timeout": 600000
+        }
+      }
+    },
+    {
+      "id": "0b7f6a52-1d4e-4a43-9d0c-5a1f7d2e0010",
+      "name": "Upload to YouTube",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [1540, 200],
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $('Video ready?').item.json.metadata.title }}",
+        "regionCode": "={{ $env.YOUTUBE_REGION }}",
+        "categoryId": "={{ $('Video ready?').item.json.metadata.category_id }}",
+        "binaryProperty": "data",
+        "options": {
+          "description": "={{ $('Video ready?').item.json.metadata.description }}",
+          "tags": "={{ $('Video ready?').item.json.metadata.tags_csv }}",
+          "privacyStatus": "={{ $env.YOUTUBE_PRIVACY }}",
+          "notifySubscribers": "={{ $env.YOUTUBE_NOTIFY_SUBSCRIBERS === 'true' }}",
+          "selfDeclaredMadeForKids": false
+        }
+      }
+    },
+    {
+      "id": "0b7f6a52-1d4e-4a43-9d0c-5a1f7d2e0011",
+      "name": "Record upload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1760, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BRIDGE_URL }}/jobs/{{ $('Video ready?').item.json.id }}/published",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "X-Bridge-Token", "value": "={{ $env.BRIDGE_TOKEN }}" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ youtube_video_id: $json.uploadId }) }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "New file in Drive folder": {
+      "main": [[{ "node": "Download file", "type": "main", "index": 0 }]]
+    },
+    "Download file": {
+      "main": [[{ "node": "Start NotebookLM job", "type": "main", "index": 0 }]]
+    },
+    "Start NotebookLM job": {
+      "main": [[{ "node": "Wait 2 minutes", "type": "main", "index": 0 }]]
+    },
+    "Wait 2 minutes": {
+      "main": [[{ "node": "Check job", "type": "main", "index": 0 }]]
+    },
+    "Check job": {
+      "main": [[{ "node": "Video ready?", "type": "main", "index": 0 }]]
+    },
+    "Video ready?": {
+      "main": [
+        [{ "node": "Download video", "type": "main", "index": 0 }],
+        [{ "node": "Job failed?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Job failed?": {
+      "main": [
+        [{ "node": "Stop: job failed", "type": "main", "index": 0 }],
+        [{ "node": "Wait 2 minutes", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download video": {
+      "main": [[{ "node": "Upload to YouTube", "type": "main", "index": 0 }]]
+    },
+    "Upload to YouTube": {
+      "main": [[{ "node": "Record upload", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "tags": []
+}

@@ -1,0 +1,61 @@
+# YouTube automation: n8n (free, self-hosted) + NotebookLM/Claude bridge.
+# Start with:  docker compose up -d --build     Then open http://localhost:5678
+name: youtube-automation
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.42.6
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=${TIMEZONE:-UTC}
+      - TZ=${TIMEZONE:-UTC}
+      - N8N_SECURE_COOKIE=false
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      # The workflow reads BRIDGE_TOKEN and YOUTUBE_* through $env.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      - BRIDGE_URL=http://bridge:8000
+      - BRIDGE_TOKEN=${BRIDGE_TOKEN}
+      - YOUTUBE_PRIVACY=${YOUTUBE_PRIVACY:-private}
+      - YOUTUBE_REGION=${YOUTUBE_REGION:-US}
+      - YOUTUBE_NOTIFY_SUBSCRIBERS=${YOUTUBE_NOTIFY_SUBSCRIBERS:-false}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n:/home/node/workflows:ro
+    depends_on:
+      - bridge
+
+  bridge:
+    build: ./bridge
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8765:8000"
+    environment:
+      - BRIDGE_TOKEN=${BRIDGE_TOKEN}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-opus-5-5}
+      - CLAUDE_EFFORT=${CLAUDE_EFFORT:-medium}
+      - CLAUDE_FALLBACKS=${CLAUDE_FALLBACKS:-default}
+      - VIDEO_FORMAT=${VIDEO_FORMAT:-explainer}
+      - VIDEO_STYLE=${VIDEO_STYLE:-auto}
+      - VIDEO_LANGUAGE=${VIDEO_LANGUAGE:-en}
+      - VIDEO_INSTRUCTIONS=${VIDEO_INSTRUCTIONS:-}
+      - DELETE_NOTEBOOK_AFTER=${DELETE_NOTEBOOK_AFTER:-false}
+      - JOB_TIMEOUT_MINUTES=${JOB_TIMEOUT_MINUTES:-60}
+    volumes:
+      - bridge_data:/data
+      - ./skills:/skills:ro
+      # NotebookLM login created on this computer by `notebooklm login`.
+      - ${NOTEBOOKLM_HOME:-~/.notebooklm}:/root/.notebooklm
+
+volumes:
+  n8n_data:
+  bridge_data:
