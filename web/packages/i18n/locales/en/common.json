@@ -1,0 +1,100 @@
+{
+  "brand": {
+    "customer": "rovo",
+    "restaurant": "rovo Partner",
+    "rider": "rovo Delivery Partner",
+    "admin": "rovo Admin",
+    "logoAlt": "rovo"
+  },
+  "actions": {
+    "retry": "Try again",
+    "cancel": "Cancel",
+    "save": "Save",
+    "continue": "Continue",
+    "back": "Back",
+    "close": "Close",
+    "confirm": "Confirm",
+    "done": "Done",
+    "edit": "Edit",
+    "delete": "Delete",
+    "logout": "Log out",
+    "login": "Log in",
+    "goHome": "Go to home",
+    "reload": "Reload",
+    "reloadApp": "Reload app",
+    "seeAll": "See all",
+    "skipToContent": "Skip to main content",
+    "openMenu": "Open menu",
+    "dismiss": "Dismiss"
+  },
+  "status": {
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "offline": "You're offline. Showing saved data.",
+    "backOnline": "You're back online.",
+    "updatedAgo": "Updated {{time}}",
+    "connection": {
+      "open": "Live updates on",
+      "connecting": "Reconnecting…",
+      "polling": "Live updates paused. Refreshing every few seconds.",
+      "closed": "Offline"
+    }
+  },
+  "language": {
+    "label": "Language",
+    "en": "English",
+    "te": "తెలుగు",
+    "en-XA": "Pseudo (dev)"
+  },
+  "food": {
+    "veg": "Vegetarian",
+    "nonVeg": "Non-vegetarian",
+    "egg": "Contains egg"
+  },
+  "rating": {
+    "label": "Rated {{value}} out of 5",
+    "new": "New",
+    "count_one": "{{count}} rating",
+    "count_other": "{{count}} ratings"
+  },
+  "countdown": {
+    "remaining_one": "{{count}} second left",
+    "remaining_other": "{{count}} seconds left",
+    "expired": "Time's up"
+  },
+  "items": {
+    "count_one": "{{count}} item",
+    "count_other": "{{count}} items"
+  },
+  "pages": {
+    "notFound": {
+      "title": "Page not found",
+      "body": "The page you're looking for doesn't exist or has moved."
+    },
+    "forbidden": {
+      "title": "No access",
+      "body": "Your account can't open this page."
+    },
+    "error": {
+      "title": "Something went wrong",
+      "body": "Please try again. If it keeps happening, reload the app."
+    }
+  },
+  "placeholder": {
+    "badge": "Coming soon",
+    "body": "This screen is being built. The layout, data and actions arrive in an upcoming release."
+  },
+  "empty": {
+    "title": "Nothing here yet"
+  },
+  "pwa": {
+    "updateAvailable": "A new version of the app is available.",
+    "offlineReady": "The app is ready to work offline."
+  },
+  "nav": {
+    "label": "Main navigation"
+  },
+  "toast": {
+    "region": "Notifications"
+  }
+}

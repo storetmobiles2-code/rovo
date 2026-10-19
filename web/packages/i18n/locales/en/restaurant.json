@@ -1,0 +1,27 @@
+{
+  "nav": {
+    "inbox": "Orders",
+    "menu": "Menu",
+    "hours": "Hours",
+    "analytics": "Reports",
+    "payouts": "Payouts",
+    "more": "More"
+  },
+  "screens": {
+    "outlets": { "title": "Choose your outlet" },
+    "start": { "title": "Start shift" },
+    "inbox": { "title": "Live orders" },
+    "orders": { "title": "Order history" },
+    "orderDetail": { "title": "Order details" },
+    "menu": { "title": "Menu" },
+    "menuItem": { "title": "Edit item" },
+    "availability": { "title": "Outlet status and stock" },
+    "hours": { "title": "Opening hours" },
+    "analytics": { "title": "Today and this week" },
+    "payouts": { "title": "Payouts" },
+    "payoutDetail": { "title": "Payout statement" },
+    "devices": { "title": "Order-receiver devices" },
+    "alerts": { "title": "Alert self-test" },
+    "help": { "title": "Help" }
+  }
+}

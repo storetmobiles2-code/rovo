@@ -1,0 +1,68 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Single source of truth for third-party versions. Packages reference these
+# with "catalog:". Bump here, then run `pnpm install`.
+catalog:
+  # runtime
+  react: 19.3.0
+  react-dom: 19.3.0
+  '@tanstack/react-router': 1.170.42
+  '@tanstack/react-query': 5.104.2
+  i18next: 26.4.3
+  react-i18next: 17.0.16
+  openapi-fetch: 0.17.0
+  zustand: 5.0.15
+  clsx: 2.1.1
+  lucide-react: 1.55.0
+  '@radix-ui/react-dialog': 1.3.0
+  '@radix-ui/react-toast': 1.3.0
+  '@radix-ui/react-select': 2.4.0
+  '@radix-ui/react-checkbox': 1.4.0
+  '@radix-ui/react-radio-group': 1.5.0
+  '@radix-ui/react-switch': 1.4.0
+  '@radix-ui/react-slot': 1.5.0
+  '@radix-ui/react-visually-hidden': 1.2.13
+  '@fontsource/noto-sans-telugu': 5.3.0
+  workbox-window: 7.4.1
+  workbox-core: 7.4.1
+  workbox-precaching: 7.4.1
+  workbox-routing: 7.4.1
+  workbox-strategies: 7.4.1
+  workbox-expiration: 7.4.1
+  workbox-cacheable-response: 7.4.1
+  # build
+  vite: 8.3.4
+  '@vitejs/plugin-react': 6.1.2
+  tailwindcss: 4.3.3
+  '@tailwindcss/vite': 4.3.3
+  vite-plugin-pwa: 2.0.0
+  workbox-build: 7.4.1
+  typescript: 5.9.3
+  openapi-typescript: 7.13.0
+  '@types/react': 19.3.0
+  '@types/react-dom': 19.3.0
+  '@types/node': 22.20.5
+  # lint / format
+  eslint: 9.39.5
+  '@eslint/js': 9.39.5
+  typescript-eslint: 8.71.1
+  eslint-plugin-react-hooks: 7.1.1
+  eslint-plugin-jsx-a11y: 6.10.2
+  eslint-plugin-react-refresh: 0.5.7
+  globals: 17.13.0
+  prettier: 3.9.10
+  # test
+  vitest: 5.0.3
+  jsdom: 29.1.1
+  msw: 3.0.3
+  axe-core: 4.14.0
+  '@testing-library/react': 16.3.3
+  '@testing-library/dom': 10.4.2
+  '@testing-library/user-event': 14.6.7
+  '@testing-library/jest-dom': 7.0.1
+
+onlyBuiltDependencies:
+  - esbuild
+  - msw

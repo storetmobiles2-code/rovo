@@ -1,0 +1,33 @@
+{
+  "name": "@rovo/i18n",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "i18next setup for rovo (en, te, pseudo en-XA), lazy namespaces, Intl formatters",
+  "exports": {
+    ".": "./src/index.ts",
+    "./locales/*": "./locales/*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "i18n:check": "node scripts/check-i18n.mjs"
+  },
+  "dependencies": {
+    "@rovo/utils": "workspace:*",
+    "i18next": "catalog:",
+    "react-i18next": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@rovo/config": "workspace:*",
+    "@types/react": "catalog:",
+    "jsdom": "catalog:",
+    "react": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

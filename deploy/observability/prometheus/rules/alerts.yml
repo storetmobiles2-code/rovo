@@ -1,0 +1,199 @@
+# SPDX-License-Identifier: Apache-2.0
+# rovo alert rules (doc 24 §8). IDs A1..A25 match the doc; cloud-only alerts
+# (A13/A14 RDS, A17 certs, A19 security, A20 cost, A25 CERT-In archive) are
+# CloudWatch alarms in deploy/terraform/modules/observability.
+# Severity: P1 page on-call, P2 on-call (business hours ops for business alerts), P3 email.
+# Runbooks: docs/runbooks/incident.md#<alert id>.
+groups:
+  - name: rovo-orders
+    rules:
+      - alert: A1_OrderPastAcceptDeadline
+        # accept_timeout (doc 13, R1) = 180 s; +30 s grace. The system should
+        # already have auto-cancelled it, so the worker/timers are broken.
+        expr: max(rovo_orders_pending_accept_oldest_seconds) > 210
+        for: 1m
+        labels: { severity: P1, team: oncall }
+        annotations:
+          summary: "Order waiting {{ $value | humanizeDuration }} for restaurant accept (deadline 180 s)"
+          description: "Timers are not firing: check the worker and River queue latency (A8)."
+          runbook_url: docs/runbooks/incident.md#a1-order-past-accept-deadline
+      - alert: A2_PendingAcceptBacklog
+        expr: sum(rovo_orders_pending_accept) > 5
+        for: 5m
+        labels: { severity: P2, team: ops }
+        annotations:
+          summary: "{{ $value }} orders waiting for restaurant acceptance"
+          runbook_url: docs/runbooks/incident.md#a2-pending-accept-backlog
+      - alert: A3_NoRidersOnlineInZone
+        expr: min by (zone) (rovo_riders_online) == 0
+        for: 10m
+        labels: { severity: P2, team: ops }
+        annotations:
+          summary: "No riders online in zone {{ $labels.zone }}"
+          description: "Business-hours alert; silence outside zone operating hours."
+          runbook_url: docs/runbooks/incident.md#a3-no-riders-online
+      - alert: A4_UnassignedDeliveryAging
+        expr: max(rovo_deliveries_unassigned_oldest_seconds) > 600
+        for: 1m
+        labels: { severity: P1, team: oncall }
+        annotations:
+          summary: "A delivery has been unassigned for {{ $value | humanizeDuration }}"
+          runbook_url: docs/runbooks/incident.md#a4-unassigned-delivery
+      - alert: A5_OfferAcceptRateCollapse
+        expr: rovo:offer_accept_ratio:30m < 0.30 and sum(increase(rovo_delivery_offers_total[30m])) >= 10
+        for: 5m
+        labels: { severity: P3, team: ops }
+        annotations:
+          summary: "Rider offer accept rate {{ $value | humanizePercentage }} over 30 min"
+          runbook_url: docs/runbooks/incident.md#a5-offer-accept-rate
+
+  - name: rovo-payments
+    rules:
+      - alert: A6_PaymentWebhooksFailing
+        expr: |
+          sum(rate(rovo_webhook_failures_total[10m])) > 0.1
+          or max(rovo_webhook_lag_seconds) > 300
+        for: 2m
+        labels: { severity: P1, team: oncall }
+        annotations:
+          summary: "Payment webhooks failing or lagging"
+          runbook_url: docs/runbooks/incident.md#a6-payment-webhooks
+      - alert: A7_PaymentSuccessRateDrop
+        expr: rovo:payment_success_ratio:15m < 0.85 and sum(increase(rovo_payments_total[15m])) >= 20
+        for: 5m
+        labels: { severity: P1, team: oncall }
+        annotations:
+          summary: "Payment success {{ $value | humanizePercentage }} over 15 min (consider COD-only mode)"
+          runbook_url: docs/runbooks/incident.md#a7-payment-success-drop
+
+  - name: rovo-async
+    rules:
+      - alert: A8_RiverQueueLatency
+        expr: |
+          max(rovo_river_queue_latency_seconds{queue="realtime"}) > 10
+          or max(rovo_river_queue_latency_seconds) > 60
+        for: 2m
+        labels: { severity: P1, team: oncall }
+        annotations:
+          summary: "River queue latency {{ $value | humanizeDuration }}"
+          runbook_url: docs/runbooks/incident.md#a8-river-queue-latency
+      - alert: A9_RiverQueueStuck
+        expr: |
+          sum(rovo_river_jobs{state="available"}) > 500
+          or (
+            sum(rate(rovo_river_job_failures_total[10m]))
+            / clamp_min(sum(rate(rovo_river_job_duration_seconds_count[10m])), 1e-9)
+          ) > 0.10
+        for: 5m
+        labels: { severity: P2, team: oncall }
+        annotations:
+          summary: "River backlog or job failure rate high"
+          runbook_url: docs/runbooks/incident.md#a9-river-queue-stuck
+      - alert: A22_NotifyQueueFilling
+        expr: max(rovo_pg_notification_queue_usage) > 0.1
+        for: 2m
+        labels: { severity: P1, team: oncall }
+        annotations:
+          summary: "pg_notification_queue_usage {{ $value | humanizePercentage }}: commits with NOTIFY will fail when full"
+          runbook_url: docs/runbooks/incident.md#a22-notify-queue
+      - alert: A22_NotifyQueueFillingSlow
+        expr: max(rovo_pg_notification_queue_usage) > 0.02
+        for: 10m
+        labels: { severity: P2, team: oncall }
+        annotations:
+          summary: "pg_notification_queue_usage above 2% for 10 min"
+          runbook_url: docs/runbooks/incident.md#a22-notify-queue
+      - alert: A23_ListenWatchdog
+        expr: min(rovo_listen_watchdog_ok) == 0 or sum(increase(rovo_listen_reconnects_total[15m])) > 5
+        for: 2m
+        labels: { severity: P2, team: oncall }
+        annotations:
+          summary: "LISTEN connection unhealthy (SSE fan-out degraded)"
+          runbook_url: docs/runbooks/incident.md#a23-listen-watchdog
+      - alert: A24_PeriodicJobMissed
+        # rovo_periodic_job_period_seconds is exported next to the timestamp.
+        expr: |
+          time() - max by (job_name) (rovo_periodic_job_last_success_timestamp_seconds)
+          > on (job_name) (max by (job_name) (rovo_periodic_job_period_seconds) * 1.5 + 900)
+        for: 5m
+        labels: { severity: P2, team: oncall }
+        annotations:
+          summary: "Periodic job {{ $labels.job_name }} has not succeeded within its period"
+          runbook_url: docs/runbooks/incident.md#a24-periodic-job-missed
+      - alert: A24_SettlementMissed
+        expr: time() - max by (kind) (rovo_settlement_last_completed_timestamp_seconds) > (7 * 86400 + 3 * 3600)
+        for: 10m
+        labels: { severity: P1, team: finance }
+        annotations:
+          summary: "No completed {{ $labels.kind }} settlement run in the last week + 3 h"
+          runbook_url: docs/runbooks/incident.md#a24-periodic-job-missed
+
+  - name: rovo-platform
+    rules:
+      - alert: A10_WorkerDown
+        expr: up{job="rovo-worker"} == 0 or absent(up{job="rovo-worker"})
+        for: 2m
+        labels: { severity: P1, team: oncall }
+        annotations:
+          summary: "rovo worker is down (timers, dispatch and notifications stop)"
+          runbook_url: docs/runbooks/incident.md#a10-worker-down
+      - alert: ApiDown
+        expr: up{job="rovo-api"} == 0 or absent(up{job="rovo-api"})
+        for: 2m
+        labels: { severity: P1, team: oncall }
+        annotations:
+          summary: "rovo api is down"
+          runbook_url: docs/runbooks/incident.md#api-down
+      - alert: A12_5xxSpike
+        expr: rovo:http_errors5xx:ratio_rate5m > 0.05 and sum(rate(rovo_http_request_duration_seconds_count[5m])) > 0.1
+        for: 5m
+        labels: { severity: P1, team: oncall }
+        annotations:
+          summary: "5xx ratio {{ $value | humanizePercentage }}"
+          runbook_url: docs/runbooks/incident.md#a12-5xx-spike
+      # A11 multi-window burn rate on the 99.5% closed-pilot availability SLO
+      # (R49; error budget 0.5%). Switch 0.005 to 0.001 at Gate B (99.9%).
+      - alert: A11_AvailabilityBurnFast
+        expr: rovo:http_errors5xx:ratio_rate1h > (14.4 * 0.005) and rovo:http_errors5xx:ratio_rate5m > (14.4 * 0.005)
+        for: 2m
+        labels: { severity: P1, team: oncall }
+        annotations:
+          summary: "Availability SLO burning 14.4x (2% of monthly budget in 1 h)"
+          runbook_url: docs/runbooks/incident.md#a11-slo-burn
+      - alert: A11_AvailabilityBurnSlow
+        expr: rovo:http_errors5xx:ratio_rate6h > (6 * 0.005) and rovo:http_errors5xx:ratio_rate30m > (6 * 0.005)
+        for: 15m
+        labels: { severity: P1, team: oncall }
+        annotations:
+          summary: "Availability SLO burning 6x (5% of monthly budget in 6 h)"
+          runbook_url: docs/runbooks/incident.md#a11-slo-burn
+      - alert: A11_AvailabilityBudgetTicket
+        expr: rovo:http_errors5xx:ratio_rate3d > 0.005
+        for: 1h
+        labels: { severity: P3, team: oncall }
+        annotations:
+          summary: "Availability SLO: 10% of monthly budget spent over 3 days"
+          runbook_url: docs/runbooks/incident.md#a11-slo-burn
+      - alert: ApiLatencyP95High
+        expr: max(rovo:http_latency_p95:5m{route=~"/api/v1/(public|cart|orders).*"}) > 0.4
+        for: 15m
+        labels: { severity: P2, team: oncall }
+        annotations:
+          summary: "p95 latency {{ $value | humanizeDuration }} on core routes (SLO 400 ms)"
+          runbook_url: docs/runbooks/incident.md#a11-slo-burn
+      - alert: A18_NoSSEConnections
+        expr: sum(rovo_sse_connections) == 0 and on() (hour() >= 6 and hour() < 18)
+        # 06:00-18:00 UTC is roughly 11:30-23:30 IST service hours.
+        for: 5m
+        labels: { severity: P2, team: oncall }
+        annotations:
+          summary: "No SSE connections during service hours"
+          runbook_url: docs/runbooks/incident.md#a18-no-sse
+      - alert: A16_BackupMissing
+        # Exported by scripts/backup.sh via a textfile/pushgateway when present.
+        expr: time() - max(rovo_backup_last_success_timestamp_seconds) > 26 * 3600
+        for: 10m
+        labels: { severity: P2, team: oncall }
+        annotations:
+          summary: "No successful database backup in 26 h"
+          runbook_url: docs/runbooks/backup-restore.md
