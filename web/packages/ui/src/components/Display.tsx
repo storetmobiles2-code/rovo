@@ -138,7 +138,7 @@ export function Rating({ value, count, isNew, size = 16, className }: RatingProp
 }
 
 // --- Card -------------------------------------------------------------------
-export interface CardProps extends HTMLAttributes<HTMLDivElement> {
+export interface CardProps extends HTMLAttributes<HTMLElement> {
   as?: 'div' | 'article' | 'section' | 'li';
 }
 

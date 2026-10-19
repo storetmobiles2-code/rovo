@@ -13,7 +13,7 @@
 # (CGO_ENABLED=0), so `--platform linux/amd64,linux/arm64` needs no QEMU for Go.
 
 # Keep in step with the `go` line of backend/go.mod (CI passes it explicitly).
-ARG GO_VERSION=1.26
+ARG GO_VERSION=1.25
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src
@@ -26,7 +26,7 @@ ENV GOTOOLCHAIN=auto \
 COPY backend/go.mod backend/go.sum ./backend/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    cd backend && go mod download
+    go -C backend mod download
 
 COPY backend/ ./backend/
 COPY deploy/docker/healthcheck/ ./healthcheck/
@@ -43,13 +43,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     set -eu; \
     mkdir -p /out; \
-    cd /src/backend; \
-    GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build \
+    GOOS="$TARGETOS" GOARCH="$TARGETARCH" go -C /src/backend build \
       -tags "${BUILD_TAGS}" \
       -ldflags "-s -w -buildid= -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
       -o /out/rovo ./cmd/rovo; \
-    cd /src/healthcheck; \
-    GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -ldflags "-s -w -buildid=" -o /out/healthcheck .
+    GOOS="$TARGETOS" GOARCH="$TARGETARCH" go -C /src/healthcheck build \
+      -ldflags "-s -w -buildid=" -o /out/healthcheck .
 
 FROM gcr.io/distroless/static-debian12:nonroot
 ARG VERSION=dev
