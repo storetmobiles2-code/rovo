@@ -1,0 +1,2399 @@
+openapi: 3.1.0
+info:
+  title: rovo API
+  version: 1.0.0
+  description: |
+    The HTTP contract for rovo, an open-source food-delivery platform for Mahabubnagar,
+    Telangana. This document is the single source of truth other agents implement against
+    (charter §3, doc 11). Conventions: base path `/api/v1` on every host; JSON camelCase;
+    `UPPER_SNAKE` enum values; RFC 9457 `application/problem+json` errors with a stable `code`;
+    money as `{amountPaise, currency}`; RFC 3339 UTC timestamps; opaque cursor pagination;
+    `Idempotency-Key` on creates and state commands; cookie auth on the four app hosts and
+    bearer (reserved) on the api host; SSE at `GET /stream`.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  contact:
+    name: rovo
+    url: https://github.com/storetmobiles2-code/rovo
+servers:
+  - url: https://app.rovo.in/api/v1
+    description: Customer app host
+  - url: https://restaurant.rovo.in/api/v1
+    description: Restaurant partner host
+  - url: https://rider.rovo.in/api/v1
+    description: Rider host
+  - url: https://admin.rovo.in/api/v1
+    description: Admin host
+  - url: https://api.rovo.in/api/v1
+    description: Server-to-server host (webhooks in V1; native bearer clients later)
+security:
+  - cookieAuth: []
+tags:
+  - name: Public
+  - name: Config
+  - name: Auth
+  - name: Me
+  - name: Customer Addresses
+  - name: Checkout
+  - name: Orders
+  - name: Payments
+  - name: Support
+  - name: Partner Onboarding
+  - name: Partner Restaurant
+  - name: Partner Menu
+  - name: Partner Orders
+  - name: Rider
+  - name: Rider Deliveries
+  - name: Admin Dashboard
+  - name: Admin Orders
+  - name: Admin Users
+  - name: Admin Restaurants
+  - name: Admin Riders
+  - name: Admin Finance
+  - name: Admin Coupons
+  - name: Admin Geography
+  - name: Admin Support
+  - name: Admin Approvals
+  - name: Admin Reports
+  - name: Admin Audit
+  - name: Webhooks
+  - name: Realtime
+  - name: Health
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: __Host-rovo_at
+      description: Host-only access JWT cookie on the four app hosts (12 §4.4).
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Reserved for native bearer clients on the api host (not enabled in V1).
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: One UUIDv7 per user intent, reused on retries (§1.7).
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      description: Optimistic-concurrency guard; weak value is the row version, e.g. "v12".
+      schema: { type: string, pattern: '^"v[0-9]+"$' }
+    IfMatchRequired:
+      name: If-Match
+      in: header
+      required: true
+      schema: { type: string, pattern: '^"v[0-9]+"$' }
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      required: false
+      schema: { type: string, examples: ["te-IN, en;q=0.8"] }
+    XRovoClient:
+      name: X-Rovo-Client
+      in: header
+      required: false
+      description: Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web).
+      schema: { type: string, enum: [customer-web, restaurant-web, rider-web, admin-web] }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    LatQuery:
+      name: lat
+      in: query
+      required: true
+      schema: { type: number, minimum: -90, maximum: 90 }
+    LngQuery:
+      name: lng
+      in: query
+      required: true
+      schema: { type: number, minimum: -180, maximum: 180 }
+    CityIdQuery:
+      name: cityId
+      in: query
+      required: false
+      schema: { $ref: '#/components/schemas/Uuid' }
+    RestaurantIdPath:
+      name: restaurantId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    OrderIdPath:
+      name: orderId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    OfferIdPath:
+      name: offerId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    DeliveryIdPath:
+      name: deliveryId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    ProviderPath:
+      name: provider
+      in: path
+      required: true
+      schema: { type: string, enum: [razorpay, cashfree, fake] }
+  headers:
+    ETag:
+      description: Weak version tag, e.g. "v3".
+      schema: { type: string, examples: ['"v3"'] }
+    Location:
+      description: URL of the created resource.
+      schema: { type: string }
+    IdempotentReplayed:
+      description: true when this response was replayed for a repeated Idempotency-Key.
+      schema: { type: boolean }
+    RateLimit:
+      description: IETF draft RateLimit header.
+      schema: { type: string, examples: ['"default";r=37;t=21'] }
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema: { type: integer }
+  responses:
+    Problem400:
+      description: Validation failed or malformed request.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Problem401:
+      description: Unauthenticated, token expired, or audience mismatch.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Problem403:
+      description: Authenticated but not permitted.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Problem404:
+      description: Not found or outside the caller's scope.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Problem409:
+      description: State conflict (invalid transition, stale quote, in-progress request).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Problem412:
+      description: If-Match version mismatch.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Problem422:
+      description: Business rule violated.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Problem429:
+      description: Rate limited.
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+      examples: ["0192e8b2-5d1a-7c33-8f10-3a2b1c0d9e8f"]
+    Timestamp:
+      type: string
+      format: date-time
+      examples: ["2026-10-04T13:05:12.345Z"]
+    Currency:
+      type: string
+      enum: [INR]
+    Phone:
+      type: string
+      pattern: '^\+91[6-9][0-9]{9}$'
+      description: Indian mobile in E.164.
+      examples: ["+919000000012"]
+    PinCode:
+      type: string
+      pattern: '^[1-9][0-9]{5}$'
+      examples: ["509001"]
+    Locale:
+      type: string
+      pattern: '^[a-z]{2}(-[A-Z]{2})?$'
+    Money:
+      type: object
+      additionalProperties: false
+      required: [amountPaise, currency]
+      properties:
+        amountPaise: { type: integer, format: int64, examples: [38100] }
+        currency: { $ref: '#/components/schemas/Currency' }
+    LatLng:
+      type: object
+      additionalProperties: false
+      required: [lat, lng]
+      properties:
+        lat: { type: number, minimum: -90, maximum: 90 }
+        lng: { type: number, minimum: -180, maximum: 180 }
+        accuracyM: { type: integer, minimum: 0 }
+    I18nText:
+      type: object
+      additionalProperties: { type: string }
+      description: Translations keyed by BCP-47 language; the canonical text is the sibling field.
+    Image:
+      type: object
+      required: [id, url]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        url: { type: string, format: uri }
+        width: { type: [integer, 'null'] }
+        height: { type: [integer, 'null'] }
+        dominantColor: { type: [string, 'null'] }
+        variants:
+          type: array
+          items:
+            type: object
+            required: [w, url]
+            properties:
+              w: { type: integer }
+              url: { type: string, format: uri }
+    FieldError:
+      type: object
+      required: [field, code]
+      properties:
+        field: { type: string, examples: ["lines[0].quantity"] }
+        code: { type: string, examples: [OUT_OF_RANGE] }
+        detail: { type: string }
+    ProblemCode:
+      type: string
+      description: Stable, machine-readable error code (§1.8). Clients branch only on this.
+      enum:
+        - VALIDATION_FAILED
+        - INVALID_CURSOR
+        - IDEMPOTENCY_KEY_REQUIRED
+        - UNSUPPORTED_LOCALE
+        - INVALID_LOCATION
+        - CLIENT_HEADER_REQUIRED
+        - BODY_TOO_LARGE
+        - UNSUPPORTED_MEDIA_TYPE
+        - UNAUTHENTICATED
+        - TOKEN_EXPIRED
+        - TOKEN_AUDIENCE_MISMATCH
+        - SESSION_REVOKED
+        - MFA_REQUIRED
+        - MFA_INVALID
+        - INVALID_CREDENTIALS
+        - STEP_UP_REQUIRED
+        - WEBHOOK_SIGNATURE_INVALID
+        - FORBIDDEN
+        - ACCOUNT_BLOCKED
+        - CAPTCHA_FAILED
+        - CSRF_REJECTED
+        - MAKER_CANNOT_APPROVE
+        - ORIGIN_NOT_VERIFIED
+        - NOT_FOUND
+        - CONFLICT
+        - REQUEST_IN_PROGRESS
+        - ORDER_STATE_CONFLICT
+        - ORDER_INVALID_TRANSITION
+        - ORDER_NOT_CANCELLABLE
+        - CANCEL_GRACE_EXPIRED
+        - ACCEPT_WINDOW_CLOSED
+        - QUOTE_CHANGED
+        - QUOTE_EXPIRED
+        - QUOTE_ALREADY_USED
+        - PAYMENT_ALREADY_COMPLETED
+        - OFFER_EXPIRED
+        - OFFER_NOT_PENDING
+        - DELIVERY_INVALID_TRANSITION
+        - RIDER_HAS_ACTIVE_DELIVERY
+        - UNDELIVERABLE_REQUEST_OPEN
+        - REFRESH_RACE
+        - ZONE_OVERLAP
+        - DUPLICATE
+        - VERSION_MISMATCH
+        - IF_MATCH_REQUIRED
+        - IMPORT_INVALID
+        - IDEMPOTENCY_KEY_REUSED
+        - OTP_INVALID
+        - OTP_EXPIRED
+        - OTP_ATTEMPTS_EXCEEDED
+        - OUTSIDE_SERVICE_AREA
+        - CITY_NOT_LIVE
+        - ZONE_PAUSED
+        - RESTAURANT_ZONE_PAUSED
+        - TOO_FAR
+        - RESTAURANT_CLOSED
+        - RESTAURANT_PAUSED
+        - ITEM_UNAVAILABLE
+        - ADDON_SELECTION_INVALID
+        - MIN_ORDER_NOT_MET
+        - CART_EMPTY
+        - CART_TOO_LARGE
+        - COUPON_INVALID
+        - COUPON_EXPIRED
+        - COUPON_NOT_APPLICABLE
+        - COUPON_MIN_ORDER_NOT_MET
+        - COUPON_USAGE_EXCEEDED
+        - COUPON_BUDGET_EXHAUSTED
+        - COD_NOT_AVAILABLE
+        - COD_LIMIT_EXCEEDED
+        - COD_DISABLED_FOR_CUSTOMER
+        - RIDER_NOT_ELIGIBLE
+        - RIDER_CASH_LIMIT_REACHED
+        - RIDER_NOT_ONLINE
+        - DELIVERY_CODE_INVALID
+        - COD_AMOUNT_MISMATCH
+        - UNDELIVERABLE_PRECONDITION
+        - REFUND_EXCEEDS_CAPTURED
+        - ZONE_GEOMETRY_INVALID
+        - REASON_CODE_INVALID
+        - KYC_INCOMPLETE
+        - FEATURE_DISABLED
+        - MISDIRECTED_REQUEST
+        - CLIENT_UPGRADE_REQUIRED
+        - RATE_LIMITED
+        - OTP_RESEND_TOO_SOON
+        - SMS_BUDGET_EXCEEDED
+        - TOO_MANY_STREAMS
+        - PAYMENT_PROVIDER_UNAVAILABLE
+        - SERVICE_UNAVAILABLE
+        - UPSTREAM_TIMEOUT
+        - INTERNAL
+        - NOT_IMPLEMENTED
+    Problem:
+      type: object
+      description: RFC 9457 problem details with rovo extensions.
+      required: [type, title, status, code, traceId, fieldErrors, retryable]
+      properties:
+        type: { type: string, examples: ["/problems/quote-changed"] }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code: { $ref: '#/components/schemas/ProblemCode' }
+        traceId: { type: string }
+        retryable: { type: boolean }
+        fieldErrors:
+          type: array
+          items: { $ref: '#/components/schemas/FieldError' }
+        currentStatus: { type: string }
+        currentVersion: { type: integer }
+        retryAfterSeconds: { type: integer }
+        quote: { $ref: '#/components/schemas/Quote' }
+        diff:
+          type: array
+          items: { $ref: '#/components/schemas/QuoteDiff' }
+        approvalRequest: { $ref: '#/components/schemas/ApprovalRequest' }
+      additionalProperties: true
+    Page:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: {}
+        nextCursor: { type: [string, 'null'] }
+    OrderStatus:
+      type: string
+      enum: [PENDING_PAYMENT, PLACED, ACCEPTED, PREPARING, READY_FOR_PICKUP, PICKED_UP, DELIVERED,
+             PAYMENT_FAILED, REJECTED, CANCELLED, UNDELIVERABLE]
+    PaymentStatus:
+      type: string
+      enum: [PENDING, PAID, COD_DUE, COD_COLLECTED, COD_NOT_COLLECTED, PARTIALLY_REFUNDED, REFUNDED, UNPAID]
+    DeliveryStatus:
+      type: string
+      enum: [UNASSIGNED, OFFERED, ASSIGNED, AT_RESTAURANT, PICKED_UP, AT_DROP, DELIVERED, FAILED, CANCELLED]
+    DeliveryOfferStatus:
+      type: string
+      enum: [PENDING, ACCEPTED, DECLINED, EXPIRED, REVOKED]
+    PaymentMethod:
+      type: string
+      enum: [ONLINE, COD]
+    VegType:
+      type: string
+      enum: [VEG, NON_VEG, EGG]
+    BillComponent:
+      type: string
+      enum: [ITEM_TOTAL, PACKAGING, DELIVERY_FEE, PLATFORM_FEE, SMALL_CART_FEE, DISCOUNT, TAX, ROUND_OFF]
+    Role:
+      type: string
+      enum: [CUSTOMER, RESTAURANT_OWNER, RESTAURANT_STAFF, RIDER, ADMIN_SUPER, ADMIN_OPS, ADMIN_SUPPORT, ADMIN_FINANCE]
+    City:
+      type: object
+      required: [id, code, name, status]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        code: { type: string }
+        name: { type: string }
+        nameI18n: { $ref: '#/components/schemas/I18nText' }
+        status: { type: string, enum: [PLANNED, LIVE, PAUSED, RETIRED] }
+        centroid: { $ref: '#/components/schemas/LatLng' }
+        timezone: { type: string }
+    Locality:
+      type: object
+      required: [id, name]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        nameI18n: { $ref: '#/components/schemas/I18nText' }
+        pinCodes: { type: array, items: { $ref: '#/components/schemas/PinCode' } }
+        centroid: { $ref: '#/components/schemas/LatLng' }
+    Cuisine:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string }
+        name: { type: string }
+        nameI18n: { $ref: '#/components/schemas/I18nText' }
+    Serviceability:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [SERVICEABLE, OUTSIDE_SERVICE_AREA, CITY_NOT_LIVE, ZONE_PAUSED, TOO_FAR] }
+        cityId: { type: [string, 'null'], format: uuid }
+        zoneId: { type: [string, 'null'], format: uuid }
+        message: { type: [string, 'null'] }
+        deliveryFee: { $ref: '#/components/schemas/Money' }
+        localityGuess:
+          type: [object, 'null']
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            name: { type: string }
+    ClientConfig:
+      type: object
+      required: [cities, minVersions, features]
+      properties:
+        cities: { type: array, items: { $ref: '#/components/schemas/City' } }
+        minVersions:
+          type: object
+          additionalProperties: { type: string }
+        supportPhone: { type: [string, 'null'] }
+        features:
+          type: object
+          additionalProperties: { type: boolean }
+        tileStyleUrl: { type: [string, 'null'] }
+        pushVapidPublicKey: { type: [string, 'null'] }
+        legalLinks:
+          type: object
+          additionalProperties: { type: string }
+    RestaurantCard:
+      type: object
+      required: [id, name, dietType, availability]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        nameI18n: { $ref: '#/components/schemas/I18nText' }
+        image: { oneOf: [ { $ref: '#/components/schemas/Image' }, { type: 'null' } ] }
+        cuisines: { type: array, items: { type: string } }
+        dietType: { type: string, enum: [PURE_VEG, MIXED] }
+        rating:
+          type: object
+          properties:
+            avg: { type: [number, 'null'] }
+            count: { type: integer }
+        costForTwo: { oneOf: [ { $ref: '#/components/schemas/Money' }, { type: 'null' } ] }
+        eta:
+          type: object
+          properties:
+            minMinutes: { type: integer }
+            maxMinutes: { type: integer }
+        deliveryFee: { $ref: '#/components/schemas/Money' }
+        distanceM: { type: integer }
+        isOpen: { type: boolean }
+        opensAt: { type: [string, 'null'] }
+        availability: { type: string, enum: [OPEN, CLOSED, PAUSED, TOO_FAR] }
+        offerBadge: { type: [string, 'null'] }
+    Addon:
+      type: object
+      required: [id, name, price, vegType]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        nameI18n: { $ref: '#/components/schemas/I18nText' }
+        price: { $ref: '#/components/schemas/Money' }
+        vegType: { $ref: '#/components/schemas/VegType' }
+        isAvailable: { type: boolean }
+    AddonGroup:
+      type: object
+      required: [id, name, minSelect, maxSelect, addons]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        nameI18n: { $ref: '#/components/schemas/I18nText' }
+        minSelect: { type: integer, minimum: 0 }
+        maxSelect: { type: integer, minimum: 1, maximum: 20 }
+        addons: { type: array, items: { $ref: '#/components/schemas/Addon' } }
+    ItemVariant:
+      type: object
+      required: [id, name, price]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        nameI18n: { $ref: '#/components/schemas/I18nText' }
+        price: { $ref: '#/components/schemas/Money' }
+        isDefault: { type: boolean }
+        isAvailable: { type: boolean }
+    MenuItem:
+      type: object
+      required: [id, name, vegType, price, isAvailable]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        nameI18n: { $ref: '#/components/schemas/I18nText' }
+        description: { type: [string, 'null'] }
+        vegType: { $ref: '#/components/schemas/VegType' }
+        price: { $ref: '#/components/schemas/Money' }
+        packaging: { $ref: '#/components/schemas/Money' }
+        image: { oneOf: [ { $ref: '#/components/schemas/Image' }, { type: 'null' } ] }
+        isAvailable: { type: boolean }
+        unavailableUntil: { type: [string, 'null'], format: date-time }
+        isRecommended: { type: boolean }
+        spiceLevel: { type: [integer, 'null'], minimum: 0, maximum: 3 }
+        serves: { type: [integer, 'null'] }
+        variants: { type: array, items: { $ref: '#/components/schemas/ItemVariant' } }
+        addonGroups: { type: array, items: { $ref: '#/components/schemas/AddonGroup' } }
+    MenuCategory:
+      type: object
+      required: [id, name, items]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        nameI18n: { $ref: '#/components/schemas/I18nText' }
+        items: { type: array, items: { $ref: '#/components/schemas/MenuItem' } }
+    Menu:
+      type: object
+      required: [menuVersion, categories]
+      properties:
+        menuVersion: { type: integer }
+        categories: { type: array, items: { $ref: '#/components/schemas/MenuCategory' } }
+    RestaurantDetail:
+      allOf:
+        - $ref: '#/components/schemas/RestaurantCard'
+        - type: object
+          properties:
+            description: { type: [string, 'null'] }
+            fssaiLicenseNo: { type: [string, 'null'] }
+            addressLine: { type: string }
+            landmark: { type: [string, 'null'] }
+            pinCode: { $ref: '#/components/schemas/PinCode' }
+            location: { $ref: '#/components/schemas/LatLng' }
+            serviceability: { $ref: '#/components/schemas/Serviceability' }
+            hours:
+              type: array
+              items:
+                type: object
+                properties:
+                  dayOfWeek: { type: integer, minimum: 1, maximum: 7 }
+                  slots:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        opensAt: { type: string }
+                        closesAt: { type: string }
+    Address:
+      type: object
+      required: [id, label, houseNo, landmark, pinCode, location]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        label: { type: string, enum: [HOME, WORK, OTHER] }
+        labelCustom: { type: [string, 'null'] }
+        houseNo: { type: string, minLength: 1, maxLength: 100 }
+        buildingStreet: { type: [string, 'null'], maxLength: 150 }
+        localityId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+        areaText: { type: [string, 'null'], maxLength: 100 }
+        landmark: { type: string, minLength: 3, maxLength: 150 }
+        cityName: { type: string }
+        stateName: { type: string }
+        pinCode: { $ref: '#/components/schemas/PinCode' }
+        location: { $ref: '#/components/schemas/LatLng' }
+        contactName: { type: [string, 'null'] }
+        contactPhone: { oneOf: [ { $ref: '#/components/schemas/Phone' }, { type: 'null' } ] }
+        deliveryInstructions: { type: [string, 'null'], maxLength: 200 }
+        isDefault: { type: boolean }
+    CreateAddressRequest:
+      type: object
+      additionalProperties: false
+      required: [label, houseNo, landmark, pinCode, location]
+      properties:
+        label: { type: string, enum: [HOME, WORK, OTHER] }
+        labelCustom: { type: [string, 'null'], maxLength: 30 }
+        houseNo: { type: string, minLength: 1, maxLength: 100 }
+        buildingStreet: { type: [string, 'null'], maxLength: 150 }
+        localityId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+        areaText: { type: [string, 'null'], maxLength: 100 }
+        landmark: { type: string, minLength: 3, maxLength: 150 }
+        pinCode: { $ref: '#/components/schemas/PinCode' }
+        location: { $ref: '#/components/schemas/LatLng' }
+        locationAccuracyM: { type: [integer, 'null'], minimum: 0 }
+        contactName: { type: [string, 'null'], maxLength: 100 }
+        contactPhone: { oneOf: [ { $ref: '#/components/schemas/Phone' }, { type: 'null' } ] }
+        deliveryInstructions: { type: [string, 'null'], maxLength: 200 }
+        isDefault: { type: [boolean, 'null'] }
+    QuoteLineInput:
+      type: object
+      additionalProperties: false
+      required: [menuItemId, quantity]
+      properties:
+        menuItemId: { $ref: '#/components/schemas/Uuid' }
+        variantId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+        addonIds: { type: array, items: { $ref: '#/components/schemas/Uuid' }, maxItems: 30, default: [] }
+        quantity: { type: integer, minimum: 1, maximum: 20 }
+        note: { type: [string, 'null'], maxLength: 140 }
+    QuoteRequest:
+      type: object
+      additionalProperties: false
+      required: [restaurantId, lines, paymentMethod]
+      properties:
+        restaurantId: { $ref: '#/components/schemas/Uuid' }
+        lines: { type: array, minItems: 1, maxItems: 50, items: { $ref: '#/components/schemas/QuoteLineInput' } }
+        addressId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+        location: { oneOf: [ { $ref: '#/components/schemas/LatLng' }, { type: 'null' } ] }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+        couponCode: { type: [string, 'null'], pattern: '^[A-Za-z0-9]{4,24}$' }
+    QuoteLine:
+      type: object
+      required: [lineNo, menuItemId, name, vegType, quantity, unitPrice, lineTotal, available]
+      properties:
+        lineNo: { type: integer }
+        menuItemId: { $ref: '#/components/schemas/Uuid' }
+        variantId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+        name: { type: string }
+        nameI18n: { $ref: '#/components/schemas/I18nText' }
+        variantName: { type: [string, 'null'] }
+        addons:
+          type: array
+          items:
+            type: object
+            required: [addonId, name, price]
+            properties:
+              addonId: { $ref: '#/components/schemas/Uuid' }
+              name: { type: string }
+              price: { $ref: '#/components/schemas/Money' }
+        vegType: { $ref: '#/components/schemas/VegType' }
+        quantity: { type: integer }
+        unitPrice: { $ref: '#/components/schemas/Money' }
+        lineTotal: { $ref: '#/components/schemas/Money' }
+        available: { type: boolean }
+    BillLine:
+      type: object
+      required: [component, label, amount, isIncluded]
+      properties:
+        component: { $ref: '#/components/schemas/BillComponent' }
+        label: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        isIncluded: { type: boolean }
+        tax:
+          type: [object, 'null']
+          properties:
+            type: { type: string, enum: [CGST, SGST, IGST, CESS] }
+            rateBps: { type: integer }
+            taxedComponent: { $ref: '#/components/schemas/BillComponent' }
+        fundedBy: { type: [string, 'null'], enum: [PLATFORM, RESTAURANT, null] }
+    Bill:
+      type: object
+      required: [lines, payable]
+      properties:
+        lines: { type: array, items: { $ref: '#/components/schemas/BillLine' } }
+        payable: { $ref: '#/components/schemas/Money' }
+        savings: { $ref: '#/components/schemas/Money' }
+    QuoteIssue:
+      type: object
+      required: [code, blocking]
+      properties:
+        code: { type: string }
+        blocking: { type: boolean }
+        lineNo: { type: [integer, 'null'] }
+        message: { type: string }
+        params: { type: object, additionalProperties: true }
+    PaymentOption:
+      type: object
+      required: [method, available]
+      properties:
+        method: { $ref: '#/components/schemas/PaymentMethod' }
+        available: { type: boolean }
+        reasonCode: { type: [string, 'null'] }
+    Quote:
+      type: object
+      required: [quoteId, expiresAt, isOrderable, restaurantId, lines, bill, eta, paymentOptions, issues]
+      properties:
+        quoteId: { type: [string, 'null'] }
+        expiresAt: { $ref: '#/components/schemas/Timestamp' }
+        isOrderable: { type: boolean }
+        restaurantId: { $ref: '#/components/schemas/Uuid' }
+        menuVersion: { type: integer }
+        lines: { type: array, items: { $ref: '#/components/schemas/QuoteLine' } }
+        bill: { $ref: '#/components/schemas/Bill' }
+        distanceM: { type: integer }
+        eta:
+          type: object
+          required: [minMinutes, maxMinutes]
+          properties:
+            minMinutes: { type: integer }
+            maxMinutes: { type: integer }
+        coupon:
+          type: [object, 'null']
+          properties:
+            code: { type: string }
+            status: { type: string, enum: [APPLIED, NOT_APPLICABLE, INVALID, EXPIRED, USAGE_EXCEEDED] }
+            discount: { $ref: '#/components/schemas/Money' }
+            message: { type: string }
+        paymentOptions: { type: array, items: { $ref: '#/components/schemas/PaymentOption' } }
+        issues: { type: array, items: { $ref: '#/components/schemas/QuoteIssue' } }
+    QuoteDiff:
+      type: object
+      required: [change]
+      properties:
+        lineNo: { type: [integer, 'null'] }
+        menuItemId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+        change: { type: string, enum: [PRICE_CHANGED, ITEM_UNAVAILABLE, FEE_CHANGED, COUPON_CHANGED, TOTAL_CHANGED] }
+        from: { $ref: '#/components/schemas/Money' }
+        to: { $ref: '#/components/schemas/Money' }
+    CreateOrderRequest:
+      type: object
+      additionalProperties: false
+      required: [quoteId]
+      properties:
+        quoteId: { type: string }
+        customerNote: { type: [string, 'null'], maxLength: 200 }
+        deliveryInstructions: { type: [string, 'null'], maxLength: 200 }
+    OrderSummary:
+      type: object
+      required: [id, code, status, restaurant, total, paymentMethod, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        code: { type: string, pattern: '^RV-[0-9A-HJKMNP-TV-Z]{6}$' }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        restaurant:
+          type: object
+          properties:
+            id: { $ref: '#/components/schemas/Uuid' }
+            name: { type: string }
+            nameI18n: { $ref: '#/components/schemas/I18nText' }
+        total: { $ref: '#/components/schemas/Money' }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    Order:
+      allOf:
+        - $ref: '#/components/schemas/OrderSummary'
+        - type: object
+          required: [version, paymentStatus, items, bill, timeline, cancellable]
+          properties:
+            version: { type: integer }
+            paymentStatus: { $ref: '#/components/schemas/PaymentStatus' }
+            items: { type: array, items: { $ref: '#/components/schemas/QuoteLine' } }
+            bill: { $ref: '#/components/schemas/Bill' }
+            deliveryAddress: { type: object, additionalProperties: true }
+            etaAt: { type: [string, 'null'], format: date-time }
+            delivery:
+              type: [object, 'null']
+              properties:
+                status: { $ref: '#/components/schemas/DeliveryStatus' }
+                riderFirstName: { type: [string, 'null'] }
+            timeline:
+              type: array
+              items:
+                type: object
+                required: [status, at]
+                properties:
+                  status: { $ref: '#/components/schemas/OrderStatus' }
+                  at: { $ref: '#/components/schemas/Timestamp' }
+            cancellable:
+              type: object
+              required: [allowed]
+              properties:
+                allowed: { type: boolean }
+                freeUntil: { type: [string, 'null'], format: date-time }
+                reasonCodes: { type: array, items: { type: string } }
+            cancelReasonCode: { type: [string, 'null'] }
+            deliveryCode: { type: [string, 'null'], pattern: '^[0-9]{4}$' }
+            placedVia: { type: string, enum: [CUSTOMER_APP, OPS_ASSISTED] }
+            refunds: { type: array, items: { $ref: '#/components/schemas/Refund' } }
+    PaymentSession:
+      type: object
+      required: [paymentId, provider, providerOrderId, amount, expiresAt, checkout]
+      properties:
+        paymentId: { $ref: '#/components/schemas/Uuid' }
+        provider: { type: string, enum: [RAZORPAY, CASHFREE, PHONEPE, FAKE] }
+        providerOrderId: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        expiresAt: { $ref: '#/components/schemas/Timestamp' }
+        checkout: { type: object, additionalProperties: true }
+    CreateOrderResponse:
+      type: object
+      required: [order, payment]
+      properties:
+        order: { $ref: '#/components/schemas/Order' }
+        payment: { oneOf: [ { $ref: '#/components/schemas/PaymentSession' }, { type: 'null' } ] }
+        paymentRetryable: { type: boolean }
+    Refund:
+      type: object
+      required: [id, status, amount, channel]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [PENDING_APPROVAL, REQUESTED, PROCESSING, SUCCEEDED, FAILED, CANCELLED] }
+        channel: { type: string, enum: [PA, MANUAL_UPI, MANUAL_BANK] }
+        amount: { $ref: '#/components/schemas/Money' }
+        reasonCode: { type: string }
+        utrReference: { type: [string, 'null'] }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    RatingRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        restaurant:
+          type: [object, 'null']
+          required: [stars]
+          properties:
+            stars: { type: integer, minimum: 1, maximum: 5 }
+            tags: { type: array, items: { type: string } }
+            review: { type: [string, 'null'], maxLength: 500 }
+        rider:
+          type: [object, 'null']
+          required: [thumbsUp]
+          properties:
+            thumbsUp: { type: boolean }
+            tags: { type: array, items: { type: string } }
+    Ticket:
+      type: object
+      required: [id, code, category, status, subject, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        code: { type: string, pattern: '^TK-[0-9A-HJKMNP-TV-Z]{6}$' }
+        category: { type: string }
+        status: { type: string, enum: [OPEN, IN_PROGRESS, AWAITING_REQUESTER, AWAITING_APPROVAL, RESOLVED, CLOSED, REOPENED] }
+        priority: { type: string, enum: [LOW, NORMAL, HIGH, URGENT] }
+        subject: { type: string }
+        orderId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+        compensationOffered: { type: boolean }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+        messages:
+          type: array
+          items:
+            type: object
+            required: [id, authorType, body, createdAt]
+            properties:
+              id: { $ref: '#/components/schemas/Uuid' }
+              authorType: { type: string, enum: [REQUESTER, AGENT, SYSTEM] }
+              body: { type: string }
+              createdAt: { $ref: '#/components/schemas/Timestamp' }
+    CreateTicketRequest:
+      type: object
+      additionalProperties: false
+      required: [category, subject, message]
+      properties:
+        orderId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+        category: { type: string }
+        subject: { type: string, minLength: 1, maxLength: 140 }
+        message: { type: string, minLength: 1, maxLength: 4000 }
+        attachmentFileIds: { type: array, items: { $ref: '#/components/schemas/Uuid' }, default: [] }
+    Me:
+      type: object
+      required: [id, kind, roles]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        kind: { type: string, enum: [MEMBER, STAFF] }
+        fullName: { type: [string, 'null'] }
+        phoneMasked: { type: [string, 'null'] }
+        email: { type: [string, 'null'] }
+        preferredLocale: { $ref: '#/components/schemas/Locale' }
+        roles:
+          type: array
+          items:
+            type: object
+            properties:
+              role: { $ref: '#/components/schemas/Role' }
+              cityId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+              restaurantId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+        activeContext: { type: [string, 'null'] }
+        accessExpiresAt: { $ref: '#/components/schemas/Timestamp' }
+    Notification:
+      type: object
+      required: [id, category, title, body, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        category: { type: string }
+        title: { type: string }
+        body: { type: string }
+        deepLink: { type: [string, 'null'] }
+        readAt: { type: [string, 'null'], format: date-time }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    ApprovalRequest:
+      type: object
+      required: [id, actionType, status]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        actionType: { type: string }
+        status: { type: string, enum: [PENDING, APPROVED, REJECTED, EXPIRED, EXECUTED, FAILED] }
+        amount: { oneOf: [ { $ref: '#/components/schemas/Money' }, { type: 'null' } ] }
+        makerReason: { type: string }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+    DeliveryMilestoneRequest:
+      type: object
+      additionalProperties: false
+      required: [clientEventId, occurredAt, location]
+      properties:
+        clientEventId: { $ref: '#/components/schemas/Uuid' }
+        occurredAt: { $ref: '#/components/schemas/Timestamp' }
+        location: { $ref: '#/components/schemas/LatLng' }
+        expectedVersion: { type: [integer, 'null'] }
+    DeliveredRequest:
+      allOf:
+        - $ref: '#/components/schemas/DeliveryMilestoneRequest'
+        - type: object
+          properties:
+            codCollected: { oneOf: [ { $ref: '#/components/schemas/Money' }, { type: 'null' } ] }
+            deliveryCode: { type: [string, 'null'], pattern: '^[0-9]{4}$' }
+    RiderDelivery:
+      type: object
+      required: [id, orderId, orderCode, status, version, pickup, drop, cod, milestones]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        orderId: { $ref: '#/components/schemas/Uuid' }
+        orderCode: { type: string }
+        status: { $ref: '#/components/schemas/DeliveryStatus' }
+        version: { type: integer }
+        pickup:
+          type: object
+          properties:
+            restaurantName: { type: string }
+            address: { type: string }
+            landmark: { type: [string, 'null'] }
+            location: { $ref: '#/components/schemas/LatLng' }
+            phone: { type: string }
+            orderStatus: { $ref: '#/components/schemas/OrderStatus' }
+            itemCount: { type: integer }
+        drop:
+          type: object
+          properties:
+            customerFirstName: { type: string }
+            houseNo: { type: string }
+            buildingStreet: { type: [string, 'null'] }
+            landmark: { type: string }
+            locality: { type: [string, 'null'] }
+            pinCode: { $ref: '#/components/schemas/PinCode' }
+            location: { $ref: '#/components/schemas/LatLng' }
+            contactPhoneMasked: { type: string }
+            instructions: { type: [string, 'null'] }
+        cod:
+          type: object
+          required: [required]
+          properties:
+            required: { type: boolean }
+            amount: { $ref: '#/components/schemas/Money' }
+        requiresDeliveryCode: { type: boolean }
+        estimatedEarnings: { $ref: '#/components/schemas/Money' }
+        distanceM: { type: integer }
+        milestones:
+          type: array
+          items:
+            type: object
+            properties:
+              status: { $ref: '#/components/schemas/DeliveryStatus' }
+              at: { $ref: '#/components/schemas/Timestamp' }
+    AcceptOrderRequest:
+      type: object
+      additionalProperties: false
+      required: [prepTimeMinutes]
+      properties:
+        prepTimeMinutes: { type: integer, minimum: 5, maximum: 90 }
+    PartnerOrder:
+      type: object
+      required: [id, code, status, version, placedAt, items, customerFirstName]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        code: { type: string }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        version: { type: integer }
+        placedAt: { $ref: '#/components/schemas/Timestamp' }
+        acceptBy: { type: [string, 'null'], format: date-time }
+        prepTimeMinutes: { type: [integer, 'null'] }
+        readyBy: { type: [string, 'null'], format: date-time }
+        items: { type: array, items: { $ref: '#/components/schemas/QuoteLine' } }
+        customerFirstName: { type: string }
+        customerNote: { type: [string, 'null'] }
+        paymentMethod: { $ref: '#/components/schemas/PaymentMethod' }
+        earnings:
+          type: object
+          properties:
+            foodValue: { $ref: '#/components/schemas/Money' }
+            commission: { $ref: '#/components/schemas/Money' }
+            net: { $ref: '#/components/schemas/Money' }
+    ReasonCodeRequest:
+      type: object
+      additionalProperties: false
+      required: [reasonCode]
+      properties:
+        reasonCode: { type: string }
+        note: { type: [string, 'null'], maxLength: 500 }
+paths:
+  /healthz:
+    get:
+      operationId: healthz
+      tags: [Health]
+      summary: Liveness probe (internal listener)
+      security: []
+      responses:
+        '200': { description: Alive }
+  /readyz:
+    get:
+      operationId: readyz
+      tags: [Health]
+      summary: Readiness probe (DB + LISTEN, internal listener)
+      security: []
+      responses:
+        '200': { description: Ready }
+        '503': { description: Not ready }
+  /config/client:
+    get:
+      operationId: getClientConfig
+      tags: [Config]
+      summary: Bootstrap config for the PWA
+      security: []
+      responses:
+        '200':
+          description: Client config
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientConfig' }
+  /public/cities:
+    get:
+      operationId: listCities
+      tags: [Public]
+      summary: List cities
+      security: []
+      responses:
+        '200':
+          description: Cities
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/City' } }
+  /public/serviceability:
+    get:
+      operationId: checkServiceability
+      tags: [Public]
+      summary: Check whether a pin is serviceable
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/LatQuery' }
+        - { $ref: '#/components/parameters/LngQuery' }
+      responses:
+        '200':
+          description: Serviceability result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Serviceability' }
+        '400': { $ref: '#/components/responses/Problem400' }
+  /public/localities:
+    get:
+      operationId: listLocalities
+      tags: [Public]
+      summary: Search localities by city and query
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/CityIdQuery' }
+        - { name: q, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Localities
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Locality' } }
+  /public/cuisines:
+    get:
+      operationId: listCuisines
+      tags: [Public]
+      summary: List cuisines for a city
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/CityIdQuery' }
+      responses:
+        '200':
+          description: Cuisines
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Cuisine' } }
+  /public/restaurants:
+    get:
+      operationId: listRestaurants
+      tags: [Public]
+      summary: Discover serviceable restaurants for a pin
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/LatQuery' }
+        - { $ref: '#/components/parameters/LngQuery' }
+        - { name: cuisine, in: query, required: false, schema: { type: string } }
+        - { name: veg, in: query, required: false, schema: { type: boolean } }
+        - { name: minRating, in: query, required: false, schema: { type: number } }
+        - { name: maxEtaMin, in: query, required: false, schema: { type: integer } }
+        - { name: hasOffer, in: query, required: false, schema: { type: boolean } }
+        - { name: sort, in: query, required: false, schema: { type: string, enum: [relevance, rating, eta, costLow, costHigh] } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Restaurant cards
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/RestaurantCard' } }
+                  nextCursor: { type: [string, 'null'] }
+                  zone:
+                    type: [object, 'null']
+                    properties:
+                      paused: { type: boolean }
+                      message: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /public/restaurants/{restaurantId}:
+    get:
+      operationId: getRestaurant
+      tags: [Public]
+      summary: Restaurant detail with serviceability for a pin
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/LatQuery' }
+        - { $ref: '#/components/parameters/LngQuery' }
+      responses:
+        '200':
+          description: Restaurant detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RestaurantDetail' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /public/restaurants/{restaurantId}/menu:
+    get:
+      operationId: getRestaurantMenu
+      tags: [Public]
+      summary: Full menu (CDN-cacheable, ETag by menu version)
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+      responses:
+        '200':
+          description: Menu
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Menu' }
+        '304': { description: Not modified }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /public/search:
+    get:
+      operationId: search
+      tags: [Public]
+      summary: Search restaurants and dishes near a pin
+      security: []
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1 } }
+        - { $ref: '#/components/parameters/LatQuery' }
+        - { $ref: '#/components/parameters/LngQuery' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restaurants: { type: array, items: { $ref: '#/components/schemas/RestaurantCard' } }
+                  dishes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        item: { $ref: '#/components/schemas/MenuItem' }
+                        restaurant: { $ref: '#/components/schemas/RestaurantCard' }
+  /public/offers:
+    get:
+      operationId: listPublicOffers
+      tags: [Public]
+      summary: Public coupons applicable in a zone
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/LatQuery' }
+        - { $ref: '#/components/parameters/LngQuery' }
+      responses:
+        '200':
+          description: Offers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    code: { type: string }
+                    title: { type: string }
+                    terms: { type: string }
+                    discountType: { type: string, enum: [FLAT, PERCENT] }
+                    minOrder: { $ref: '#/components/schemas/Money' }
+                    maxDiscount: { oneOf: [ { $ref: '#/components/schemas/Money' }, { type: 'null' } ] }
+  /public/waitlist:
+    post:
+      operationId: joinWaitlist
+      tags: [Public]
+      summary: Notify-me when delivery reaches a pin
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [location, noticeVersion]
+              properties:
+                location: { $ref: '#/components/schemas/LatLng' }
+                phone: { oneOf: [ { $ref: '#/components/schemas/Phone' }, { type: 'null' } ] }
+                pinCode: { oneOf: [ { $ref: '#/components/schemas/PinCode' }, { type: 'null' } ] }
+                localityId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                noticeVersion: { type: string }
+                captchaToken: { type: [string, 'null'] }
+      responses:
+        '201': { description: Added to the waitlist }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '429': { $ref: '#/components/responses/Problem429' }
+  /public/restaurant-leads:
+    post:
+      operationId: createRestaurantLead
+      tags: [Public]
+      summary: Partner-with-us lead (OTP-verified)
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [businessName, contactName, phone, otpChallengeId, otpCode, fssaiState, noticeVersion]
+              properties:
+                businessName: { type: string, maxLength: 80 }
+                contactName: { type: string, maxLength: 100 }
+                phone: { $ref: '#/components/schemas/Phone' }
+                otpChallengeId: { $ref: '#/components/schemas/Uuid' }
+                otpCode: { type: string, pattern: '^[0-9]{6}$' }
+                localityId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                cuisineCodes: { type: array, items: { type: string } }
+                fssaiState: { type: string, enum: [YES, NO, APPLIED] }
+                preferredCallTime: { type: [string, 'null'] }
+                noticeVersion: { type: string }
+      responses:
+        '201': { description: Lead created }
+        '422': { $ref: '#/components/responses/Problem422' }
+        '429': { $ref: '#/components/responses/Problem429' }
+  /auth/otp/request:
+    post:
+      operationId: requestOtp
+      tags: [Auth]
+      summary: Request a login OTP (SMS; India mobiles only)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [phone, channel]
+              properties:
+                phone: { $ref: '#/components/schemas/Phone' }
+                channel: { type: string, enum: [SMS] }
+                captchaToken: { type: [string, 'null'] }
+      responses:
+        '202':
+          description: Challenge created (same response whether or not the account exists)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challengeId, resendAfterSeconds, expiresAt]
+                properties:
+                  challengeId: { $ref: '#/components/schemas/Uuid' }
+                  resendAfterSeconds: { type: integer }
+                  expiresAt: { $ref: '#/components/schemas/Timestamp' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '429': { $ref: '#/components/responses/Problem429' }
+  /auth/otp/verify:
+    post:
+      operationId: verifyOtp
+      tags: [Auth]
+      summary: Verify an OTP and start a session (sets cookies)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [challengeId, code, deviceInstallId]
+              properties:
+                challengeId: { $ref: '#/components/schemas/Uuid' }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+                deviceInstallId: { type: string }
+      responses:
+        '200':
+          description: Signed in; sets host-only session cookies
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, isNewUser, accessExpiresAt]
+                properties:
+                  user: { $ref: '#/components/schemas/Me' }
+                  isNewUser: { type: boolean }
+                  accessExpiresAt: { $ref: '#/components/schemas/Timestamp' }
+                  needsAccountConfirmation: { type: boolean }
+        '422': { $ref: '#/components/responses/Problem422' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /auth/refresh:
+    post:
+      operationId: refreshSession
+      tags: [Auth]
+      summary: Rotate the refresh token and mint a new access token
+      responses:
+        '200':
+          description: Refreshed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessExpiresAt]
+                properties:
+                  accessExpiresAt: { $ref: '#/components/schemas/Timestamp' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [Auth]
+      summary: Revoke the session family and clear cookies
+      responses:
+        '204': { description: Logged out }
+  /auth/admin/login:
+    post:
+      operationId: adminLogin
+      tags: [Auth]
+      summary: Admin password login (step 1 of 2; returns an MFA token)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 12, maxLength: 128 }
+      responses:
+        '200':
+          description: Password accepted; present MFA
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mfaToken, mfaMethods]
+                properties:
+                  mfaToken: { type: string }
+                  mfaMethods: { type: array, items: { type: string, enum: [TOTP, RECOVERY_CODE] } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '429': { $ref: '#/components/responses/Problem429' }
+  /auth/admin/mfa:
+    post:
+      operationId: adminMfa
+      tags: [Auth]
+      summary: Admin TOTP / recovery-code verification (step 2; sets cookies)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [mfaToken]
+              properties:
+                mfaToken: { type: string }
+                totp: { type: [string, 'null'], pattern: '^[0-9]{6}$' }
+                recoveryCode: { type: [string, 'null'] }
+      responses:
+        '200':
+          description: Signed in (admin cookies, SameSite=Strict)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/Me' }
+                  accessExpiresAt: { $ref: '#/components/schemas/Timestamp' }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /me:
+    get:
+      operationId: getMe
+      tags: [Me]
+      summary: Current principal
+      responses:
+        '200':
+          description: Me
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Problem401' }
+    patch:
+      operationId: updateMe
+      tags: [Me]
+      summary: Update profile
+      parameters:
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                fullName: { type: [string, 'null'], maxLength: 100 }
+                preferredLocale: { $ref: '#/components/schemas/Locale' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /me/notifications:
+    get:
+      operationId: listNotifications
+      tags: [Me]
+      summary: Notification inbox
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { name: unreadOnly, in: query, required: false, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Inbox page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /me/notifications/read:
+    post:
+      operationId: markNotificationsRead
+      tags: [Me]
+      summary: Mark notifications read
+      parameters:
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                ids: { type: array, items: { $ref: '#/components/schemas/Uuid' } }
+                all: { type: boolean }
+      responses:
+        '204': { description: Marked }
+  /me/push-subscriptions:
+    post:
+      operationId: createPushSubscription
+      tags: [Me]
+      summary: Register a Web Push subscription
+      parameters:
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [endpoint, keys, deviceInstallId]
+              properties:
+                endpoint: { type: string, format: uri }
+                keys:
+                  type: object
+                  required: [p256dh, auth]
+                  properties:
+                    p256dh: { type: string }
+                    auth: { type: string }
+                deviceInstallId: { type: string }
+                locale: { $ref: '#/components/schemas/Locale' }
+      responses:
+        '201':
+          description: Subscribed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { $ref: '#/components/schemas/Uuid' }
+  /me/push-subscriptions/{id}:
+    delete:
+      operationId: deletePushSubscription
+      tags: [Me]
+      summary: Remove a push subscription
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '204': { description: Removed }
+  /me/addresses:
+    get:
+      operationId: listAddresses
+      tags: [Customer Addresses]
+      summary: List saved addresses
+      responses:
+        '200':
+          description: Addresses
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Address' } }
+    post:
+      operationId: createAddress
+      tags: [Customer Addresses]
+      summary: Save an address (landmark + map pin required)
+      parameters:
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAddressRequest' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  address: { $ref: '#/components/schemas/Address' }
+                  serviceability: { $ref: '#/components/schemas/Serviceability' }
+        '400': { $ref: '#/components/responses/Problem400' }
+  /me/addresses/{id}:
+    patch:
+      operationId: updateAddress
+      tags: [Customer Addresses]
+      summary: Update an address
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAddressRequest' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Address' }
+        '404': { $ref: '#/components/responses/Problem404' }
+    delete:
+      operationId: deleteAddress
+      tags: [Customer Addresses]
+      summary: Delete an address
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '204': { description: Deleted }
+  /cart/quote:
+    post:
+      operationId: createQuote
+      tags: [Checkout]
+      summary: Price a device cart for an address; returns a signed short-lived quoteId
+      security:
+        - cookieAuth: []
+        - {}
+      parameters:
+        - { $ref: '#/components/parameters/AcceptLanguage' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuoteRequest' }
+      responses:
+        '200':
+          description: Quote (check isOrderable and issues[] before enabling Pay)
+          headers:
+            RateLimit: { $ref: '#/components/headers/RateLimit' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
+        '429': { $ref: '#/components/responses/Problem429' }
+  /orders:
+    get:
+      operationId: listOrders
+      tags: [Orders]
+      summary: List the customer's orders
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string, enum: [ACTIVE, PAST] } }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Orders page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/OrderSummary' } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+    post:
+      operationId: createOrder
+      tags: [Orders]
+      summary: Place an order from a quote
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/AcceptLanguage' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOrderRequest' }
+      responses:
+        '201':
+          description: Order created
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+            ETag: { $ref: '#/components/headers/ETag' }
+            Idempotent-Replayed: { $ref: '#/components/headers/IdempotentReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateOrderResponse' }
+        '400': { $ref: '#/components/responses/Problem400' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+        '429': { $ref: '#/components/responses/Problem429' }
+  /orders/{orderId}:
+    get:
+      operationId: getOrder
+      tags: [Orders]
+      summary: Order detail
+      parameters:
+        - { $ref: '#/components/parameters/OrderIdPath' }
+      responses:
+        '200':
+          description: Order
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /orders/{orderId}/payments:
+    post:
+      operationId: initiateOrderPayment
+      tags: [Payments]
+      summary: Initiate or retry checkout for a PENDING_PAYMENT order
+      parameters:
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '201':
+          description: Payment session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentSession' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /payments/confirm:
+    post:
+      operationId: confirmPayment
+      tags: [Payments]
+      summary: Client-side payment confirmation (webhook remains authoritative)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [paymentId, providerOrderId, providerPaymentId, signature]
+              properties:
+                paymentId: { $ref: '#/components/schemas/Uuid' }
+                providerOrderId: { type: string }
+                providerPaymentId: { type: string }
+                signature: { type: string }
+      responses:
+        '200':
+          description: Confirmed (status may still be pending until the webhook)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paymentStatus: { $ref: '#/components/schemas/PaymentStatus' }
+                  orderStatus: { $ref: '#/components/schemas/OrderStatus' }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /payments/return/{provider}:
+    get:
+      operationId: paymentReturn
+      tags: [Payments]
+      summary: PA hosted-checkout return target (unauthenticated, non-trusting; redirects)
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/ProviderPath' }
+      responses:
+        '303': { description: Redirect to the order status page in the app }
+  /orders/{orderId}/cancel:
+    post:
+      operationId: cancelOrder
+      tags: [Orders]
+      summary: Customer cancel (free while PLACED or within the grace window)
+      parameters:
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonCodeRequest' }
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /orders/{orderId}/reorder:
+    post:
+      operationId: reorder
+      tags: [Orders]
+      summary: Build cart lines from a past order (does not place an order)
+      parameters:
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200':
+          description: Cart lines
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restaurantId: { $ref: '#/components/schemas/Uuid' }
+                  lines: { type: array, items: { $ref: '#/components/schemas/QuoteLineInput' } }
+                  issues: { type: array, items: { $ref: '#/components/schemas/QuoteIssue' } }
+  /orders/{orderId}/ratings:
+    post:
+      operationId: rateOrder
+      tags: [Orders]
+      summary: Rate the restaurant and/or rider (7-day window)
+      parameters:
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RatingRequest' }
+      responses:
+        '201': { description: Rated }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /support/tickets:
+    get:
+      operationId: listMyTickets
+      tags: [Support]
+      summary: List my support tickets
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Tickets
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Ticket' } }
+                  nextCursor: { type: [string, 'null'] }
+    post:
+      operationId: createTicket
+      tags: [Support]
+      summary: Open a support ticket
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTicketRequest' }
+      responses:
+        '201':
+          description: Ticket created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticket' }
+  /support/tickets/{id}:
+    get:
+      operationId: getTicket
+      tags: [Support]
+      summary: Ticket detail with messages
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+      responses:
+        '200':
+          description: Ticket
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticket' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /support/tickets/{id}/messages:
+    post:
+      operationId: addTicketMessage
+      tags: [Support]
+      summary: Reply to a ticket
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 4000 }
+                attachmentFileIds: { type: array, items: { $ref: '#/components/schemas/Uuid' } }
+      responses:
+        '201': { description: Message added }
+  /support/tickets/{id}/compensation-choice:
+    post:
+      operationId: chooseCompensation
+      tags: [Support]
+      summary: Choose COD compensation (manual UPI refund or coupon; never coupon-only)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [choice]
+              properties:
+                choice: { type: string, enum: [UPI_REFUND, COUPON] }
+                upiVpa: { type: [string, 'null'] }
+      responses:
+        '200':
+          description: Choice recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  refundId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                  couponId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                  status: { type: string }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /uploads:
+    post:
+      operationId: initUpload
+      tags: [Me]
+      summary: Initialise a presigned upload
+      parameters:
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [purpose, contentType, sizeBytes]
+              properties:
+                purpose: { type: string, enum: [MENU_IMAGE, RESTAURANT_LOGO, RESTAURANT_COVER, TICKET_ATTACHMENT, COD_DEPOSIT_PROOF, MENU_IMPORT_CSV] }
+                contentType: { type: string, enum: [image/jpeg, image/png, image/webp, application/pdf, text/csv] }
+                sizeBytes: { type: integer, minimum: 1, maximum: 10485760 }
+                sha256: { type: [string, 'null'] }
+      responses:
+        '200':
+          description: Presigned PUT
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fileId: { $ref: '#/components/schemas/Uuid' }
+                  uploadUrl: { type: string, format: uri }
+                  uploadHeaders: { type: object, additionalProperties: { type: string } }
+                  expiresAt: { $ref: '#/components/schemas/Timestamp' }
+  /uploads/{id}/complete:
+    post:
+      operationId: completeUpload
+      tags: [Me]
+      summary: Finalise an upload (validates and re-encodes images)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200':
+          description: File
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { $ref: '#/components/schemas/Uuid' }
+                  status: { type: string }
+                  url: { type: [string, 'null'] }
+  /partner/restaurant-applications:
+    post:
+      operationId: createRestaurantApplication
+      tags: [Partner Onboarding]
+      summary: Start a restaurant onboarding application
+      parameters:
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, phone, address, location, pinCode, cuisineCodes, dietType]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                phone: { $ref: '#/components/schemas/Phone' }
+                address: { type: string }
+                location: { $ref: '#/components/schemas/LatLng' }
+                pinCode: { $ref: '#/components/schemas/PinCode' }
+                localityId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                cuisineCodes: { type: array, items: { type: string } }
+                dietType: { type: string, enum: [PURE_VEG, MIXED] }
+      responses:
+        '201':
+          description: Draft application
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restaurantId: { $ref: '#/components/schemas/Uuid' }
+                  status: { type: string }
+  /partner/restaurant-applications/{restaurantId}/submit:
+    post:
+      operationId: submitRestaurantApplication
+      tags: [Partner Onboarding]
+      summary: Submit an application for review
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [agreementVersion, otpChallengeId, otpCode]
+              properties:
+                agreementVersion: { type: string }
+                otpChallengeId: { $ref: '#/components/schemas/Uuid' }
+                otpCode: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Submitted
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string } } }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /partner/restaurants:
+    get:
+      operationId: listMyRestaurants
+      tags: [Partner Restaurant]
+      summary: My outlets
+      responses:
+        '200':
+          description: Outlets
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/RestaurantDetail' } }
+  /partner/restaurants/{restaurantId}:
+    get:
+      operationId: getMyRestaurant
+      tags: [Partner Restaurant]
+      summary: Outlet profile
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+      responses:
+        '200':
+          description: Restaurant
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RestaurantDetail' }
+        '404': { $ref: '#/components/responses/Problem404' }
+    patch:
+      operationId: updateMyRestaurant
+      tags: [Partner Restaurant]
+      summary: Update outlet profile (owner)
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                description: { type: [string, 'null'], maxLength: 500 }
+                minOrderPaise: { type: integer, minimum: 0 }
+                avgPrepTimeMin: { type: integer, minimum: 5, maximum: 90 }
+                packagingMode: { type: string, enum: [PER_ITEM, PER_ORDER, NONE] }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RestaurantDetail' }
+        '412': { $ref: '#/components/responses/Problem412' }
+  /partner/restaurants/{restaurantId}/operating-hours:
+    put:
+      operationId: setOperatingHours
+      tags: [Partner Restaurant]
+      summary: Replace the weekly operating hours (owner)
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [week]
+              properties:
+                week:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      dayOfWeek: { type: integer, minimum: 1, maximum: 7 }
+                      slots:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            opensAt: { type: string, pattern: '^[0-2][0-9]:[0-5][0-9]$' }
+                            closesAt: { type: string, pattern: '^[0-2][0-9]:[0-5][0-9]$' }
+      responses:
+        '200': { description: Replaced }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /partner/restaurants/{restaurantId}/open:
+    post:
+      operationId: openRestaurant
+      tags: [Partner Restaurant]
+      summary: Start taking orders
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200': { description: Open }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /partner/restaurants/{restaurantId}/close:
+    post:
+      operationId: closeRestaurant
+      tags: [Partner Restaurant]
+      summary: Stop for the day
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200': { description: Closed }
+  /partner/restaurants/{restaurantId}/pause:
+    post:
+      operationId: pauseRestaurant
+      tags: [Partner Restaurant]
+      summary: Pause for a while (busy)
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reasonCode]
+              properties:
+                durationMinutes: { type: [integer, 'null'], enum: [15, 30, 60, null] }
+                reasonCode: { type: string }
+      responses:
+        '200':
+          description: Paused
+          content:
+            application/json:
+              schema: { type: object, properties: { pausedUntil: { type: [string, 'null'], format: date-time } } }
+  /partner/restaurants/{restaurantId}/resume:
+    post:
+      operationId: resumeRestaurant
+      tags: [Partner Restaurant]
+      summary: Resume taking orders (also clears auto-pauses)
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200': { description: Resumed }
+  /partner/restaurants/{restaurantId}/devices/heartbeat:
+    post:
+      operationId: deviceHeartbeat
+      tags: [Partner Restaurant]
+      summary: Order-receiver device heartbeat
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [deviceInstallId]
+              properties:
+                deviceInstallId: { type: string }
+                isOrderReceiver: { type: boolean }
+                pushOk: { type: boolean }
+                appVersion: { type: [string, 'null'] }
+      responses:
+        '200':
+          description: Heartbeat accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  serverTime: { $ref: '#/components/schemas/Timestamp' }
+                  outletState: { type: string }
+  /partner/restaurants/{restaurantId}/menu:
+    get:
+      operationId: getPartnerMenu
+      tags: [Partner Menu]
+      summary: Full editable menu
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+      responses:
+        '200':
+          description: Menu
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Menu' }
+  /partner/restaurants/{restaurantId}/menu-items:
+    post:
+      operationId: createMenuItem
+      tags: [Partner Menu]
+      summary: Create a menu item
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [categoryId, name, vegType, price]
+              properties:
+                categoryId: { $ref: '#/components/schemas/Uuid' }
+                name: { type: string, minLength: 1, maxLength: 80 }
+                nameI18n: { $ref: '#/components/schemas/I18nText' }
+                description: { type: [string, 'null'], maxLength: 300 }
+                vegType: { $ref: '#/components/schemas/VegType' }
+                price: { $ref: '#/components/schemas/Money' }
+                packaging: { $ref: '#/components/schemas/Money' }
+                imageFileId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                isRecommended: { type: boolean }
+                spiceLevel: { type: [integer, 'null'], minimum: 0, maximum: 3 }
+                serves: { type: [integer, 'null'] }
+                addonGroupIds: { type: array, items: { $ref: '#/components/schemas/Uuid' } }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MenuItem' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /partner/restaurants/{restaurantId}/menu-items/{id}:
+    patch:
+      operationId: updateMenuItem
+      tags: [Partner Menu]
+      summary: Update a menu item
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MenuItem' }
+        '412': { $ref: '#/components/responses/Problem412' }
+    delete:
+      operationId: archiveMenuItem
+      tags: [Partner Menu]
+      summary: Archive a menu item
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '204': { description: Archived }
+  /partner/restaurants/{restaurantId}/menu-items/{id}/availability:
+    post:
+      operationId: setMenuItemAvailability
+      tags: [Partner Menu]
+      summary: Toggle in-stock (last write wins)
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [isAvailable]
+              properties:
+                isAvailable: { type: boolean }
+                until: { type: [string, 'null'] }
+      responses:
+        '200': { description: Toggled }
+  /partner/restaurants/{restaurantId}/menu-categories:
+    post:
+      operationId: createMenuCategory
+      tags: [Partner Menu]
+      summary: Create a menu category
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 60 }
+                nameI18n: { $ref: '#/components/schemas/I18nText' }
+                sortOrder: { type: integer }
+      responses:
+        '201': { description: Created }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /partner/restaurants/{restaurantId}/addon-groups:
+    post:
+      operationId: createAddonGroup
+      tags: [Partner Menu]
+      summary: Create an add-on group
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, minSelect, maxSelect, addons]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 60 }
+                minSelect: { type: integer, minimum: 0 }
+                maxSelect: { type: integer, minimum: 1, maximum: 20 }
+                addons:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, price, vegType]
+                    properties:
+                      name: { type: string }
+                      price: { $ref: '#/components/schemas/Money' }
+                      vegType: { $ref: '#/components/schemas/VegType' }
+      responses:
+        '201': { description: Created }
+        '422': { $ref: '#/components/responses/Problem422' }

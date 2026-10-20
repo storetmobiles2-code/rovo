@@ -33,8 +33,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     client.setOnSessionExpired(() => {
+      // Mark the session guest and drop cached per-user data, but never remove the `me`
+      // query itself — removing it would remount useQuery and refetch /me, which 401s and
+      // re-fires this callback in a loop. Config and me are preserved.
       queryClient.setQueryData(qk.me(), null);
-      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'client-config' });
+      queryClient.removeQueries({
+        predicate: (q) => q.queryKey[0] !== 'client-config' && q.queryKey[0] !== 'me',
+      });
     });
     return () => client.setOnSessionExpired(undefined);
   }, [client, queryClient]);

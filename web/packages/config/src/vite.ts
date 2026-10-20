@@ -4,7 +4,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PluginOption, UserConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
-import { appThemeColor } from './tokens';
+
+// Inlined from tokens.ts (ink-900) so this config-time module has no cross-file imports that
+// Vite's config loader would need to resolve from source.
+const appThemeColor = '#0C1825';
 
 export type RovoAppName = 'customer' | 'restaurant' | 'rider' | 'admin';
 

@@ -5,3 +5,10 @@ dist/
 .DS_Store
 backend/tmp/
 /tmp/
+
+# terraform
+**/.terraform/*
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl

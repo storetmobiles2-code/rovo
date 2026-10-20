@@ -42,6 +42,9 @@ catalogs:
     '@tanstack/react-query':
       specifier: 5.104.2
       version: 5.104.2
+    '@tanstack/react-router':
+      specifier: 1.170.42
+      version: 1.170.42
     '@testing-library/dom':
       specifier: 10.4.2
       version: 10.4.2
@@ -138,6 +141,27 @@ catalogs:
     workbox-build:
       specifier: 7.4.1
       version: 7.4.1
+    workbox-cacheable-response:
+      specifier: 7.4.1
+      version: 7.4.1
+    workbox-core:
+      specifier: 7.4.1
+      version: 7.4.1
+    workbox-expiration:
+      specifier: 7.4.1
+      version: 7.4.1
+    workbox-precaching:
+      specifier: 7.4.1
+      version: 7.4.1
+    workbox-routing:
+      specifier: 7.4.1
+      version: 7.4.1
+    workbox-strategies:
+      specifier: 7.4.1
+      version: 7.4.1
+    workbox-window:
+      specifier: 7.4.1
+      version: 7.4.1
 
 importers:
 
@@ -161,6 +185,279 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
+
+  apps/customer:
+    dependencies:
+      '@rovo/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@rovo/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@rovo/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
+      '@rovo/shell':
+        specifier: workspace:*
+        version: link:../../packages/shell
+      '@rovo/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@rovo/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
+      '@tanstack/react-query':
+        specifier: 'catalog:'
+        version: 5.104.2(react@19.3.0)
+      '@tanstack/react-router':
+        specifier: 'catalog:'
+        version: 1.170.42(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react:
+        specifier: 'catalog:'
+        version: 1.55.0(@types/react@19.3.0)(react@19.3.0)
+      react:
+        specifier: 'catalog:'
+        version: 19.3.0
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.3.0(react@19.3.0)
+    devDependencies:
+      '@rovo/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@rovo/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+      '@testing-library/jest-dom':
+        specifier: 'catalog:'
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.3(@types/node@22.20.5)(jsdom@29.1.1)(msw@3.0.3(@types/node@22.20.5)(typescript@5.9.3)(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))
+      '@testing-library/react':
+        specifier: 'catalog:'
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@testing-library/user-event':
+        specifier: 'catalog:'
+        version: 14.6.7(@testing-library/dom@10.4.2)
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.3.0(@types/react@19.3.0)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vite:
+        specifier: 'catalog:'
+        version: 8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)
+      vite-plugin-pwa:
+        specifier: 'catalog:'
+        version: 2.0.0(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1)
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@22.20.5)(jsdom@29.1.1)(msw@3.0.3(@types/node@22.20.5)(typescript@5.9.3)(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2))
+      workbox-cacheable-response:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-core:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-expiration:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-precaching:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-routing:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-strategies:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-window:
+        specifier: 'catalog:'
+        version: 7.4.1
+
+  apps/restaurant:
+    dependencies:
+      '@rovo/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@rovo/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@rovo/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
+      '@rovo/shell':
+        specifier: workspace:*
+        version: link:../../packages/shell
+      '@rovo/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@rovo/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
+      '@tanstack/react-query':
+        specifier: 'catalog:'
+        version: 5.104.2(react@19.3.0)
+      '@tanstack/react-router':
+        specifier: 'catalog:'
+        version: 1.170.42(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react:
+        specifier: 'catalog:'
+        version: 1.55.0(@types/react@19.3.0)(react@19.3.0)
+      react:
+        specifier: 'catalog:'
+        version: 19.3.0
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.3.0(react@19.3.0)
+    devDependencies:
+      '@rovo/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@rovo/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+      '@testing-library/jest-dom':
+        specifier: 'catalog:'
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.3(@types/node@22.20.5)(jsdom@29.1.1)(msw@3.0.3(@types/node@22.20.5)(typescript@5.9.3)(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))
+      '@testing-library/react':
+        specifier: 'catalog:'
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@testing-library/user-event':
+        specifier: 'catalog:'
+        version: 14.6.7(@testing-library/dom@10.4.2)
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.3.0(@types/react@19.3.0)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vite:
+        specifier: 'catalog:'
+        version: 8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)
+      vite-plugin-pwa:
+        specifier: 'catalog:'
+        version: 2.0.0(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1)
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@22.20.5)(jsdom@29.1.1)(msw@3.0.3(@types/node@22.20.5)(typescript@5.9.3)(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2))
+      workbox-cacheable-response:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-core:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-expiration:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-precaching:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-routing:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-strategies:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-window:
+        specifier: 'catalog:'
+        version: 7.4.1
+
+  apps/rider:
+    dependencies:
+      '@rovo/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@rovo/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@rovo/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
+      '@rovo/shell':
+        specifier: workspace:*
+        version: link:../../packages/shell
+      '@rovo/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@rovo/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
+      '@tanstack/react-query':
+        specifier: 'catalog:'
+        version: 5.104.2(react@19.3.0)
+      '@tanstack/react-router':
+        specifier: 'catalog:'
+        version: 1.170.42(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react:
+        specifier: 'catalog:'
+        version: 1.55.0(@types/react@19.3.0)(react@19.3.0)
+      react:
+        specifier: 'catalog:'
+        version: 19.3.0
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.3.0(react@19.3.0)
+    devDependencies:
+      '@rovo/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@rovo/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+      '@testing-library/jest-dom':
+        specifier: 'catalog:'
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.3(@types/node@22.20.5)(jsdom@29.1.1)(msw@3.0.3(@types/node@22.20.5)(typescript@5.9.3)(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))
+      '@testing-library/react':
+        specifier: 'catalog:'
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@testing-library/user-event':
+        specifier: 'catalog:'
+        version: 14.6.7(@testing-library/dom@10.4.2)
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.3.0(@types/react@19.3.0)
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vite:
+        specifier: 'catalog:'
+        version: 8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)
+      vite-plugin-pwa:
+        specifier: 'catalog:'
+        version: 2.0.0(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2))(workbox-build@7.4.1)(workbox-window@7.4.1)
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@22.20.5)(jsdom@29.1.1)(msw@3.0.3(@types/node@22.20.5)(typescript@5.9.3)(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2))
+      workbox-cacheable-response:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-core:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-expiration:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-precaching:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-routing:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-strategies:
+        specifier: 'catalog:'
+        version: 7.4.1
+      workbox-window:
+        specifier: 'catalog:'
+        version: 7.4.1
 
   packages/api-client:
     dependencies:
@@ -336,6 +633,67 @@ importers:
       react:
         specifier: 'catalog:'
         version: 19.3.0
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vite:
+        specifier: 'catalog:'
+        version: 8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.3(@types/node@22.20.5)(jsdom@29.1.1)(msw@3.0.3(@types/node@22.20.5)(typescript@5.9.3)(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2))
+
+  packages/shell:
+    dependencies:
+      '@rovo/api-client':
+        specifier: workspace:*
+        version: link:../api-client
+      '@rovo/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@rovo/i18n':
+        specifier: workspace:*
+        version: link:../i18n
+      '@rovo/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@rovo/utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@tanstack/react-query':
+        specifier: 'catalog:'
+        version: 5.104.2(react@19.3.0)
+      lucide-react:
+        specifier: 'catalog:'
+        version: 1.55.0(@types/react@19.3.0)(react@19.3.0)
+    devDependencies:
+      '@rovo/config':
+        specifier: workspace:*
+        version: link:../config
+      '@rovo/testing':
+        specifier: workspace:*
+        version: link:../testing
+      '@testing-library/jest-dom':
+        specifier: 'catalog:'
+        version: 7.0.1(@testing-library/dom@10.4.2)(vitest@5.0.3(@types/node@22.20.5)(jsdom@29.1.1)(msw@3.0.3(@types/node@22.20.5)(typescript@5.9.3)(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)))
+      '@testing-library/react':
+        specifier: 'catalog:'
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@testing-library/user-event':
+        specifier: 'catalog:'
+        version: 14.6.7(@testing-library/dom@10.4.2)
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.3.0(@types/react@19.3.0)
+      react:
+        specifier: 'catalog:'
+        version: 19.3.0
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.3.0(react@19.3.0)
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -1928,6 +2286,10 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
 
+  '@tanstack/history@1.162.5':
+    resolution: {integrity: sha512-w1+YvwmTkwt5n8yUqEH3IWZ9DsmorCZW/EQ3KYHnqEgIkOZpH54NvW6/Epq3Dzb8H0ifIeYX8PExvrNLIH5FIA==}
+    engines: {node: '>=20.19'}
+
   '@tanstack/query-core@5.104.2':
     resolution: {integrity: sha512-/qbsxJK5c3Ve1aFIULWYNcT2jeRUAiD4HME6Eu2ZdpofHoVgAjpkQhLg5xHuOoBkTPQUJLfP7zOxy0qsBcqROA==}
 
@@ -1935,6 +2297,26 @@ packages:
     resolution: {integrity: sha512-xKmzWGhadbE5wGS/ZmXShRITnI9oItox5GO14KvFZco3+vhTAyXS1erYzJWdiY280zapAGJXFUL9nHgwP6SV/g==}
     peerDependencies:
       react: ^18 || ^19
+
+  '@tanstack/react-router@1.170.42':
+    resolution: {integrity: sha512-4wBptX7DRvc+v/XQ0MxL9rKlmSFb0ob3tSEZWF4ssSl1DD+1HAofWM3HwSn9liQN0r7e00qiv5WQMp6rObOc1g==}
+    engines: {node: '>=20.19'}
+    peerDependencies:
+      react: '>=18.0.0 || >=19.0.0'
+      react-dom: '>=18.0.0 || >=19.0.0'
+
+  '@tanstack/react-store@0.11.2':
+    resolution: {integrity: sha512-oj5O5DmiMWE+ih+SioX2ayC1kbK7d3fpLx0B75fPJr9nY3zU+hoW010yr64qXsY/9fyiLVE2bn5mGNV3owm8RQ==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  '@tanstack/router-core@1.171.35':
+    resolution: {integrity: sha512-fNKsx/rrxppFNmCQ9mPwg4OCb1O3qfLPVrE9FVyyWyRPQk0f0NK5bdJUzTYZQ+T/Ajfllr3SEx9pntM45F5amQ==}
+    engines: {node: '>=20.19'}
+
+  '@tanstack/store@0.11.2':
+    resolution: {integrity: sha512-sJ4mjol8uQsHV0gOJzzjwXfh2Fwm+Sz0+8deqiTm4jGbMdjzNSW+xZCFm0kUa870uhd8yi+DpKnZb5Kc4apa0Q==}
 
   '@testing-library/dom@10.4.2':
     resolution: {integrity: sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q==}
@@ -2325,6 +2707,9 @@ packages:
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
+
+  cookie-es@3.1.1:
+    resolution: {integrity: sha512-UaXxwISYJPTr9hwQxMFYZ7kNhSXboMXP+Z3TRX6f1/NyaGPfuNUZOWP1pUEb75B2HjfklIYLVRfWiFZJyC6Npg==}
 
   cookie@2.0.1:
     resolution: {integrity: sha512-yuToqVvRrj6pfDXREyQAAv8SkAEk/8GS3jQRTiUMm66TVtBYmqQeoEjL2Lmq8Rpo6271vH76InTChTitEAm65w==}
@@ -2910,6 +3295,10 @@ packages:
 
   isarray@2.0.5:
     resolution: {integrity: sha512-xHjhDr3cNBK0BzdUJSPXZntQUx/mwMS5Rw4A7lPJ90XGAO6ISP/ePDNuo0vhqOZU+UD5JoodwCAAoZQd3FeAKw==}
+
+  isbot@5.2.2:
+    resolution: {integrity: sha512-iQcBXcd+Rv/pkubRyGh2utW2j1oPG5hZY6TUhVPpqK4G+o3IbxpJNx04hgksjc/N7GK5pEorUxDeg31cFgEk/w==}
+    engines: {node: '>=18'}
 
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
@@ -3508,6 +3897,16 @@ packages:
   serialize-javascript@7.1.2:
     resolution: {integrity: sha512-GL2BWwVa6JydKO6l/ljVgjAZF4QJ3S7dWDWi53s5GZT8PJzD2fNxi67HANQGKAqPrwEpL5ba7gUBGi0Ls/sEoQ==}
     engines: {node: '>=20.0.0'}
+
+  seroval-plugins@1.6.11:
+    resolution: {integrity: sha512-LmB3nd8pL39jKHKvnpTUjcjBtNwR8MLty/ydAR8qbfXt5j6/6KqR1atuw8cVmD2/lDxAkvAwq5tI/HsisD9Fqg==}
+    engines: {node: '>=10'}
+    peerDependencies:
+      seroval: ^1.0
+
+  seroval@1.6.11:
+    resolution: {integrity: sha512-hpb6XnMCGN/A+79Uf8V7/iTGkyyyazNn5X0CoCAp7Uy9vT3RT8jZ9GLcnxGoVjg3P8AArbe4ZVHq6C8oT2a0kA==}
+    engines: {node: '>=10'}
 
   set-cookie-parser@3.1.3:
     resolution: {integrity: sha512-xletSdAI5efyVJjsatBbzDkXl3M/Zmad3xfnQe7ZXuBB0yNwW7C2WFsNGjdRNfZunmNHQuX79xs/ACMTLCdcew==}
@@ -5525,12 +5924,39 @@ snapshots:
       tailwindcss: 4.3.3
       vite: 8.3.4(@types/node@22.20.5)(jiti@2.7.0)(terser@5.51.2)
 
+  '@tanstack/history@1.162.5': {}
+
   '@tanstack/query-core@5.104.2': {}
 
   '@tanstack/react-query@5.104.2(react@19.3.0)':
     dependencies:
       '@tanstack/query-core': 5.104.2
       react: 19.3.0
+
+  '@tanstack/react-router@1.170.42(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@tanstack/history': 1.162.5
+      '@tanstack/react-store': 0.11.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@tanstack/router-core': 1.171.35
+      isbot: 5.2.2
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+
+  '@tanstack/react-store@0.11.2(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@tanstack/store': 0.11.2
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      use-sync-external-store: 1.7.0(react@19.3.0)
+
+  '@tanstack/router-core@1.171.35':
+    dependencies:
+      '@tanstack/history': 1.162.5
+      cookie-es: 3.1.1
+      seroval: 1.6.11
+      seroval-plugins: 1.6.11(seroval@1.6.11)
+
+  '@tanstack/store@0.11.2': {}
 
   '@testing-library/dom@10.4.2':
     dependencies:
@@ -5941,6 +6367,8 @@ snapshots:
   concat-map@0.0.1: {}
 
   convert-source-map@2.0.0: {}
+
+  cookie-es@3.1.1: {}
 
   cookie@2.0.1: {}
 
@@ -6599,6 +7027,8 @@ snapshots:
 
   isarray@2.0.5: {}
 
+  isbot@5.2.2: {}
+
   isexe@2.0.0: {}
 
   jackspeak@4.2.3:
@@ -7186,6 +7616,12 @@ snapshots:
   semver@7.8.5: {}
 
   serialize-javascript@7.1.2: {}
+
+  seroval-plugins@1.6.11(seroval@1.6.11):
+    dependencies:
+      seroval: 1.6.11
+
+  seroval@1.6.11: {}
 
   set-cookie-parser@3.1.3: {}
 

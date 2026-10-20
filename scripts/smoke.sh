@@ -12,7 +12,7 @@
 #   SMOKE_CURL_OPTS    extra curl options (e.g. -k for the internal CA, or
 #                      --resolve app.rovo.localhost:80:127.0.0.1 when there is
 #                      no DNS/hosts entry)
-#   SMOKE_STRICT_TLS=1 require HSTS on https (default: only when scheme=https)
+#   SMOKE_STRICT_TLS=1 require HSTS even when scheme=http (default: https only)
 #
 # Exits non-zero if any check fails. Each app host must serve its SPA index,
 # proxy /api same-origin, carry the security headers, and refuse a foreign CORS
@@ -51,82 +51,71 @@ req() {
   rm -f "$tmp"
 }
 
-hdr() { awk -v k="$(tr '[:upper:]' '[:lower:]' <<<"$1")" 'BEGIN{FS=": "} {h=tolower($1)} h==k {sub(/^[^:]*: /,""); printf "%s", $0}' <<<"$REPLY_HEADERS"; }
+hdr() { awk -v k="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" 'BEGIN{FS=": "} {h=tolower($1)} h==k {sub(/^[^:]*: /,""); printf "%s", $0}' <<<"$REPLY_HEADERS"; }
+
+want_status() { # want_status "<label>" "<expected status>"
+  if [[ "$REPLY_STATUS" == "$2" ]]; then
+    checkpass "$1 ($REPLY_STATUS)"
+  else
+    checkfail "$1 (status '${REPLY_STATUS:-none}', want $2)"
+  fi
+}
+
+want_header() { # want_header "<label>" "<header>" ["<substring that must be present>"]
+  local val
+  val="$(hdr "$2")"
+  if [[ -z "$val" ]]; then
+    checkfail "$1: $2 missing"
+  elif [[ -n "${3:-}" && "$val" != *"$3"* ]]; then
+    checkfail "$1: $2='$val' (want to contain '$3')"
+  else
+    checkpass "$1: $2 present"
+  fi
+}
 
 base="$scheme://HOST.$domain"
 log "smoke test against *.$domain ($scheme)"
 
 # --- per app host ------------------------------------------------------------
-declare -A app_label=([app]=customer [restaurant]=restaurant [rider]=rider [admin]=admin)
-for host in app restaurant rider admin; do
-  label="${app_label[$host]}"
+for spec in "app:customer" "restaurant:restaurant" "rider:rider" "admin:admin"; do
+  host="${spec%%:*}"
+  label="${spec##*:}"
   url="${base/HOST/$host}"
 
   req GET "$url/"
   if [[ "$REPLY_STATUS" == "200" && "$REPLY_BODY" == *"<"* ]]; then
     checkpass "$label: SPA index served ($REPLY_STATUS)"
   else
-    checkfail "$label: SPA index not served (status '$REPLY_STATUS')"
+    checkfail "$label: SPA index not served (status '${REPLY_STATUS:-none}')"
   fi
 
   # SPA fallback: a deep client route returns index.html, not 404.
   req GET "$url/some/deep/client/route"
-  [[ "$REPLY_STATUS" == "200" ]] \
-    && checkpass "$label: SPA fallback serves index for client routes" \
-    || checkfail "$label: SPA fallback missing (status '$REPLY_STATUS')"
+  want_status "$label: SPA fallback serves index for client routes" 200
 
-  # Security headers present on the HTML response.
+  # Security headers on the HTML response.
   req GET "$url/"
-  [[ -n "$(hdr content-security-policy)" ]] \
-    && checkpass "$label: Content-Security-Policy present" \
-    || checkfail "$label: Content-Security-Policy missing"
-  [[ "$(hdr x-content-type-options)" == "nosniff" ]] \
-    && checkpass "$label: X-Content-Type-Options nosniff" \
-    || checkfail "$label: X-Content-Type-Options missing"
-  [[ -n "$(hdr referrer-policy)" ]] \
-    && checkpass "$label: Referrer-Policy present" \
-    || checkfail "$label: Referrer-Policy missing"
-  [[ -n "$(hdr permissions-policy)" ]] \
-    && checkpass "$label: Permissions-Policy present" \
-    || checkfail "$label: Permissions-Policy missing"
-  csp="$(hdr content-security-policy)"
-  [[ "$csp" == *"frame-ancestors 'none'"* ]] \
-    && checkpass "$label: CSP frame-ancestors none" \
-    || checkfail "$label: CSP frame-ancestors none missing"
+  want_header "$label" content-security-policy "frame-ancestors 'none'"
+  want_header "$label" x-content-type-options nosniff
+  want_header "$label" referrer-policy
+  want_header "$label" permissions-policy
   if [[ "$scheme" == "https" || "${SMOKE_STRICT_TLS:-0}" == "1" ]]; then
-    [[ -n "$(hdr strict-transport-security)" ]] \
-      && checkpass "$label: HSTS present" \
-      || checkfail "$label: HSTS missing on https"
+    want_header "$label" strict-transport-security
   fi
 
-  # The edge must strip a client-supplied origin-verify header before the API.
-  # We cannot read it at the API from here, but the index must still work with
-  # the header present (edge strips it; no 400).
+  # The edge must strip a client-supplied origin-verify header; the index still works.
   req GET "$url/" -H "X-Rovo-Origin-Verify: forged"
-  [[ "$REPLY_STATUS" == "200" ]] \
-    && checkpass "$label: forged X-Rovo-Origin-Verify tolerated (stripped at edge)" \
-    || checkfail "$label: request with forged origin-verify header failed ($REPLY_STATUS)"
+  want_status "$label: forged X-Rovo-Origin-Verify tolerated (stripped at edge)" 200
 done
 
 # --- same-origin API + health through each app host --------------------------
 for host in app restaurant rider admin; do
   url="${base/HOST/$host}"
-  # /api/v1/public/cities is reachable same-origin (PUB endpoint, doc 11).
   req GET "$url/api/v1/public/cities"
   case "$REPLY_STATUS" in
-    200 | 204)
-      ct="$(hdr content-type)"
-      [[ "$ct" == application/json* ]] \
-        && checkpass "$host: /api/v1/public/cities reachable same-origin (JSON)" \
-        || checkfail "$host: /api/v1/public/cities content-type '$ct' (want JSON)"
-      ;;
-    "")
-      checkfail "$host: /api/v1/public/cities no response (api up?)"
-      ;;
-    *)
-      # A 5xx means the proxy reached the API but it errored; still proves routing.
-      checkfail "$host: /api/v1/public/cities returned $REPLY_STATUS"
-      ;;
+    200 | 204) want_header "$host: /api/v1/public/cities same-origin" content-type application/json ;;
+    "") checkfail "$host: /api/v1/public/cities no response (api up?)" ;;
+    *) checkfail "$host: /api/v1/public/cities returned $REPLY_STATUS" ;;
   esac
 done
 
@@ -143,13 +132,9 @@ fi
 # --- api. host: webhooks only (R55) ------------------------------------------
 apihost="$scheme://api.$domain"
 req GET "$apihost/"
-[[ "$REPLY_STATUS" == "404" ]] \
-  && checkpass "api. host: non-webhook path returns 404" \
-  || checkfail "api. host: '/' returned '$REPLY_STATUS' (want 404)"
+want_status "api. host: non-webhook path refused" 404
 req GET "$apihost/api/v1/public/cities"
-[[ "$REPLY_STATUS" == "404" ]] \
-  && checkpass "api. host: browser API path returns 404" \
-  || checkfail "api. host: /api/v1/public/cities returned '$REPLY_STATUS' (want 404)"
+want_status "api. host: browser API path refused" 404
 
 echo
 log "smoke: $pass passed, $failn failed"
