@@ -11,7 +11,7 @@ export const ROLES_BY_APP: Record<AppId, readonly RoleName[]> = {
 };
 
 export function userRoles(me: Me | null | undefined): RoleName[] {
-  return me?.roles.map((r) => r.role) ?? [];
+  return (me?.roles ?? []).map((r) => r.role).filter((r): r is RoleName => r != null);
 }
 
 export function hasAnyRole(me: Me | null | undefined, roles: readonly RoleName[]): boolean {

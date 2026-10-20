@@ -1,4 +1,4 @@
-import type { paths } from './schema';
+import type { components, paths } from './schema';
 
 /** JSON body of a 2xx response for `path` + `method`, derived from the OpenAPI contract. */
 type Json<R> = R extends { content: { 'application/json': infer B } } ? B : never;
@@ -18,7 +18,7 @@ export type RequestBody<P extends keyof paths, M extends keyof paths[P]> = paths
   : never;
 
 export type Me = SuccessBody<'/me', 'get'>;
-export type RoleName = Me['roles'][number]['role'];
+export type RoleName = NonNullable<components['schemas']['Role']>;
 export type OtpChallenge = SuccessBody<'/auth/otp/request', 'post'>;
 export type OtpVerifyResult = SuccessBody<'/auth/otp/verify', 'post'>;
 export type AdminMfaChallenge = SuccessBody<'/auth/admin/login', 'post'>;

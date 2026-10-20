@@ -2397,3 +2397,1492 @@ paths:
       responses:
         '201': { description: Created }
         '422': { $ref: '#/components/responses/Problem422' }
+  /partner/restaurants/{restaurantId}/orders:
+    get:
+      operationId: listPartnerOrders
+      tags: [Partner Orders]
+      summary: Restaurant order inbox
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { name: view, in: query, required: false, schema: { type: string, enum: [NEW, PREPARING, READY, OUT, HISTORY] } }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Orders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/PartnerOrder' } }
+                  nextCursor: { type: [string, 'null'] }
+  /partner/restaurants/{restaurantId}/orders/{orderId}:
+    get:
+      operationId: getPartnerOrder
+      tags: [Partner Orders]
+      summary: Partner order detail
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/OrderIdPath' }
+      responses:
+        '200':
+          description: Order
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PartnerOrder' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /partner/restaurants/{restaurantId}/orders/{orderId}/ack:
+    post:
+      operationId: ackPartnerOrder
+      tags: [Partner Orders]
+      summary: Acknowledge a new order (stops the device ring; no state change)
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '204': { description: Acknowledged }
+  /partner/restaurants/{restaurantId}/orders/{orderId}/accept:
+    post:
+      operationId: acceptRestaurantOrder
+      tags: [Partner Orders]
+      summary: Accept a PLACED order with a prep time
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AcceptOrderRequest' }
+      responses:
+        '200':
+          description: Accepted
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PartnerOrder' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '412': { $ref: '#/components/responses/Problem412' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /partner/restaurants/{restaurantId}/orders/{orderId}/reject:
+    post:
+      operationId: rejectRestaurantOrder
+      tags: [Partner Orders]
+      summary: Reject a PLACED order
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reasonCode]
+              properties:
+                reasonCode: { type: string }
+                outOfStockItemIds: { type: array, items: { $ref: '#/components/schemas/Uuid' } }
+                pauseMinutes: { type: [integer, 'null'] }
+      responses:
+        '200':
+          description: Rejected
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PartnerOrder' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /partner/restaurants/{restaurantId}/orders/{orderId}/start-preparing:
+    post:
+      operationId: startPreparing
+      tags: [Partner Orders]
+      summary: Move an accepted order to PREPARING
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200':
+          description: Preparing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PartnerOrder' }
+  /partner/restaurants/{restaurantId}/orders/{orderId}/ready:
+    post:
+      operationId: markReady
+      tags: [Partner Orders]
+      summary: Mark an order ready for pickup
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PartnerOrder' }
+  /partner/restaurants/{restaurantId}/orders/{orderId}/issues:
+    post:
+      operationId: raisePartnerIssue
+      tags: [Partner Orders]
+      summary: Raise an urgent issue after accept (ops-mediated; no self-cancel, R40)
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [type, note]
+              properties:
+                type: { type: string, enum: [CANNOT_FULFIL, ITEM_PROBLEM] }
+                itemIds: { type: array, items: { $ref: '#/components/schemas/Uuid' } }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '201':
+          description: Issue ticket created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticket' }
+  /partner/restaurants/{restaurantId}/analytics/summary:
+    get:
+      operationId: getPartnerAnalytics
+      tags: [Partner Restaurant]
+      summary: Today / this-week summary
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { name: period, in: query, required: false, schema: { type: string, enum: [TODAY, THIS_WEEK] } }
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders: { type: integer }
+                  gross: { $ref: '#/components/schemas/Money' }
+                  netEarnings: { $ref: '#/components/schemas/Money' }
+                  avgRating: { type: [number, 'null'] }
+                  acceptRate: { type: number }
+                  missedOrders: { type: integer }
+  /partner/restaurants/{restaurantId}/statements:
+    get:
+      operationId: getPartnerStatements
+      tags: [Partner Restaurant]
+      summary: Per-order settlement lines
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Statement lines
+          content:
+            application/json:
+              schema: { type: array, items: { type: object, additionalProperties: true } }
+  /partner/restaurants/{restaurantId}/payout-accounts:
+    post:
+      operationId: addPartnerPayoutAccount
+      tags: [Partner Restaurant]
+      summary: Add a payout destination (maker-checker + cooling-off)
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [method, accountHolderName]
+              properties:
+                method: { type: string, enum: [BANK_ACCOUNT, UPI] }
+                accountHolderName: { type: string }
+                accountNumber: { type: [string, 'null'] }
+                ifsc: { type: [string, 'null'], pattern: '^[A-Z]{4}0[A-Z0-9]{6}$' }
+                upiVpa: { type: [string, 'null'] }
+      responses:
+        '202':
+          description: Approval requested
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /partner/restaurants/{restaurantId}/reviews:
+    get:
+      operationId: listPartnerReviews
+      tags: [Partner Restaurant]
+      summary: Visible reviews and ratings (no reply in V1)
+      parameters:
+        - { $ref: '#/components/parameters/RestaurantIdPath' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Reviews
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /rider/applications:
+    post:
+      operationId: createRiderApplication
+      tags: [Rider]
+      summary: Apply to become a rider (gig-worker registration fields)
+      parameters:
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [cityId, vehicleType, emergencyContact, adultDeclaration, gigRegistration]
+              properties:
+                cityId: { $ref: '#/components/schemas/Uuid' }
+                vehicleType: { type: string, enum: [BICYCLE, MOTORCYCLE, SCOOTER, EV_SCOOTER, EV_CYCLE] }
+                vehicleRegNo: { type: [string, 'null'] }
+                emergencyContact:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    phone: { $ref: '#/components/schemas/Phone' }
+                adultDeclaration: { type: boolean, const: true }
+                gigRegistration:
+                  type: object
+                  required: [legalName, dateOfBirth, gender, residentialState, residentialDistrict]
+                  properties:
+                    legalName: { type: string }
+                    dateOfBirth: { type: string, format: date }
+                    gender: { type: string, enum: [FEMALE, MALE, TRANSGENDER, UNDISCLOSED] }
+                    residentialState: { type: string }
+                    residentialDistrict: { type: string }
+                    portalWorkerId: { type: [string, 'null'] }
+      responses:
+        '201':
+          description: Application created
+          content:
+            application/json:
+              schema: { type: object, properties: { riderId: { $ref: '#/components/schemas/Uuid' }, status: { type: string } } }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /rider/applications/submit:
+    post:
+      operationId: submitRiderApplication
+      tags: [Rider]
+      summary: Submit the rider application for review
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200': { description: Submitted }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /rider/me:
+    get:
+      operationId: getRiderMe
+      tags: [Rider]
+      summary: Rider profile, availability, cash and earnings snapshot
+      responses:
+        '200':
+          description: Rider
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /rider/availability:
+    put:
+      operationId: setRiderAvailability
+      tags: [Rider]
+      summary: Go online or offline
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [state, location]
+              properties:
+                state: { type: string, enum: [AVAILABLE, OFFLINE] }
+                location: { $ref: '#/components/schemas/LatLng' }
+      responses:
+        '200': { description: Availability updated }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /rider/location:
+    post:
+      operationId: recordRiderLocation
+      tags: [Rider]
+      summary: Batched location pings (1-10 points)
+      parameters:
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [points]
+              properties:
+                points:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: object
+                    required: [lat, lng, recordedAt]
+                    properties:
+                      lat: { type: number }
+                      lng: { type: number }
+                      accuracyM: { type: integer }
+                      speedMps: { type: [number, 'null'] }
+                      headingDeg: { type: [integer, 'null'] }
+                      recordedAt: { $ref: '#/components/schemas/Timestamp' }
+      responses:
+        '204': { description: Recorded }
+        '429': { $ref: '#/components/responses/Problem429' }
+  /rider/offers:
+    get:
+      operationId: getRiderOffer
+      tags: [Rider]
+      summary: Current pending offer (SSE polling fallback)
+      responses:
+        '200':
+          description: Pending offer or null
+          content:
+            application/json:
+              schema: { type: [object, 'null'], additionalProperties: true }
+  /rider/offers/{offerId}/accept:
+    post:
+      operationId: acceptDeliveryOffer
+      tags: [Rider]
+      summary: Accept a pending delivery offer
+      parameters:
+        - { $ref: '#/components/parameters/OfferIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200':
+          description: Assigned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RiderDelivery' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /rider/offers/{offerId}/decline:
+    post:
+      operationId: declineDeliveryOffer
+      tags: [Rider]
+      summary: Decline a pending offer
+      parameters:
+        - { $ref: '#/components/parameters/OfferIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonCodeRequest' }
+      responses:
+        '204': { description: Declined }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /rider/deliveries/active:
+    get:
+      operationId: getActiveDelivery
+      tags: [Rider Deliveries]
+      summary: The rider's active delivery or null
+      responses:
+        '200':
+          description: Active delivery
+          content:
+            application/json:
+              schema: { oneOf: [ { $ref: '#/components/schemas/RiderDelivery' }, { type: 'null' } ] }
+  /rider/deliveries/{deliveryId}:
+    get:
+      operationId: getRiderDelivery
+      tags: [Rider Deliveries]
+      summary: Delivery detail
+      parameters:
+        - { $ref: '#/components/parameters/DeliveryIdPath' }
+      responses:
+        '200':
+          description: Delivery
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RiderDelivery' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /rider/deliveries/{deliveryId}/arrived-at-restaurant:
+    post:
+      operationId: markArrivedAtRestaurant
+      tags: [Rider Deliveries]
+      summary: Rider reached the restaurant
+      parameters:
+        - { $ref: '#/components/parameters/DeliveryIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeliveryMilestoneRequest' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RiderDelivery' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /rider/deliveries/{deliveryId}/picked-up:
+    post:
+      operationId: markDeliveryPickedUp
+      tags: [Rider Deliveries]
+      summary: Rider collected the food
+      parameters:
+        - { $ref: '#/components/parameters/DeliveryIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/DeliveryMilestoneRequest'
+                - type: object
+                  properties:
+                    pickupPin: { type: [string, 'null'], pattern: '^[0-9]{4}$' }
+      responses:
+        '200':
+          description: Picked up
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RiderDelivery' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /rider/deliveries/{deliveryId}/arrived-at-drop:
+    post:
+      operationId: markArrivedAtDrop
+      tags: [Rider Deliveries]
+      summary: Rider reached the drop location
+      parameters:
+        - { $ref: '#/components/parameters/DeliveryIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeliveryMilestoneRequest' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RiderDelivery' }
+  /rider/deliveries/{deliveryId}/delivered:
+    post:
+      operationId: markDeliveryDelivered
+      tags: [Rider Deliveries]
+      summary: Handover complete (COD collected, delivery code)
+      parameters:
+        - { $ref: '#/components/parameters/DeliveryIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/IfMatch' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeliveredRequest' }
+      responses:
+        '200':
+          description: Delivered
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RiderDelivery' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /rider/deliveries/{deliveryId}/undeliverable-requests:
+    post:
+      operationId: requestUndeliverable
+      tags: [Rider Deliveries]
+      summary: Request undeliverable (support approval required)
+      parameters:
+        - { $ref: '#/components/parameters/DeliveryIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonCodeRequest' }
+      responses:
+        '200':
+          description: Awaiting support
+          content:
+            application/json:
+              schema: { type: object, properties: { ticketId: { $ref: '#/components/schemas/Uuid' }, status: { type: string } } }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /rider/history:
+    get:
+      operationId: getRiderHistory
+      tags: [Rider Deliveries]
+      summary: Completed deliveries
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: History
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /rider/earnings:
+    get:
+      operationId: getRiderEarnings
+      tags: [Rider]
+      summary: Earnings breakdown
+      parameters:
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Earnings
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /rider/cash:
+    get:
+      operationId: getRiderCash
+      tags: [Rider]
+      summary: Cash in hand and pending deposits
+      responses:
+        '200':
+          description: Cash
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /rider/cash-deposits:
+    post:
+      operationId: createCashDeposit
+      tags: [Rider]
+      summary: Declare a COD cash deposit
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [amount, method]
+              properties:
+                amount: { $ref: '#/components/schemas/Money' }
+                method: { type: string, enum: [UPI_TO_COMPANY, BANK_DEPOSIT, CASH_AT_HUB] }
+                reference: { type: [string, 'null'] }
+                proofFileId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+      responses:
+        '201':
+          description: Declared
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/dashboard:
+    get:
+      operationId: adminDashboard
+      tags: [Admin Dashboard]
+      summary: City operations dashboard
+      parameters:
+        - { $ref: '#/components/parameters/CityIdQuery' }
+        - { name: date, in: query, required: false, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Dashboard KPIs
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/orders:
+    get:
+      operationId: adminListOrders
+      tags: [Admin Orders]
+      summary: Live order board
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: zoneId, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { name: late, in: query, required: false, schema: { type: boolean } }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Orders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/OrderSummary' } }
+                  nextCursor: { type: [string, 'null'] }
+  /admin/orders/{orderId}:
+    get:
+      operationId: adminGetOrder
+      tags: [Admin Orders]
+      summary: Full order view (payments, delivery, ledger, tickets, audit)
+      parameters:
+        - { $ref: '#/components/parameters/OrderIdPath' }
+      responses:
+        '200':
+          description: Order
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /admin/orders/{orderId}/cancel:
+    post:
+      operationId: adminCancelOrder
+      tags: [Admin Orders]
+      summary: Ops cancel with fault attribution and refund policy (maker-checker above threshold)
+      parameters:
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reasonCode, faultParty, refundPolicy]
+              properties:
+                reasonCode: { type: string }
+                faultParty: { type: string, enum: [CUSTOMER, RESTAURANT, RIDER, PLATFORM, NONE] }
+                refundPolicy: { type: string, enum: [FULL, PARTIAL, NONE] }
+                refundAmount: { oneOf: [ { $ref: '#/components/schemas/Money' }, { type: 'null' } ] }
+                restaurantCompensation: { type: boolean }
+                note: { type: [string, 'null'] }
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '202':
+          description: Approval required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+  /admin/deliveries/{deliveryId}/assign:
+    post:
+      operationId: adminAssignDelivery
+      tags: [Admin Orders]
+      summary: Manually assign a delivery to a rider (revokes a pending offer)
+      parameters:
+        - { $ref: '#/components/parameters/DeliveryIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [riderId, reason]
+              properties:
+                riderId: { $ref: '#/components/schemas/Uuid' }
+                reason: { type: string }
+                overrideCashLimit: { type: boolean }
+      responses:
+        '200':
+          description: Assigned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RiderDelivery' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /admin/deliveries/{deliveryId}/undeliverable/confirm:
+    post:
+      operationId: confirmUndeliverable
+      tags: [Admin Orders]
+      summary: Confirm an undeliverable request (support/ops)
+      parameters:
+        - { $ref: '#/components/parameters/DeliveryIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [faultParty]
+              properties:
+                faultParty: { type: string, enum: [CUSTOMER, RESTAURANT, RIDER, PLATFORM, NONE] }
+                note: { type: [string, 'null'] }
+      responses:
+        '200': { description: Confirmed }
+  /admin/refunds:
+    get:
+      operationId: adminListRefunds
+      tags: [Admin Finance]
+      summary: List refunds
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Refunds
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Refund' } }
+                  nextCursor: { type: [string, 'null'] }
+  /admin/orders/{orderId}/refunds:
+    post:
+      operationId: adminCreateRefund
+      tags: [Admin Finance]
+      summary: Issue a refund (maker-checker above threshold)
+      parameters:
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [amount, reasonCode]
+              properties:
+                amount: { $ref: '#/components/schemas/Money' }
+                reasonCode: { type: string }
+                note: { type: [string, 'null'] }
+      responses:
+        '201':
+          description: Refund created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refund' }
+        '202':
+          description: Approval required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/refunds/{id}/mark-paid:
+    post:
+      operationId: adminMarkRefundPaid
+      tags: [Admin Finance]
+      summary: Record the UTR for a manual refund
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [utrReference, paidAt]
+              properties:
+                utrReference: { type: string }
+                paidAt: { $ref: '#/components/schemas/Timestamp' }
+      responses:
+        '200':
+          description: Marked paid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refund' }
+  /admin/goodwill-coupons:
+    post:
+      operationId: adminCreateGoodwillCoupon
+      tags: [Admin Finance]
+      summary: Issue a single-user goodwill coupon (maker-checker above threshold)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [userId, amount, validDays]
+              properties:
+                userId: { $ref: '#/components/schemas/Uuid' }
+                amount: { $ref: '#/components/schemas/Money' }
+                ticketId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                orderId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                validDays: { type: integer, minimum: 1 }
+      responses:
+        '201': { description: Coupon issued }
+        '202':
+          description: Approval required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+  /admin/ledger-adjustments:
+    post:
+      operationId: adminCreateLedgerAdjustment
+      tags: [Admin Finance]
+      summary: Post a ledger adjustment (MG_TOPUP, PEAK_BONUS, RECOVERY, WRITE_OFF)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [payeeType, payeeId, adjustmentType, amount, reason]
+              properties:
+                payeeType: { type: string, enum: [RIDER, RESTAURANT] }
+                payeeId: { $ref: '#/components/schemas/Uuid' }
+                adjustmentType: { type: string, enum: [MG_TOPUP, PEAK_BONUS, RECOVERY, WRITE_OFF, OTHER] }
+                amount: { $ref: '#/components/schemas/Money' }
+                reason: { type: string, minLength: 15 }
+      responses:
+        '201': { description: Posted }
+        '202':
+          description: Approval required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+  /admin/cod-deposits/{id}/verify:
+    post:
+      operationId: adminVerifyCodDeposit
+      tags: [Admin Finance]
+      summary: Verify a COD cash deposit (posts the journal)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200': { description: Verified }
+  /admin/payout-runs:
+    post:
+      operationId: adminCreatePayoutRun
+      tags: [Admin Finance]
+      summary: Create a payout batch (maker-checker release)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [cityId, payeeType, periodEnd]
+              properties:
+                cityId: { $ref: '#/components/schemas/Uuid' }
+                payeeType: { type: string, enum: [RESTAURANT, RIDER] }
+                periodEnd: { $ref: '#/components/schemas/Timestamp' }
+      responses:
+        '202':
+          description: Draft batch created; approval releases it
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+  /admin/payouts:
+    get:
+      operationId: adminListPayouts
+      tags: [Admin Finance]
+      summary: List payouts
+      parameters:
+        - { name: batchId, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: status, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Payouts
+          content:
+            application/json:
+              schema: { type: array, items: { type: object, additionalProperties: true } }
+  /admin/payouts/{id}/approve:
+    post:
+      operationId: adminApprovePayoutBatch
+      tags: [Admin Finance]
+      summary: Approve a payout batch (checker, step-up)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200': { description: Approved }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/payouts/{id}/mark-paid:
+    post:
+      operationId: adminMarkPayoutPaid
+      tags: [Admin Finance]
+      summary: Record the UTR for a paid payout
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [utrReference, paidAt, method]
+              properties:
+                utrReference: { type: string }
+                paidAt: { $ref: '#/components/schemas/Timestamp' }
+                method: { type: string, enum: [NEFT, IMPS, UPI, RTGS, PA_PAYOUT, PA_TRANSFER_RELEASE] }
+      responses:
+        '200': { description: Marked paid }
+  /admin/users:
+    get:
+      operationId: adminListUsers
+      tags: [Admin Users]
+      summary: Search users (masked PII)
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { name: role, in: query, required: false, schema: { $ref: '#/components/schemas/Role' } }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Users
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /admin/users/{id}/block:
+    post:
+      operationId: adminBlockUser
+      tags: [Admin Users]
+      summary: Block a user (audited; no maker-checker)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonCodeRequest' }
+      responses:
+        '200': { description: Blocked }
+  /admin/users/{id}/unblock:
+    post:
+      operationId: adminUnblockUser
+      tags: [Admin Users]
+      summary: Unblock a user
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200': { description: Unblocked }
+  /admin/restaurant-applications:
+    get:
+      operationId: adminListRestaurantApplications
+      tags: [Admin Restaurants]
+      summary: Onboarding review queue
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Applications
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /admin/restaurants/{id}/approve:
+    post:
+      operationId: adminApproveRestaurant
+      tags: [Admin Restaurants]
+      summary: Approve a restaurant (needs FSSAI doc, zone, commission plan)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200': { description: Approved }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/restaurants/{id}/reject:
+    post:
+      operationId: adminRejectRestaurant
+      tags: [Admin Restaurants]
+      summary: Reject a restaurant application
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonCodeRequest' }
+      responses:
+        '200': { description: Rejected }
+  /admin/restaurants/{id}/suspend:
+    post:
+      operationId: adminSuspendRestaurant
+      tags: [Admin Restaurants]
+      summary: Suspend an active restaurant
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonCodeRequest' }
+      responses:
+        '200': { description: Suspended }
+  /admin/restaurants/{id}/commission-plans:
+    post:
+      operationId: adminSetCommissionPlan
+      tags: [Admin Restaurants]
+      summary: Set a commission plan (maker-checker)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [commissionBps, effectiveFrom]
+              properties:
+                commissionBps: { type: integer, minimum: 0, maximum: 3000 }
+                basis: { type: string, enum: [ITEM_TOTAL_NET_OF_RESTAURANT_DISCOUNT, ITEM_TOTAL_PLUS_PACKAGING_NET] }
+                effectiveFrom: { $ref: '#/components/schemas/Timestamp' }
+                contractRef: { type: [string, 'null'] }
+      responses:
+        '202':
+          description: Approval required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /admin/kyc/{id}/view:
+    get:
+      operationId: adminViewKyc
+      tags: [Admin Restaurants]
+      summary: Stream a KYC document (step-up, audited, no-store)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+      responses:
+        '200':
+          description: Document stream
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /admin/riders:
+    get:
+      operationId: adminListRiders
+      tags: [Admin Riders]
+      summary: List riders
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: state, in: query, required: false, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Riders
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /admin/riders/{id}/approve:
+    post:
+      operationId: adminApproveRider
+      tags: [Admin Riders]
+      summary: Approve a rider
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200': { description: Approved }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/riders/{id}/suspend:
+    post:
+      operationId: adminSuspendRider
+      tags: [Admin Riders]
+      summary: Suspend a rider
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonCodeRequest' }
+      responses:
+        '200': { description: Suspended }
+  /admin/coupons:
+    get:
+      operationId: adminListCoupons
+      tags: [Admin Coupons]
+      summary: List coupons
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Coupons
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    post:
+      operationId: adminCreateCoupon
+      tags: [Admin Coupons]
+      summary: Create a coupon
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code, title, discountType, fundedBy, validFrom, validUntil]
+              properties:
+                code: { type: string, pattern: '^[A-Za-z0-9]{4,24}$' }
+                title: { type: string }
+                discountType: { type: string, enum: [FLAT, PERCENT] }
+                flatPaise: { type: [integer, 'null'] }
+                percentBps: { type: [integer, 'null'] }
+                maxDiscountPaise: { type: [integer, 'null'] }
+                minOrderPaise: { type: integer, minimum: 0 }
+                fundedBy: { type: string, enum: [PLATFORM, RESTAURANT] }
+                validFrom: { $ref: '#/components/schemas/Timestamp' }
+                validUntil: { $ref: '#/components/schemas/Timestamp' }
+      responses:
+        '201': { description: Created }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /admin/coupons/{id}:
+    patch:
+      operationId: adminUpdateCoupon
+      tags: [Admin Coupons]
+      summary: Update a coupon
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Updated }
+        '412': { $ref: '#/components/responses/Problem412' }
+  /admin/zones:
+    get:
+      operationId: adminListZones
+      tags: [Admin Geography]
+      summary: List zones for a city
+      parameters:
+        - { $ref: '#/components/parameters/CityIdQuery' }
+      responses:
+        '200':
+          description: Zones (GeoJSON geometry)
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    post:
+      operationId: adminCreateZone
+      tags: [Admin Geography]
+      summary: Create a zone from a GeoJSON polygon
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [cityId, code, name, geometry]
+              properties:
+                cityId: { $ref: '#/components/schemas/Uuid' }
+                code: { type: string, pattern: '^[A-Z0-9-]{2,20}$' }
+                name: { type: string }
+                geometry: { type: object, additionalProperties: true, description: GeoJSON Polygon/MultiPolygon }
+      responses:
+        '201': { description: Created }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/zones/{id}:
+    put:
+      operationId: adminUpdateZone
+      tags: [Admin Geography]
+      summary: Update a zone
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Updated }
+        '412': { $ref: '#/components/responses/Problem412' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/fee-configs:
+    get:
+      operationId: adminListFeeConfigs
+      tags: [Admin Geography]
+      summary: List fee configs
+      parameters:
+        - { $ref: '#/components/parameters/CityIdQuery' }
+        - { name: zoneId, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+      responses:
+        '200':
+          description: Fee configs
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    post:
+      operationId: adminCreateFeeConfig
+      tags: [Admin Geography]
+      summary: Create a fee-config version (maker-checker; slab validator)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '202':
+          description: Approval required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/support/tickets:
+    get:
+      operationId: adminListTickets
+      tags: [Admin Support]
+      summary: Support queue (SLA ordering)
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: priority, in: query, required: false, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Tickets
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Ticket' } }
+                  nextCursor: { type: [string, 'null'] }
+  /admin/support/tickets/{id}/resolve:
+    post:
+      operationId: adminResolveTicket
+      tags: [Admin Support]
+      summary: Resolve a ticket
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [resolutionCode, faultParty]
+              properties:
+                resolutionCode: { type: string }
+                faultParty: { type: string, enum: [CUSTOMER, RESTAURANT, RIDER, PLATFORM, NONE, UNDETERMINED] }
+                note: { type: [string, 'null'] }
+      responses:
+        '200': { description: Resolved }
+  /admin/approvals:
+    get:
+      operationId: adminListApprovals
+      tags: [Admin Approvals]
+      summary: Pending maker-checker approvals
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: actionType, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Approvals
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/ApprovalRequest' } }
+  /admin/approvals/{id}/approve:
+    post:
+      operationId: adminApprove
+      tags: [Admin Approvals]
+      summary: Approve a request (checker must differ from maker; step-up)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason: { type: [string, 'null'] }
+      responses:
+        '200':
+          description: Approved and executed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/approvals/{id}/reject:
+    post:
+      operationId: adminReject
+      tags: [Admin Approvals]
+      summary: Reject a request
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string }
+      responses:
+        '200': { description: Rejected }
+  /admin/reports:
+    post:
+      operationId: adminCreateReport
+      tags: [Admin Reports]
+      summary: Request a CSV report (PII reports need step-up)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [type, from, to]
+              properties:
+                type: { type: string, enum: [ORDERS, SETTLEMENT_STATEMENT, GST_SUMMARY, RIDER_EARNINGS, COD_CASH, REFUNDS, GIG_WORKER_REGISTRATION] }
+                cityId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+      responses:
+        '202':
+          description: Export queued
+          content:
+            application/json:
+              schema: { type: object, properties: { reportExportId: { $ref: '#/components/schemas/Uuid' } } }
+  /admin/reports/{id}:
+    get:
+      operationId: adminGetReport
+      tags: [Admin Reports]
+      summary: Report status and short-lived download URL
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+      responses:
+        '200':
+          description: Report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  downloadUrl: { type: [string, 'null'] }
+                  rowCount: { type: [integer, 'null'] }
+  /admin/audit-logs:
+    get:
+      operationId: adminListAuditLogs
+      tags: [Admin Audit]
+      summary: Query the audit log
+      parameters:
+        - { name: resourceType, in: query, required: false, schema: { type: string } }
+        - { name: resourceId, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: actorId, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { name: action, in: query, required: false, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Audit entries
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+  /admin/app-config/{scopeType}/{scopeId}/{key}:
+    put:
+      operationId: adminSetAppConfig
+      tags: [Admin Audit]
+      summary: Set an app_config value (SUPER)
+      parameters:
+        - { name: scopeType, in: path, required: true, schema: { type: string, enum: [GLOBAL, CITY, ZONE, RESTAURANT] } }
+        - { name: scopeId, in: path, required: true, schema: { type: string } }
+        - { name: key, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: Updated }
+        '412': { $ref: '#/components/responses/Problem412' }
