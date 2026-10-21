@@ -1,0 +1,41 @@
+{
+  "name": "@rovo/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Typed openapi-fetch client for /api/v1 with refresh-on-401, problem+json errors, SSE and query keys",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react.tsx",
+    "./testing": "./src/testing/fake-event-source.ts"
+  },
+  "scripts": {
+    "gen:api": "node scripts/gen-api.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@rovo/utils": "workspace:*",
+    "openapi-fetch": "catalog:"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.0.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@rovo/config": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/dom": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "jsdom": "catalog:",
+    "openapi-typescript": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

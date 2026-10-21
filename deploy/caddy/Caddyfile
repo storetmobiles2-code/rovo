@@ -1,0 +1,236 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# rovo edge for the production-like Compose stack (ADR-P2-003). It mirrors the
+# CloudFront design of doc 22 §3.1:
+#
+#   app.<domain>         customer SPA   + /api/* + /media/*
+#   restaurant.<domain>  restaurant SPA + /api/* + /media/*
+#   rider.<domain>       rider SPA      + /api/* + /media/*
+#   admin.<domain>       admin SPA      + /api/*            (strictest CSP)
+#   api.<domain>         ONLY POST /api/v1/webhooks/* (R55); everything else 404
+#
+# Environment (substituted when the Caddyfile is parsed):
+#   ROVO_DOMAIN                 base domain              (default rovo.localhost)
+#   ROVO_SITE_SCHEME            http | https             (default http)
+#   ROVO_CADDY_TLS              off | internal | acme    (default off; use internal or acme with https)
+#   ROVO_ACME_EMAIL             contact for acme mode
+#   ROVO_TRUSTED_ORIGIN_SECRET  sent to the API as X-Rovo-Origin-Verify (required)
+#   ROVO_API_UPSTREAM           default api:8080
+#   ROVO_MEDIA_UPSTREAM         default minio:9000
+{
+	admin off
+	import /etc/caddy/tls/{$ROVO_CADDY_TLS:off}.caddy
+
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 60s
+			# No write timeout: SSE streams live up to 30 min (R56).
+			idle 5m
+		}
+	}
+	log {
+		output stdout
+		format json
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Snippets
+# ---------------------------------------------------------------------------
+
+# Applied on every host. `?` = only set when the upstream did not set it, so the
+# API's own headers win on /api/* responses.
+(base) {
+	encode zstd gzip
+
+	# Never trust client-supplied copies of internal headers (doc 12 §4.1).
+	request_header -X-Rovo-Origin-Verify
+	request_header -X-Rovo-Audience
+
+	header {
+		?X-Content-Type-Options "nosniff"
+		?Referrer-Policy "strict-origin-when-cross-origin"
+		?X-Frame-Options "DENY"
+		?Cross-Origin-Resource-Policy "same-origin"
+		X-Rovo-Edge "caddy"
+		-Server
+		-X-Powered-By
+	}
+	import /etc/caddy/hsts/{$ROVO_SITE_SCHEME:http}.caddy
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# Same-origin API proxy. SSE-friendly: no buffering, long per-read timeouts
+# (>= 120 s, R10; the app heartbeats every 20 s and closes streams at 30 min).
+(api_upstream) {
+	reverse_proxy {$ROVO_API_UPSTREAM:api:8080} {
+		# Hostname without port: the API derives the audience from it (ROVO_APP_HOSTS).
+		header_up Host {host}
+		header_up X-Rovo-Origin-Verify "{$ROVO_TRUSTED_ORIGIN_SECRET}"
+		flush_interval -1
+		transport http {
+			dial_timeout 5s
+			read_timeout 130s
+			write_timeout 130s
+			keepalive 90s
+		}
+	}
+}
+
+(api_route) {
+	@api path /api /api/*
+	handle @api {
+		import api_upstream
+	}
+}
+
+# Public media (S3-compatible bucket, read-only, no listing).
+(media_route) {
+	handle /media/* {
+		@listing path /media/
+		respond @listing 404
+		@write not method GET HEAD
+		respond @write 405
+		header Cache-Control "public, max-age=86400"
+		reverse_proxy {$ROVO_MEDIA_UPSTREAM:minio:9000} {
+			header_up Host {upstream_hostport}
+			header_up -Cookie
+			header_up -Authorization
+			header_down -Set-Cookie
+		}
+	}
+}
+
+# Static SPA with fallback to index.html for non-API, non-asset paths.
+# args[0] = app directory under /srv
+(spa) {
+	handle {
+		root * /srv/{args[0]}
+		route {
+			# A missing hashed asset is a real 404, never index.html.
+			@missing_asset {
+				path /assets/*
+				not file
+			}
+			respond @missing_asset 404
+
+			try_files {path} /index.html
+
+			# Evaluated after the rewrite above, so SPA routes get no-cache too.
+			@hashed path /assets/*
+			header @hashed Cache-Control "public, max-age=31536000, immutable"
+			@nocache path /index.html /sw.js /service-worker.js /registerSW.js /manifest.webmanifest /workbox-*.js
+			header @nocache Cache-Control "no-cache"
+			header /manifest.webmanifest Content-Type "application/manifest+json"
+
+			file_server {
+				precompressed zstd gzip
+			}
+		}
+	}
+}
+
+# Content-Security-Policy per app (doc 17 §15.6, doc 19 §6.2).
+# Tiles: same-origin /tiles/* (PMTiles) plus OpenFreeMap as the configurable
+# fallback for the map apps. No 'unsafe-eval', no inline scripts anywhere.
+(csp_customer) {
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; font-src 'self'; connect-src 'self' https://tiles.openfreemap.org; worker-src 'self' blob:; child-src blob:; frame-src 'self'; manifest-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
+		Permissions-Policy "camera=(), microphone=(), payment=(), usb=(), geolocation=(self)"
+		Cross-Origin-Opener-Policy "same-origin-allow-popups"
+	}
+}
+
+(csp_restaurant) {
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; font-src 'self'; connect-src 'self' https://tiles.openfreemap.org; worker-src 'self' blob:; child-src blob:; frame-src 'none'; manifest-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
+		Permissions-Policy "camera=(), microphone=(), payment=(), usb=(), geolocation=()"
+		Cross-Origin-Opener-Policy "same-origin"
+	}
+}
+
+(csp_rider) {
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tiles.openfreemap.org; font-src 'self'; connect-src 'self' https://tiles.openfreemap.org; worker-src 'self' blob:; child-src blob:; frame-src 'none'; manifest-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'"
+		Permissions-Policy "camera=(), microphone=(), payment=(), usb=(), geolocation=(self)"
+		Cross-Origin-Opener-Policy "same-origin"
+	}
+}
+
+# Admin: no third-party origins at all, Trusted Types, no referrer (doc 17 F3, SEC-063).
+(csp_admin) {
+	header {
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; child-src blob:; frame-src 'none'; manifest-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; require-trusted-types-for 'script'; trusted-types default"
+		Permissions-Policy "camera=(), microphone=(), payment=(), usb=(), geolocation=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Referrer-Policy "no-referrer"
+		X-Robots-Tag "noindex, nofollow"
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Sites
+# ---------------------------------------------------------------------------
+
+{$ROVO_SITE_SCHEME:http}://app.{$ROVO_DOMAIN:rovo.localhost} {
+	import base
+	import api_route
+	import media_route
+	import csp_customer
+	import spa customer
+}
+
+{$ROVO_SITE_SCHEME:http}://restaurant.{$ROVO_DOMAIN:rovo.localhost} {
+	import base
+	import api_route
+	import media_route
+	import csp_restaurant
+	import spa restaurant
+}
+
+{$ROVO_SITE_SCHEME:http}://rider.{$ROVO_DOMAIN:rovo.localhost} {
+	import base
+	import api_route
+	import media_route
+	import csp_rider
+	import spa rider
+}
+
+{$ROVO_SITE_SCHEME:http}://admin.{$ROVO_DOMAIN:rovo.localhost} {
+	import base
+	import api_route
+	import media_route
+	import csp_admin
+	import spa admin
+}
+
+# Server-to-server provider webhooks only (R55): no cookies, no browsers.
+{$ROVO_SITE_SCHEME:http}://api.{$ROVO_DOMAIN:rovo.localhost} {
+	import base
+	header {
+		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+		Cache-Control "no-store"
+	}
+	@webhook {
+		path /api/v1/webhooks/*
+		method POST
+	}
+	handle @webhook {
+		request_header -Cookie
+		import api_upstream
+	}
+	handle {
+		respond 404
+	}
+}
+
+# Container-local liveness for the HEALTHCHECK (not published).
+http://127.0.0.1:8081 {
+	bind 127.0.0.1
+	respond /healthz "ok" 200
+}

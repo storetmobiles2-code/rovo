@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.log
+.env
+.DS_Store
+backend/tmp/
+/tmp/
+
+# terraform
+**/.terraform/*
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# graphify (keep graph.json + GRAPH_REPORT.md; ignore large/volatile build files)
+graphify-out/graph.html
+graphify-out/cache/
+graphify-out/manifest.json
+graphify-out/.graphify_*

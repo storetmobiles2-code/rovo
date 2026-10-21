@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# Prometheus for local dev (compose.yaml, profile "observability"): scrapes the
+# api/worker processes running on the host (make run-api / make run-worker).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 30s
+  external_labels:
+    env: local
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: rovo-api
+    static_configs:
+      - targets: ["host.docker.internal:9090"]
+        labels: { service: rovo-api }
+  - job_name: rovo-worker
+    static_configs:
+      # make run-worker binds its internal listener on :9092 (api uses :9090).
+      - targets: ["host.docker.internal:9092"]
+        labels: { service: rovo-worker }

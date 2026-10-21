@@ -1,0 +1,786 @@
+{
+  "uid": "rovo-overview",
+  "title": "rovo \u2014 golden flow overview",
+  "tags": [
+    "rovo"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "HTTP (RED)",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "title": "Requests/s by status class",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "sum by (status_class) (rate(rovo_http_request_duration_seconds_count[$__rate_interval]))",
+          "legendFormat": "{{status_class}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 3,
+      "title": "5xx ratio",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "rovo:http_errors5xx:ratio_rate5m",
+          "legendFormat": "5xx"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "SLO: 99.5% non-5xx (closed pilot, R49)"
+    },
+    {
+      "id": 4,
+      "title": "p95 latency by route (top 10)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "topk(10, histogram_quantile(0.95, sum by (le, route) (rate(rovo_http_request_duration_seconds_bucket[$__rate_interval]))))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 5,
+      "title": "Open SSE connections",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "sum by (channel) (rovo_sse_connections)",
+          "legendFormat": "{{channel}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 6,
+      "title": "Targets up",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "up{job=~\"rovo-.*\"}",
+          "legendFormat": "{{job}} {{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "row",
+      "title": "Order funnel",
+      "id": 7,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "panels": []
+    },
+    {
+      "id": 8,
+      "title": "Orders by status (selected range)",
+      "type": "bargauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "sum by (status) (increase(rovo_orders_total[$__range]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Order status transitions/min",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "sum by (status) (rate(rovo_orders_total[$__rate_interval])) * 60",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 10,
+      "title": "Pending restaurant accept",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "sum(rovo_orders_pending_accept)",
+          "legendFormat": "pending"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "max(rovo_orders_pending_accept_oldest_seconds)",
+          "legendFormat": "oldest (s)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {},
+      "description": "A1 fires when oldest > 210 s"
+    },
+    {
+      "id": 11,
+      "title": "Unassigned deliveries (oldest, s)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "max(rovo_deliveries_unassigned_oldest_seconds)",
+          "legendFormat": "oldest"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 12,
+      "title": "Riders online by zone",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 26
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "sum by (zone) (rovo_riders_online)",
+          "legendFormat": "{{zone}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 13,
+      "title": "Rider offer accept ratio (30 m)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "rovo:offer_accept_ratio:30m",
+          "legendFormat": "accept"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 14,
+      "title": "Payment success ratio (15 m)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "rovo:payment_success_ratio:15m",
+          "legendFormat": "success"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 15,
+      "title": "Webhook lag / failures",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 34
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "max by (provider) (rovo_webhook_lag_seconds)",
+          "legendFormat": "lag {{provider}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "sum by (provider, reason) (rate(rovo_webhook_failures_total[$__rate_interval]))",
+          "legendFormat": "fail {{provider}} {{reason}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "row",
+      "title": "River queue & Postgres signalling",
+      "id": 16,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "title": "Jobs by state",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 43
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "sum by (state) (rovo_river_jobs)",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 18,
+      "title": "Queue latency (oldest available job)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 43
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "max by (queue) (rovo_river_queue_latency_seconds)",
+          "legendFormat": "{{queue}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {},
+      "description": "A8: realtime > 10 s or any > 60 s"
+    },
+    {
+      "id": 19,
+      "title": "Job failures/s by kind",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 43
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "sum by (kind) (rate(rovo_river_job_failures_total[$__rate_interval]))",
+          "legendFormat": "{{kind}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 20,
+      "title": "Job p95 duration by kind",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 51
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, kind) (rate(rovo_river_job_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "{{kind}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 21,
+      "title": "NOTIFY queue usage / LISTEN watchdog",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 51
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "max(rovo_pg_notification_queue_usage)",
+          "legendFormat": "notify queue usage"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "min(rovo_listen_watchdog_ok)",
+          "legendFormat": "listen ok"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "row",
+      "title": "Go runtime",
+      "id": 22,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 59
+      },
+      "panels": []
+    },
+    {
+      "id": 23,
+      "title": "Goroutines",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 60
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "go_goroutines{job=~\"rovo-.*\"}",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 24,
+      "title": "Resident memory",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 60
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "process_resident_memory_bytes{job=~\"rovo-.*\"}",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 25,
+      "title": "CPU",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "rovo-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 60
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "rovo-prometheus"
+          },
+          "expr": "rate(process_cpu_seconds_total{job=~\"rovo-.*\"}[$__rate_interval])",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {}
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "description": "HTTP RED, order funnel, dispatch, payments and River queue health. Metric contract: deploy/observability/README.md"
+}

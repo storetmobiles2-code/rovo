@@ -1,0 +1,15 @@
+# Redocly lint configuration for the rovo contract. The recommended ruleset is used; a few
+# stylistic rules are relaxed because the endpoint catalogue is large and some payloads are
+# intentionally open (admin reads returning additionalProperties, documented in doc 11).
+extends:
+  - recommended
+rules:
+  no-unused-components: warn
+  operation-4xx-response: warn
+  operation-operationId-unique: error
+  operation-operationId: error
+  no-identical-paths: error
+  path-declaration-must-exist: error
+  spec: error
+  no-invalid-media-type-examples: warn
+  security-defined: warn

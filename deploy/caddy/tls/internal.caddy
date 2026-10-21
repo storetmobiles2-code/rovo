@@ -1,0 +1,4 @@
+# ROVO_CADDY_TLS=internal: certificates from Caddy's local CA (use ROVO_SITE_SCHEME=https).
+# Trust the root at /data/caddy/pki/authorities/local/root.crt or use curl -k.
+local_certs
+skip_install_trust

@@ -1,0 +1,5 @@
+@import 'tailwindcss';
+@import '@rovo/config/theme.css';
+@import '@rovo/config/fonts.css';
+@source '../../../packages/ui/src';
+@source '../../../packages/shell/src';

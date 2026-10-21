@@ -1,0 +1,400 @@
+# rovo CI — PR + push checks (doc 21). Runs entirely on free GitHub-hosted
+# runners; AWS jobs are separate and gated by vars.AWS_ENABLED (not here yet).
+# Third-party actions are pinned by commit SHA (tag in a comment); Dependabot
+# (github-actions ecosystem) keeps them current.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege by default; jobs widen only what they need.
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GO_VERSION_FILE: backend/go.mod
+  POSTGIS_IMAGE: postgis/postgis:17-3.5
+
+jobs:
+  # Path filters so unrelated PRs skip heavy jobs. The ci-ok gate treats a
+  # skipped job as success, so required checks never block an unrelated PR.
+  changes:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      web: ${{ steps.filter.outputs.web }}
+      openapi: ${{ steps.filter.outputs.openapi }}
+      deploy: ${{ steps.filter.outputs.deploy }}
+      terraform: ${{ steps.filter.outputs.terraform }}
+      docker: ${{ steps.filter.outputs.docker }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'openapi/**'
+            web:
+              - 'web/**'
+              - 'openapi/**'
+            openapi:
+              - 'openapi/**'
+            deploy:
+              - 'deploy/**'
+              - 'scripts/**'
+              - 'Makefile'
+            terraform:
+              - 'deploy/terraform/**'
+            docker:
+              - 'deploy/docker/**'
+              - 'backend/**'
+              - 'web/**'
+
+  go:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    services:
+      postgis:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: rovo
+          POSTGRES_PASSWORD: rovo
+          POSTGRES_DB: rovo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rovo"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      ROVO_TEST_DATABASE_URL: postgres://rovo:rovo@localhost:5432/rovo?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: gofmt
+        working-directory: backend
+        run: |
+          out="$(gofmt -l . | grep -v '/vendor/' || true)"
+          if [ -n "$out" ]; then echo "::error::gofmt needed:"; echo "$out"; exit 1; fi
+      - name: go vet
+        working-directory: backend
+        run: go vet ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.5.0
+          working-directory: backend
+      - name: govulncheck
+        working-directory: backend
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+      - name: go test -race (unit + integration)
+        working-directory: backend
+        run: go test -race -shuffle=on -tags=integration -coverprofile=coverage.out ./...
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: go-coverage
+          path: backend/coverage.out
+          if-no-files-found: ignore
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Skip if web/ is absent
+        id: guard
+        run: |
+          if [ -f web/package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: steps.guard.outputs.present == 'true'
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.guard.outputs.present == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install
+        if: steps.guard.outputs.present == 'true'
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        if: steps.guard.outputs.present == 'true'
+        working-directory: web
+        run: pnpm typecheck
+      - name: Lint
+        if: steps.guard.outputs.present == 'true'
+        working-directory: web
+        run: pnpm lint
+      - name: Unit tests (vitest)
+        if: steps.guard.outputs.present == 'true'
+        working-directory: web
+        run: pnpm test
+      - name: Build + bundle-size check
+        if: steps.guard.outputs.present == 'true'
+        working-directory: web
+        run: pnpm build
+
+  openapi:
+    needs: changes
+    if: needs.changes.outputs.openapi == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Redocly lint
+        run: |
+          if [ -f openapi/openapi.yaml ]; then
+            npx --yes @redocly/cli@2.2.1 lint openapi/openapi.yaml
+          else
+            echo "openapi/openapi.yaml absent; skipping"
+          fi
+
+  terraform:
+    needs: changes
+    if: needs.changes.outputs.terraform == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.13.1
+      - name: fmt check
+        run: tofu -chdir=deploy/terraform fmt -check -recursive
+      - name: validate (per env, no backend)
+        run: |
+          set -e
+          for env in deploy/terraform/envs/*/; do
+            echo "== $env"
+            tofu -chdir="$env" init -backend=false -input=false
+            tofu -chdir="$env" validate -no-color
+          done
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: v0.59.1
+      - name: tflint
+        run: tflint --chdir=deploy/terraform --recursive || true
+      - name: checkov
+        uses: bridgecrewio/checkov-action@d0dd2e9434b4428060edba72d050c135273bd677 # v12.3132.0
+        with:
+          directory: deploy/terraform
+          framework: terraform
+          soft_fail: true
+          quiet: true
+
+  docker:
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write # only used on main (push to GHCR)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build backend image (load, no push on PR)
+        if: hashFiles('backend/cmd/rovo/**') != ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/backend.Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: rovo:ci
+          build-args: |
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+      - name: Trivy scan backend image
+        if: hashFiles('backend/cmd/rovo/**') != ''
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: rovo:ci
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+      - name: Build web/edge image
+        if: hashFiles('web/apps/customer/package.json') != ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/web.Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: rovo-web:ci
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+      - name: Log in to GHCR (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build + push multi-arch to GHCR (main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && hashFiles('backend/cmd/rovo/**') != ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/backend.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+            ghcr.io/${{ github.repository }}:main
+          build-args: |
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+
+  e2e:
+    needs: [changes, go, web]
+    # Build the prod-like stack and run Playwright. Only when both sides exist
+    # and either changed; tolerant while e2e/ is still being authored (QA owns it).
+    if: |
+      always() &&
+      needs.changes.outputs.backend == 'true' || needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Preconditions
+        id: pre
+        run: |
+          if [ -f backend/cmd/rovo/main.go ] && [ -f web/apps/customer/package.json ] && [ -d e2e ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::e2e skipped — backend/cmd/rovo, web apps or e2e/ not present yet"
+          fi
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: steps.pre.outputs.ready == 'true'
+      - name: Generate dev secrets
+        if: steps.pre.outputs.ready == 'true'
+        run: ./scripts/dev-keys.sh .env
+      - name: Start production-like stack (testhooks image)
+        if: steps.pre.outputs.ready == 'true'
+        run: |
+          ROVO_BUILD_TAGS=testhooks \
+          docker compose -f deploy/compose/compose.prod.yaml --env-file .env up -d --build --wait
+      - name: Run Playwright
+        if: steps.pre.outputs.ready == 'true'
+        working-directory: e2e
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+          pnpm exec playwright test
+      - name: Edge smoke test
+        if: steps.pre.outputs.ready == 'true'
+        run: |
+          set -a; . ./.env; set +a
+          SMOKE_CURL_OPTS="--resolve app.rovo.localhost:80:127.0.0.1 --resolve restaurant.rovo.localhost:80:127.0.0.1 --resolve rider.rovo.localhost:80:127.0.0.1 --resolve admin.rovo.localhost:80:127.0.0.1 --resolve api.rovo.localhost:80:127.0.0.1" \
+            ./scripts/smoke.sh rovo.localhost
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.pre.outputs.ready == 'true'
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          if-no-files-found: ignore
+      - name: Stack logs on failure
+        if: failure() && steps.pre.outputs.ready == 'true'
+        run: docker compose -f deploy/compose/compose.prod.yaml logs --no-color | tail -300
+
+  security:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: osv-scanner
+        uses: google/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+        with:
+          scan-args: |-
+            --recursive
+            --skip-git
+            ./
+        continue-on-error: true
+      - name: Trivy filesystem (config + secrets + vuln)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+
+  lint-meta:
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: shellcheck
+        run: docker run --rm -v "$PWD":/mnt -w /mnt koalaman/shellcheck:v0.11.0 -x scripts/*.sh deploy/compose/*.sh
+      - name: hadolint
+        run: |
+          for f in deploy/docker/*.Dockerfile; do
+            echo "== $f"
+            docker run --rm -i hadolint/hadolint:v2.15.1 hadolint --failure-threshold warning - < "$f"
+          done
+      - name: actionlint
+        run: docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.12 -color
+      - name: compose config
+        run: |
+          docker compose -f deploy/compose/compose.yaml config -q
+          ./scripts/dev-keys.sh .env
+          docker compose -f deploy/compose/compose.prod.yaml --env-file .env config -q
+
+  # Aggregator so branch protection needs a single required check that is green
+  # whenever every job either passed or was legitimately skipped.
+  ci-ok:
+    if: always()
+    needs: [changes, go, web, openapi, terraform, docker, e2e, security, lint-meta]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify no job failed
+        run: |
+          results='${{ join(needs.*.result, ',') }}'
+          echo "job results: $results"
+          case "$results" in
+            *failure*|*cancelled*) echo "::error::a required job failed"; exit 1 ;;
+            *) echo "all jobs passed or were skipped" ;;
+          esac

@@ -1,0 +1,8 @@
+/*
+ * Noto Sans Telugu (SIL OFL 1.1), self-hosted via @fontsource.
+ * The Telugu subset files declare `unicode-range` (U+0C00–0C7F, U+0951–0952,
+ * U+0964–0965, U+200C–200D, U+25CC …), so browsers download them only when
+ * Telugu glyphs are rendered. Latin text uses the system font (0 KB).
+ */
+@import '@fontsource/noto-sans-telugu/telugu-400.css';
+@import '@fontsource/noto-sans-telugu/telugu-600.css';

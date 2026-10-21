@@ -1,0 +1,1 @@
+# Plain HTTP: no HSTS (browsers ignore it over http anyway).

@@ -1,0 +1,38 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "live": "Live board",
+    "orders": "Orders",
+    "dispatch": "Dispatch",
+    "restaurants": "Restaurants",
+    "riders": "Riders",
+    "customers": "Customers",
+    "coupons": "Coupons",
+    "approvals": "Approvals",
+    "payouts": "Payouts",
+    "zones": "Zones and fees",
+    "tickets": "Support tickets",
+    "auditLog": "Audit log",
+    "reports": "Reports"
+  },
+  "screens": {
+    "dashboard": { "title": "Today at a glance" },
+    "live": { "title": "Live order board" },
+    "orders": { "title": "Orders" },
+    "orderDetail": { "title": "Order details" },
+    "dispatch": { "title": "Unassigned deliveries" },
+    "restaurants": { "title": "Restaurants" },
+    "restaurantDetail": { "title": "Restaurant" },
+    "riders": { "title": "Delivery partners" },
+    "riderDetail": { "title": "Delivery partner" },
+    "customers": { "title": "Customers" },
+    "coupons": { "title": "Coupons" },
+    "approvals": { "title": "Approvals (maker-checker)" },
+    "payouts": { "title": "Payout batches" },
+    "zones": { "title": "Delivery zones and fees" },
+    "tickets": { "title": "Support tickets" },
+    "ticketDetail": { "title": "Ticket" },
+    "auditLog": { "title": "Audit log" },
+    "reports": { "title": "Reports and exports" }
+  }
+}

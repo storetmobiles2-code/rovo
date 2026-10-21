@@ -1,0 +1,7 @@
+node_modules
+dist
+dev-dist
+coverage
+pnpm-lock.yaml
+**/schema.d.ts
+**/public/**

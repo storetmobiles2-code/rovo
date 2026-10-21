@@ -1,0 +1,38 @@
+{
+  "nav": {
+    "dashboard": "డాష్‌బోర్డ్",
+    "live": "లైవ్ బోర్డ్",
+    "orders": "ఆర్డర్లు",
+    "dispatch": "డిస్పాచ్",
+    "restaurants": "రెస్టారెంట్లు",
+    "riders": "రైడర్లు",
+    "customers": "కస్టమర్లు",
+    "coupons": "కూపన్లు",
+    "approvals": "ఆమోదాలు",
+    "payouts": "చెల్లింపులు",
+    "zones": "జోన్లు మరియు ఫీజులు",
+    "tickets": "సపోర్ట్ టికెట్లు",
+    "auditLog": "ఆడిట్ లాగ్",
+    "reports": "రిపోర్టులు"
+  },
+  "screens": {
+    "dashboard": { "title": "ఈరోజు సారాంశం" },
+    "live": { "title": "లైవ్ ఆర్డర్ బోర్డ్" },
+    "orders": { "title": "ఆర్డర్లు" },
+    "orderDetail": { "title": "ఆర్డర్ వివరాలు" },
+    "dispatch": { "title": "కేటాయించని డెలివరీలు" },
+    "restaurants": { "title": "రెస్టారెంట్లు" },
+    "restaurantDetail": { "title": "రెస్టారెంట్" },
+    "riders": { "title": "డెలివరీ భాగస్వాములు" },
+    "riderDetail": { "title": "డెలివరీ భాగస్వామి" },
+    "customers": { "title": "కస్టమర్లు" },
+    "coupons": { "title": "కూపన్లు" },
+    "approvals": { "title": "ఆమోదాలు (మేకర్-చెకర్)" },
+    "payouts": { "title": "చెల్లింపు బ్యాచ్‌లు" },
+    "zones": { "title": "డెలివరీ జోన్లు మరియు ఫీజులు" },
+    "tickets": { "title": "సపోర్ట్ టికెట్లు" },
+    "ticketDetail": { "title": "టికెట్" },
+    "auditLog": { "title": "ఆడిట్ లాగ్" },
+    "reports": { "title": "రిపోర్టులు మరియు ఎక్స్‌పోర్టులు" }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "@rovo/rider",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Accept and deliver rovo orders",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@rovo/api-client": "workspace:*",
+    "@rovo/auth": "workspace:*",
+    "@rovo/i18n": "workspace:*",
+    "@rovo/shell": "workspace:*",
+    "@rovo/ui": "workspace:*",
+    "@rovo/utils": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "@tanstack/react-router": "catalog:",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@rovo/config": "workspace:*",
+    "@rovo/testing": "workspace:*",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-pwa": "catalog:",
+    "vitest": "catalog:",
+    "workbox-core": "catalog:",
+    "workbox-expiration": "catalog:",
+    "workbox-precaching": "catalog:",
+    "workbox-routing": "catalog:",
+    "workbox-strategies": "catalog:",
+    "workbox-cacheable-response": "catalog:",
+    "workbox-window": "catalog:"
+  }
+}

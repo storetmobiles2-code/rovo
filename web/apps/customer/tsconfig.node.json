@@ -1,0 +1,1 @@
+{ "extends": "@rovo/config/tsconfig/node.json", "include": ["vite.config.ts"] }
