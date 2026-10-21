@@ -247,3 +247,9 @@ vuln: ## govulncheck + pnpm audit + trivy fs (osv-scanner if installed)
 	@if [ -f $(WEB_DIR)/pnpm-lock.yaml ]; then pnpm --dir $(WEB_DIR) audit --prod || true; fi
 	@if command -v osv-scanner >/dev/null; then osv-scanner --lockfile=$(BACKEND_DIR)/go.sum || true; \
 	 else docker run --rm -v $(ROOT):/src $(TRIVY_IMG) fs --scanners vuln,misconfig,secret --exit-code 0 /src; fi
+
+.PHONY: graph graph-query
+graph: ## Build/update the code knowledge graph (graphify)
+	graphify update . --force
+graph-query: ## Query the graph, e.g. make graph-query Q="what connects auth to the db?"
+	graphify query "$(Q)"
