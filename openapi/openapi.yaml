@@ -3886,3 +3886,86 @@ paths:
       responses:
         '200': { description: Updated }
         '412': { $ref: '#/components/responses/Problem412' }
+  /webhooks/payments/{provider}:
+    post:
+      operationId: receivePaymentWebhook
+      tags: [Webhooks]
+      summary: Payment-aggregator event receiver (api host; HMAC-verified)
+      description: |
+        Verify the signature over the raw body before parsing, persist to payment_events
+        (PII-redacted) and enqueue payments.process_event in the same transaction, then respond
+        200 within ~1 s. Duplicates return 200. A bad signature returns 401 and is stored
+        unprocessed and rate-alerted. Business processing happens asynchronously in the worker.
+      servers:
+        - url: https://api.rovo.in/api/v1
+      security: []
+      parameters:
+        - { $ref: '#/components/parameters/ProviderPath' }
+        - { name: X-Razorpay-Signature, in: header, required: false, schema: { type: string } }
+        - { name: X-Razorpay-Event-Id, in: header, required: false, schema: { type: string } }
+        - { name: x-webhook-signature, in: header, required: false, schema: { type: string } }
+        - { name: x-webhook-timestamp, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Accepted (stored; processed asynchronously)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: boolean }
+        '400': { description: Malformed body or too large }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '503': { description: Database unavailable; the provider retries }
+  /webhooks/notifications/{provider}:
+    post:
+      operationId: receiveNotificationWebhook
+      tags: [Webhooks]
+      summary: SMS delivery-receipt receiver (api host)
+      servers:
+        - url: https://api.rovo.in/api/v1
+      security: []
+      parameters:
+        - { name: provider, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200': { description: Accepted }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /stream:
+    get:
+      operationId: stream
+      tags: [Realtime]
+      summary: Multiplexed Server-Sent Events stream
+      description: |
+        One stream per tab. Topics default to the principal's entitlements and `?topics=` may only
+        narrow them. Heartbeat every 20 s; the server closes the stream after 30 min with a
+        `reconnect` event and immediately with `revoked` on session revocation. There is no replay
+        buffer: clients refetch snapshots over REST on every (re)connect.
+      parameters:
+        - name: topics
+          in: query
+          required: false
+          description: Comma-separated topic list (order:{id}, inbox:{restaurantId}, rider:{riderId}, ops:{cityId}, user:{id}).
+          schema: { type: string }
+      responses:
+        '200':
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '429': { $ref: '#/components/responses/Problem429' }
