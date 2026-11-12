@@ -24,6 +24,7 @@
 | RK-04 | Customer trust/demand weaker than assumed (new brand; COD demand; price sensitivity) | M | H | Visible fees and FSSAI, COD within caps, reliable refunds, launch coupons budgeted, word of mouth via restaurants | PL | Pilot repeat rate < 30%; checkout drop-off > 50% |
 | RK-05 | Restaurants miss orders (shared cheap phone, PWA backgrounded, noisy kitchen) → acceptance below 90% | H | H | R1 ladder, device-bound sessions (R44), heartbeat auto-pause, supplied counter devices, ops manual call at 90 s; voice escalation P1 if > 5% reach 90 s (R43) | OPS | PP-05 > 5%; M-01 < 90% in pilot |
 | RK-06 | Scope creep after scope freeze delays launch | M | M | Doc 02 §6 one-in-one-out; scope freeze at M4 exit; cuts C1–C20 enforced | RA | > 2 change requests/month accepted after M4 |
+| RK-55 | **Swiggy's budget brands undercut rovo's price story in its own market.** Toing (Swiggy's budget app, Sept 2025; already in Hyderabad, Vizag, Vijayawada; reportedly 49 cities) advertises ₹99 meals, no platform/packaging fees and free delivery above ₹99, aimed at students/Gen Z/value-conscious users (rovo's core persona). Swiggy 99 Store reportedly in 500 cities with free delivery above ₹49; Rapido entering with flat ₹25/₹50 fees. rovo defaults (₹5 platform fee, ₹15 small-cart fee, restaurant packaging, ₹20–60 delivery) would look dearer | H | H | Fees are config (16 §6.5), so a pricing change needs no code; decide pilot pricing via OQ-P19 before scope freeze; consider batching (OQ-34) to make low fees viable; compete on local value (Telugu UX, restaurant commission, fast settlement) not only price | FDR + PL | Toing or 99 Store live in Mahabubnagar; pilot checkout drop-off > 50% at the fee step; restaurants citing Toing pricing |
 
 ### Technical
 
@@ -273,6 +274,7 @@ Sources: doc 01 §13 (OQ-01…13), doc 14 §21 (PAY-1…9), doc 15 §13 (N-1…8
 | OQ-P16 | Women riders' "calls via support only" option; masked-calling upgrade trigger | 06 §9 | PL | M5 |
 | OQ-P17 | Public status page; admin separate registrable domain; production domain name (`rovo.in` vs placeholder) | 01 NFR-AVAIL-009, 17, 22 | FDR + DO | M1 (domain) / M6 |
 | OQ-P18 | Pilot order floor if volume < 300 orders in last 14 days | 29 §15 | LEAD | Gate A |
+| OQ-P19 | **Pilot pricing response to Toing / Swiggy 99 Store** (RK-55): keep or drop the ₹5 platform fee; small-cart fee; packaging policy; `free_delivery_min_order_paise` threshold (e.g. ₹99/₹149); launch promotions budget. Config-only change (16 §6.5) | docs/research/competitor-paved-path-review.md, 16 §6.5, RK-55 | FDR + PL + FIN | M4 (scope freeze) |
 
 ### Technical / operational
 
@@ -302,6 +304,7 @@ Sources: doc 01 §13 (OQ-01…13), doc 14 §21 (PAY-1…9), doc 15 §13 (N-1…8
 |---|---|---|---|
 | OQ-30 | Public-launch SLO: keep NFR-AVAIL-001 99.9% 24×7 or adopt 99.5% service-hours (pilot) / 99.9% service-hours (launch) given a 3-person on-call | LEAD | M5 |
 | OQ-31 | Is a ≈ 13-month timeline to public launch (Nov 2027) acceptable, or should the team grow to 4 engineers / cut further? | FDR | M0 exit |
+| OQ-34 | **Order batching / trip model before dispatch is built.** V1 is one active delivery per rider (P11). Swiggy's public material credits JIT assignment, next-order assignment and batching (2016) for its delivery economics, and its budget Eco Saver mode reportedly relies on batching. Decide whether to add a `trips` entity (one rider, several deliveries) to the dispatch schema now (cheap: dispatch module not yet written) even if batching logic ships later | LEAD + BE | M3 start |
 | OQ-32 | Would the user allow staging on AWS before M6 (e.g. from M4) to de-risk cloud integration? (currently forbidden by R24 reading) | User via LEAD | M3 |
 | OQ-33 | Committed P1 RES-ANLY-002 (restaurant 7/30-day trends) is removed by the C-list — confirm and update doc 02 §1.2 | PL + LEAD | M1 |
 

@@ -63,6 +63,8 @@ Exit criteria:
 ### M3 — Dispatch & delivery golden flow (6 weeks: 2027-03-01 → 2027-04-11)
 Scope: E04-S04, E07-S10, E09-S01/S03/S04, E10, E12, E14-S02, E19-S01..S03, E20-S03, E21-S04, E23-S01, E26-S01.
 
+Entry gate: **OQ-34 decided** (order batching / `trips` entity in the dispatch schema or not) before dispatch code starts, so batching does not become a schema migration later.
+
 Exit criteria:
 1. **Golden flow, COD variant, green nightly 5 days in a row** (E26-S01): customer → restaurant → rider offer (45 s cascade, two staleness tiers R34) → pickup → delivery → cash collected (ledger) → rating, in en and te.
 2. F-3 (no rider → manual assign), F-7 (cash limit), F-8 (cascade), F-12 (undeliverable with support approval, R5) green.

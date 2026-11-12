@@ -283,6 +283,8 @@ These are the city-default `fee_configs` values seeded by 10 §15.1 and the defa
 | `round_payable_to_rupee` | true | R8 |
 | `eta_params` | §5 | — |
 
+> **Market check (2026-11, RK-55 / OQ-P19):** Swiggy's budget app Toing (Hyderabad, Vizag, Vijayawada; reportedly 49 cities) advertises no platform or packaging fees and free delivery above ₹99, and Swiggy's 99 Store reportedly offers free delivery above ₹49. Against that, the defaults above (`platform_fee_paise` 500, small-cart fee 1,500, NULL `free_delivery_min_order_paise`) may be uncompetitive for rovo's value-conscious persona. These are config values, so the pilot pricing decision (OQ-P19, by M4) needs no code change. See `docs/research/competitor-paved-path-review.md`.
+
 ---
 
 ## 7. Efficient queries
