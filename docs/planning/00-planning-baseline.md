@@ -96,7 +96,7 @@ Rules that follow from this:
 ## 5. Indicative commercial defaults (all configurable per city/zone/restaurant; validate with local market)
 
 - Delivery fee slabs (customer): 0–2 km ₹20 · 2–4 km ₹30 · 4–6 km ₹40 · 6–8 km ₹50; default max radius 7 km. Free-delivery threshold optional per campaign.
-- Platform fee: ₹5 per order (flat, configurable). Small-cart fee: ₹15 below ₹149 subtotal.
+- Platform fee: **₹0 — no platform fee (R59, product-owner decision 2026-11-12)**; the config key stays for future use. Small-cart fee: ₹15 below ₹149 subtotal.
 - Packaging charge: set by restaurant per item or per order.
 - Restaurant commission: default 15% of food subtotal (contract range 10–25%), configurable per restaurant with effective dates.
 - Rider pay: ₹25 base per delivery + ₹6/km beyond 2 km (restaurant→customer), + waiting-time pay after 10 min at restaurant; incentives deferred.
@@ -229,3 +229,4 @@ Decisions on the Reviewer's contested points (31 §12). Where the Lead deviates 
 | R56 | SSE stream lifetime: the server closes each stream after **30 min** (clients reconnect transparently and refetch); this applies to docs 08, 11, 12, 22. |
 | R57 | Operating hours: restaurant staff may read and use pause/resume; only the owner edits weekly hours and holidays. Payout-account changes: 48 h cooling-off + finance approval (supersedes "1-cycle hold"). |
 | R58 | Accepted proposals from reconciliation: rider sessions 30-day sliding / 180-day absolute; manual ledger/cash adjustments above ₹500 need a second approver (R31 family 1); closed-pilot capacity target 100 orders/h + 500 concurrent SSE (public-launch per doc 20 §12.1); whole-rupee round-off is half-up (doc 14 owns); DLT template layout (per host vs host variable) confirmed with the SMS aggregator in Phase 2 week 1. |
+| R59 | **No platform fee.** Product-owner decision (2026-11-12) in response to RK-55 (Swiggy's Toing / 99 Store pricing): `platform_fee_paise` default = 0 for the city. The key and the `PLATFORM_FEE` bill-line type remain so it can be reintroduced by config (maker-checker, R31 family 3). A zero-value platform-fee line is not shown to customers. Supersedes every ₹5 platform-fee mention in docs 01, 14, 25, 31 and elsewhere; unit-economics figures that included ₹5 (≈ ₹4.24 net per order) lose that revenue. Small-cart fee, packaging policy and free-delivery threshold remain open under OQ-P19. |

@@ -11,7 +11,7 @@ CREATE TABLE fee_configs (
   effective_to                     timestamptz,
   delivery_fee_slabs               jsonb NOT NULL,    -- road metres [fromM, toM): [{"fromM":0,"toM":2000,"feePaise":2000}, ...]
   free_delivery_min_order_paise    bigint,
-  platform_fee_paise               bigint NOT NULL DEFAULT 500,
+  platform_fee_paise               bigint NOT NULL DEFAULT 0,   -- R59: no platform fee at launch; kept configurable
   small_cart_threshold_paise       bigint NOT NULL DEFAULT 14900,
   small_cart_fee_paise             bigint NOT NULL DEFAULT 1500,
   road_factor_milli                int NOT NULL DEFAULT 1300 CHECK (road_factor_milli BETWEEN 1000 AND 3000),

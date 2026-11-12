@@ -272,7 +272,7 @@ These are the city-default `fee_configs` values seeded by 10 §15.1 and the defa
 | `restaurants.max_delivery_radius_m` (straight-line) | 7,000 (effective = min with the cap above) | R18 |
 | `road_factor_milli` | 1,300 | 00 §3 |
 | `free_delivery_min_order_paise` | NULL (off) | 00 §5 |
-| `platform_fee_paise` | 500 | 00 §5 |
+| `platform_fee_paise` | **0** (no platform fee; zero line hidden from customers) | R59 |
 | `small_cart_threshold_paise` / `small_cart_fee_paise` | 14,900 / 1,500 | 00 §5 |
 | `cod_enabled` / `cod_max_order_paise` / `cod_first_order_max_paise` | true / 100,000 / 60,000 | R6 |
 | `rider_cash_limit_paise` (offer COD only if cash-in-hand + order ≤ limit) | 200,000 | R6 |
@@ -283,7 +283,7 @@ These are the city-default `fee_configs` values seeded by 10 §15.1 and the defa
 | `round_payable_to_rupee` | true | R8 |
 | `eta_params` | §5 | — |
 
-> **Market check (2026-11, RK-55 / OQ-P19):** Swiggy's budget app Toing (Hyderabad, Vizag, Vijayawada; reportedly 49 cities) advertises no platform or packaging fees and free delivery above ₹99, and Swiggy's 99 Store reportedly offers free delivery above ₹49. Against that, the defaults above (`platform_fee_paise` 500, small-cart fee 1,500, NULL `free_delivery_min_order_paise`) may be uncompetitive for rovo's value-conscious persona. These are config values, so the pilot pricing decision (OQ-P19, by M4) needs no code change. See `docs/research/competitor-paved-path-review.md`.
+> **Market check (2026-11, RK-55 / OQ-P19):** Swiggy's budget app Toing (Hyderabad, Vizag, Vijayawada; reportedly 49 cities) advertises no platform or packaging fees and free delivery above ₹99, and Swiggy's 99 Store reportedly offers free delivery above ₹49. Against that, the platform fee is now 0 (R59); the small-cart fee (1,500) and the NULL `free_delivery_min_order_paise` may still be uncompetitive for rovo's value-conscious persona. These are config values, so the pilot pricing decision (OQ-P19, by M4) needs no code change. See `docs/research/competitor-paved-path-review.md`.
 
 ---
 

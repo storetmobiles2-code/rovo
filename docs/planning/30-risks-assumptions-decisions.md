@@ -274,7 +274,7 @@ Sources: doc 01 §13 (OQ-01…13), doc 14 §21 (PAY-1…9), doc 15 §13 (N-1…8
 | OQ-P16 | Women riders' "calls via support only" option; masked-calling upgrade trigger | 06 §9 | PL | M5 |
 | OQ-P17 | Public status page; admin separate registrable domain; production domain name (`rovo.in` vs placeholder) | 01 NFR-AVAIL-009, 17, 22 | FDR + DO | M1 (domain) / M6 |
 | OQ-P18 | Pilot order floor if volume < 300 orders in last 14 days | 29 §15 | LEAD | Gate A |
-| OQ-P19 | **Pilot pricing response to Toing / Swiggy 99 Store** (RK-55): keep or drop the ₹5 platform fee; small-cart fee; packaging policy; `free_delivery_min_order_paise` threshold (e.g. ₹99/₹149); launch promotions budget. Config-only change (16 §6.5) | docs/research/competitor-paved-path-review.md, 16 §6.5, RK-55 | FDR + PL + FIN | M4 (scope freeze) |
+| OQ-P19 | **Pilot pricing response to Toing / Swiggy 99 Store** (RK-55): ~~platform fee~~ **decided: no platform fee (R59)**; still open: small-cart fee; packaging policy; `free_delivery_min_order_paise` threshold (e.g. ₹99/₹149); launch promotions budget. Config-only change (16 §6.5) | docs/research/competitor-paved-path-review.md, 16 §6.5, RK-55 | FDR + PL + FIN | M4 (scope freeze) |
 
 ### Technical / operational
 
