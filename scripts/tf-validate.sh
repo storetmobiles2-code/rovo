@@ -20,7 +20,12 @@ need docker
 # tofu downloads providers during `init`; route it through the agent proxy and
 # trust the proxy CA. --network host reaches the loopback proxy; both are
 # harmless when there is no proxy.
-docker_common=(--rm --network host -v "$tf_dir":/w)
+# Shared provider cache on the host (TF_PLUGIN_CACHE_DIR): providers are
+# downloaded once and reused by every env and every later run. It lives outside
+# the repo so the ~700 MB of provider binaries can never be committed.
+plugin_cache="${TF_PLUGIN_CACHE_HOST_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/rovo/tofu-plugins}"
+mkdir -p "$plugin_cache"
+docker_common=(--rm --network host -v "$tf_dir":/w -v "$plugin_cache":/plugin-cache -e TF_PLUGIN_CACHE_DIR=/plugin-cache)
 proxy_env=()
 [[ -n "${HTTPS_PROXY:-}" ]] && proxy_env+=(-e "HTTPS_PROXY=$HTTPS_PROXY")
 [[ -n "${HTTP_PROXY:-}" ]] && proxy_env+=(-e "HTTP_PROXY=$HTTP_PROXY")
