@@ -1,5 +1,5 @@
 export { cn } from './cn';
-export { useOnline, usePrefersReducedMotion } from './hooks';
+export { useOnline, usePrefersReducedMotion, useAutoFocus } from './hooks';
 
 export { Button, IconButton } from './components/Button';
 export type { ButtonProps, ButtonVariant, ButtonSize, IconButtonProps } from './components/Button';

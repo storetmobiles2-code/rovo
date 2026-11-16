@@ -2,7 +2,7 @@ import { type FormEvent, useState } from 'react';
 import { usePhoneOtp } from '@rovo/auth';
 import { useTranslation } from '@rovo/i18n';
 import { isApiError } from '@rovo/api-client';
-import { Button, LanguageSwitcher, OtpInput, PhoneInput } from '@rovo/ui';
+import { Button, LanguageSwitcher, OtpInput, PhoneInput, useAutoFocus } from '@rovo/ui';
 import { BrandLogo } from './BrandLogo';
 
 export interface PhoneOtpLoginScreenProps {
@@ -19,6 +19,8 @@ export function PhoneOtpLoginScreen({ onSuccess, showLanguage = true }: PhoneOtp
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
+  const focusPhone = useAutoFocus<HTMLInputElement>();
+  const focusOtp = useAutoFocus<HTMLInputElement>();
 
   const phoneError = (err: unknown): string | undefined => {
     if (isApiError(err) && err.fieldErrors[0]) return t('errors:field.invalidPhone');
@@ -56,7 +58,7 @@ export function PhoneOtpLoginScreen({ onSuccess, showLanguage = true }: PhoneOtp
             value={phone}
             onValueChange={setPhone}
             error={localError ?? phoneError(otp.requestError)}
-            autoFocus
+            ref={focusPhone}
           />
           <Button type="submit" size="lg" fullWidth loading={otp.requesting} disabled={phone.length !== 10} data-testid="login-request-otp">
             {t('auth:phone.submit')}
@@ -80,7 +82,7 @@ export function PhoneOtpLoginScreen({ onSuccess, showLanguage = true }: PhoneOtp
             onValueChange={setCode}
             onComplete={() => void verify()}
             error={otp.verifyError ? t([`errors:${otp.verifyError.code}`, 'errors:generic']) : undefined}
-            autoFocus
+            ref={focusOtp}
           />
           <Button type="submit" size="lg" fullWidth loading={otp.verifying} disabled={code.length !== 6} data-testid="login-verify-otp">
             {t('auth:otp.submit')}

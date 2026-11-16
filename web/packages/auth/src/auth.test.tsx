@@ -73,7 +73,7 @@ describe('usePhoneOtp', () => {
     await act(async () => {
       await result.current.verify('000000').catch(() => {});
     });
-    expect(result.current.verifyError?.code).toBe('OTP_INVALID');
+    await waitFor(() => expect(result.current.verifyError?.code).toBe('OTP_INVALID'));
   });
 });
 

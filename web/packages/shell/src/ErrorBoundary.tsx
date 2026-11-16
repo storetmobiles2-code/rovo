@@ -26,14 +26,13 @@ export class ErrorBoundary extends Component<Props, State> {
 
   override componentDidCatch(error: unknown, info: ErrorInfo): void {
     this.props.onError?.(error, info);
-    // eslint-disable-next-line no-console
     console.error('Uncaught error in React tree', error);
   }
 
   reset = (): void => this.setState({ error: null });
 
   override render(): ReactNode {
-    if (this.state.error == null) return this.props.children;
+    if (this.state.error === null) return this.props.children;
     if (this.props.fallback) return this.props.fallback(this.state.error, this.reset);
     return (
       <div className="flex min-h-dvh items-center justify-center bg-bg">

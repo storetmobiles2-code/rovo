@@ -18,6 +18,7 @@ describe('@rovo/testing', () => {
   });
 
   it('axe helper reports violations and passes clean markup', async () => {
+    // eslint-disable-next-line jsx-a11y/alt-text -- intentionally missing alt: this is the violation axe must catch
     const { container } = renderWithProviders(<img src="x.png" />);
     expect((await axeViolations(container)).map((v) => v.id)).toContain('image-alt');
     const ok = renderWithProviders(<button type="button">Save</button>);

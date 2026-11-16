@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from 'react';
 import { useAdminLogin } from '@rovo/auth';
 import { useTranslation } from '@rovo/i18n';
-import { Button, Input, OtpInput } from '@rovo/ui';
+import { Button, Input, OtpInput, useAutoFocus } from '@rovo/ui';
 import { BrandLogo } from './BrandLogo';
 
 export interface AdminLoginScreenProps {
@@ -15,6 +15,8 @@ export function AdminLoginScreen({ onSuccess }: AdminLoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [totp, setTotp] = useState('');
+  const focusEmail = useAutoFocus<HTMLInputElement>();
+  const focusTotp = useAutoFocus<HTMLInputElement>();
 
   async function submitCredentials(e: FormEvent) {
     e.preventDefault();
@@ -38,7 +40,7 @@ export function AdminLoginScreen({ onSuccess }: AdminLoginScreenProps) {
             autoComplete="username"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            autoFocus
+            ref={focusEmail}
           />
           <Input
             label={t('auth:admin.password')}
@@ -63,7 +65,7 @@ export function AdminLoginScreen({ onSuccess }: AdminLoginScreenProps) {
             onComplete={() => void submitTotp(new Event('submit') as unknown as FormEvent)}
             webOtp={false}
             error={login.mfaError ? t([`errors:${login.mfaError.code}`, 'errors:MFA_INVALID']) : undefined}
-            autoFocus
+            ref={focusTotp}
           />
           <Button type="submit" size="lg" fullWidth loading={login.submitting} disabled={totp.length !== 6} data-testid="login-submit-totp">
             {t('auth:admin.totpSubmit')}
