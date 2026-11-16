@@ -157,7 +157,8 @@ func TestDatasetShape(t *testing.T) {
 }
 
 func TestIDIsStable(t *testing.T) {
-	if ID("city", CityCode) != ID("city", CityCode) || ID("city", "A") == ID("zone", "A") {
+	a, b := ID("city", CityCode), ID("city", CityCode)
+	if a != b || ID("city", "A") == ID("zone", "A") {
 		t.Fatal("ID must be deterministic and scoped by kind")
 	}
 }

@@ -116,7 +116,7 @@ func ensureTemplate(ctx context.Context, admin string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(74_726_576)`); err != nil {
 		return "", err
 	}
@@ -169,7 +169,7 @@ func adminExec(ctx context.Context, admin, sql string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 	_, err = conn.Exec(ctx, sql)
 	return err
 }

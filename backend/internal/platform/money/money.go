@@ -123,7 +123,7 @@ func Format(p Paise, omitZeroPaise bool) string {
 	}
 	b.WriteString("₹")
 	b.WriteString(s)
-	if !(omitZeroPaise && paise == 0) {
+	if !omitZeroPaise || paise != 0 {
 		fmt.Fprintf(&b, ".%02d", paise)
 	}
 	return b.String()

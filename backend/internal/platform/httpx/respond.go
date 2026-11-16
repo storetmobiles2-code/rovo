@@ -34,19 +34,6 @@ func JSON(w http.ResponseWriter, status int, v any) {
 // NoContent writes 204.
 func NoContent(w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) }
 
-// problemBody is the wire shape of an RFC 9457 problem (11 §1.8).
-type problemBody struct {
-	Type        string              `json:"type"`
-	Title       string              `json:"title"`
-	Status      int                 `json:"status"`
-	Detail      string              `json:"detail,omitempty"`
-	Instance    string              `json:"instance,omitempty"`
-	Code        string              `json:"code"`
-	TraceID     string              `json:"traceId"`
-	Retryable   bool                `json:"retryable"`
-	FieldErrors []apperr.FieldError `json:"fieldErrors"`
-}
-
 // Error renders err as problem+json. Non-apperr errors become 500 INTERNAL and are logged with
 // the cause; apperr extensions are merged into the body (quote, diff, currentVersion, ...).
 func Error(w http.ResponseWriter, r *http.Request, err error) {

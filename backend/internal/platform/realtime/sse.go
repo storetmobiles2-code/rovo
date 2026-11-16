@@ -15,9 +15,8 @@ const (
 
 // Writer streams Server-Sent Events to one client.
 type Writer struct {
-	w       http.ResponseWriter
-	rc      *http.ResponseController
-	onClose func()
+	w  http.ResponseWriter
+	rc *http.ResponseController
 }
 
 // Start writes SSE headers and the initial retry hint. It fails if the response writer cannot
@@ -31,7 +30,7 @@ func Start(w http.ResponseWriter) (*Writer, error) {
 	w.WriteHeader(http.StatusOK)
 	rc := http.NewResponseController(w)
 	sw := &Writer{w: w, rc: rc}
-	fmt.Fprint(w, "retry: 3000\n\n")
+	_, _ = fmt.Fprint(w, "retry: 3000\n\n")
 	if err := rc.Flush(); err != nil {
 		return nil, err
 	}
@@ -41,19 +40,19 @@ func Start(w http.ResponseWriter) (*Writer, error) {
 // Event writes one SSE event frame.
 func (s *Writer) Event(f Frame) error {
 	if f.ID != "" {
-		fmt.Fprintf(s.w, "id: %s\n", f.ID)
+		_, _ = fmt.Fprintf(s.w, "id: %s\n", f.ID)
 	}
 	ev := f.Event
 	if ev == "" {
 		ev = "message"
 	}
-	fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", ev, f.Data)
+	_, _ = fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", ev, f.Data)
 	return s.rc.Flush()
 }
 
 // Comment writes a heartbeat comment line.
 func (s *Writer) Comment(text string) error {
-	fmt.Fprintf(s.w, ": %s\n\n", text)
+	_, _ = fmt.Fprintf(s.w, ": %s\n\n", text)
 	return s.rc.Flush()
 }
 
@@ -62,7 +61,7 @@ func (s *Writer) control(name, data string) error {
 	if data == "" {
 		data = "{}"
 	}
-	fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", name, data)
+	_, _ = fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", name, data)
 	return s.rc.Flush()
 }
 

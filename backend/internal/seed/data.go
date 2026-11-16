@@ -44,7 +44,7 @@ var localities = []locality{
 	{"new-town", "New Town", "న్యూ టౌన్", 16.7460, 78.0050, []string{"newtown"}},
 	{"old-town", "Old Town", "ఓల్డ్ టౌన్", 16.7420, 77.9950, []string{"patha town"}},
 	{"padmavathi-colony", "Padmavathi Colony", "పద్మావతి కాలనీ", 16.7550, 78.0150, []string{"padmavati colony"}},
-	{"christianpally", "Christianpally", "క్రిస్టియన్‌పల్లి", 16.7560, 77.9850, []string{"christian colony", "christianpalli"}},
+	{"christianpally", "Christianpally", "క్రిస్టియన్‌పల్లి", 16.7560, 77.9850, []string{"christian colony", "christianpalli"}}, //nolint:staticcheck // ST1018: U+200C ZWNJ is correct Telugu orthography
 	{"rajendra-nagar", "Rajendra Nagar", "రాజేంద్ర నగర్", 16.7380, 78.0100, []string{"rajendranagar"}},
 	{"mettugadda", "Mettugadda", "మెట్టుగడ్డ", 16.7550, 78.0000, []string{"metugadda"}},
 	{"yenugonda", "Yenugonda", "యేనుగొండ", 16.7400, 78.0300, []string{"enugonda"}},
@@ -108,7 +108,7 @@ var reasonLabelsTe = []struct{ Category, Code, Te string }{
 	{"ORDER_CANCEL", "CUSTOMER_WRONG_ADDRESS", "డెలివరీ చిరునామా తప్పు"},
 	{"ORDER_CANCEL", "CUSTOMER_TAKING_TOO_LONG", "చాలా ఆలస్యం అవుతోంది"},
 	{"ORDER_CANCEL", "CUSTOMER_OTHER", "ఇతర కారణం"},
-	{"ORDER_REJECT", "ITEMS_OUT_OF_STOCK", "ఐటమ్స్ స్టాక్‌లో లేవు"},
+	{"ORDER_REJECT", "ITEMS_OUT_OF_STOCK", "ఐటమ్స్ స్టాక్‌లో లేవు"}, //nolint:staticcheck // ST1018: U+200C ZWNJ is correct Telugu orthography
 	{"ORDER_REJECT", "TOO_BUSY", "వంటగది చాలా బిజీగా ఉంది"},
 	{"ORDER_REJECT", "CLOSING_SOON", "త్వరలో మూసివేస్తున్నాం"},
 	{"ORDER_REJECT", "KITCHEN_ISSUE", "వంటగది సమస్య"},
@@ -156,7 +156,7 @@ type coupon struct {
 }
 
 var coupons = []coupon{
-	{Code: "WELCOME50", Title: "50% off your first order", TitleTe: "మీ మొదటి ఆర్డర్‌పై 50% తగ్గింపు",
+	{Code: "WELCOME50", Title: "50% off your first order", TitleTe: "మీ మొదటి ఆర్డర్‌పై 50% తగ్గింపు", //nolint:staticcheck // ST1018: U+200C ZWNJ is correct Telugu orthography
 		Terms: "50% off the item total up to ₹75 on your first order of ₹149 or more. One use per customer.",
 		Type:  "PERCENT", PercentBps: 5000, MaxDiscountPaise: 7500, MinOrderPaise: 14900, PerUserLimit: 1, NewUsersOnly: true},
 	{Code: "FLAT30", Title: "₹30 off", TitleTe: "₹30 తగ్గింపు",
