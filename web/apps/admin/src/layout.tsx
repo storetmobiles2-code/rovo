@@ -43,7 +43,8 @@ const ICONS: Record<string, LucideIcon> = {
   reports: ChartColumn,
 };
 
-const NAV = ADMIN_SCREENS.filter((s) => 'nav' in s);
+type NavScreen = Extract<(typeof ADMIN_SCREENS)[number], { nav: string }>;
+const NAV = ADMIN_SCREENS.filter((s): s is NavScreen => 'nav' in s);
 
 function isActive(path: string, pathname: string): boolean {
   return path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`);

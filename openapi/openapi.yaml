@@ -31,35 +31,71 @@ security:
   - cookieAuth: []
 tags:
   - name: Public
+    description: "Unauthenticated discovery: cities, serviceability, restaurants, menus and search."
   - name: Config
+    description: "Client bootstrap configuration."
   - name: Auth
+    description: "Phone OTP, admin password + TOTP, token refresh and logout."
   - name: Me
+    description: "The signed-in principal: profile, notifications and push subscriptions."
   - name: Customer Addresses
+    description: "Saved delivery addresses."
   - name: Checkout
+    description: "Stateless cart quote with a signed quote id."
   - name: Orders
+    description: "Order placement, tracking, cancellation, reorder and ratings."
   - name: Payments
+    description: "Payment initiation, confirmation and the hosted-checkout return."
   - name: Support
+    description: "Customer, partner and rider support tickets."
   - name: Partner Onboarding
+    description: "Restaurant onboarding applications."
   - name: Partner Restaurant
+    description: "Restaurant profile, hours, open/close, pause and devices."
   - name: Partner Menu
+    description: "Menu categories, items, variants and add-on groups."
   - name: Partner Orders
+    description: "Restaurant order inbox and order commands."
   - name: Rider
+    description: "Rider application, availability, location, offers, earnings and cash."
   - name: Rider Deliveries
+    description: "Delivery milestones from pickup to drop."
   - name: Admin Dashboard
+    description: "City KPIs for operations."
   - name: Admin Orders
+    description: "Live order board and operator interventions."
   - name: Admin Users
+    description: "User lookup, blocking and COD status."
   - name: Admin Restaurants
+    description: "Restaurant approval, lifecycle, KYC, commission and leads."
   - name: Admin Riders
+    description: "Rider approval, lifecycle, cash limits and the SOS board."
   - name: Admin Finance
+    description: "Refunds, ledger adjustments, COD deposits, payouts and reconciliation."
   - name: Admin Coupons
+    description: "Coupon management."
   - name: Admin Geography
+    description: "Cities, localities, zones and fee configuration."
   - name: Admin Support
+    description: "Support queue and ticket resolution."
   - name: Admin Approvals
+    description: "Maker-checker approvals for the five R31 action families."
   - name: Admin Reports
+    description: "Asynchronous CSV exports."
   - name: Admin Audit
+    description: "Append-only audit log viewer."
+  - name: Admin Staff
+    description: "Admin users and role grants (SUPER)."
+  - name: Admin Privacy
+    description: "DPDP erasure-request queue."
+  - name: Admin Config
+    description: "Feature flags, app_config and reason codes."
   - name: Webhooks
+    description: "Provider callbacks on the api host; signature-verified, unauthenticated otherwise."
   - name: Realtime
+    description: "Server-Sent Events stream."
   - name: Health
+    description: "Liveness and readiness probes."
 components:
   securitySchemes:
     cookieAuth:
@@ -1075,6 +1111,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ClientConfig' }
+        '429': { $ref: '#/components/responses/Problem429' }
   /public/cities:
     get:
       operationId: listCities
@@ -1087,6 +1124,7 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/City' } }
+        '429': { $ref: '#/components/responses/Problem429' }
   /public/serviceability:
     get:
       operationId: checkServiceability
@@ -1118,6 +1156,7 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/Locality' } }
+        '429': { $ref: '#/components/responses/Problem429' }
   /public/cuisines:
     get:
       operationId: listCuisines
@@ -1132,6 +1171,7 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/Cuisine' } }
+        '429': { $ref: '#/components/responses/Problem429' }
   /public/restaurants:
     get:
       operationId: listRestaurants
@@ -1229,6 +1269,7 @@ paths:
                       properties:
                         item: { $ref: '#/components/schemas/MenuItem' }
                         restaurant: { $ref: '#/components/schemas/RestaurantCard' }
+        '429': { $ref: '#/components/responses/Problem429' }
   /public/offers:
     get:
       operationId: listPublicOffers
@@ -1254,6 +1295,7 @@ paths:
                     discountType: { type: string, enum: [FLAT, PERCENT] }
                     minOrder: { $ref: '#/components/schemas/Money' }
                     maxDiscount: { oneOf: [ { $ref: '#/components/schemas/Money' }, { type: 'null' } ] }
+        '429': { $ref: '#/components/responses/Problem429' }
   /public/waitlist:
     post:
       operationId: joinWaitlist
@@ -1402,6 +1444,7 @@ paths:
       summary: Revoke the session family and clear cookies
       responses:
         '204': { description: Logged out }
+        '401': { $ref: '#/components/responses/Problem401' }
   /auth/admin/login:
     post:
       operationId: adminLogin
@@ -1535,6 +1578,8 @@ paths:
                 all: { type: boolean }
       responses:
         '204': { description: Marked }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /me/push-subscriptions:
     post:
       operationId: createPushSubscription
@@ -1569,6 +1614,8 @@ paths:
                 type: object
                 properties:
                   id: { $ref: '#/components/schemas/Uuid' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /me/push-subscriptions/{id}:
     delete:
       operationId: deletePushSubscription
@@ -1579,6 +1626,8 @@ paths:
         - { $ref: '#/components/parameters/XRovoClient' }
       responses:
         '204': { description: Removed }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /me/addresses:
     get:
       operationId: listAddresses
@@ -1590,6 +1639,7 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/Address' } }
+        '401': { $ref: '#/components/responses/Problem401' }
     post:
       operationId: createAddress
       tags: [Customer Addresses]
@@ -1641,6 +1691,8 @@ paths:
         - { $ref: '#/components/parameters/XRovoClient' }
       responses:
         '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /cart/quote:
     post:
       operationId: createQuote
@@ -1791,6 +1843,7 @@ paths:
         - { $ref: '#/components/parameters/ProviderPath' }
       responses:
         '303': { description: Redirect to the order status page in the app }
+        '400': { $ref: '#/components/responses/Problem400' }
   /orders/{orderId}/cancel:
     post:
       operationId: cancelOrder
@@ -1831,6 +1884,8 @@ paths:
                   restaurantId: { $ref: '#/components/schemas/Uuid' }
                   lines: { type: array, items: { $ref: '#/components/schemas/QuoteLineInput' } }
                   issues: { type: array, items: { $ref: '#/components/schemas/QuoteIssue' } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /orders/{orderId}/ratings:
     post:
       operationId: rateOrder
@@ -1866,6 +1921,7 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/Ticket' } }
                   nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
     post:
       operationId: createTicket
       tags: [Support]
@@ -1884,6 +1940,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Ticket' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /support/tickets/{id}:
     get:
       operationId: getTicket
@@ -1919,6 +1977,9 @@ paths:
                 attachmentFileIds: { type: array, items: { $ref: '#/components/schemas/Uuid' } }
       responses:
         '201': { description: Message added }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /support/tickets/{id}/compensation-choice:
     post:
       operationId: chooseCompensation
@@ -1983,6 +2044,8 @@ paths:
                   uploadUrl: { type: string, format: uri }
                   uploadHeaders: { type: object, additionalProperties: { type: string } }
                   expiresAt: { $ref: '#/components/schemas/Timestamp' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /uploads/{id}/complete:
     post:
       operationId: completeUpload
@@ -2002,6 +2065,8 @@ paths:
                   id: { $ref: '#/components/schemas/Uuid' }
                   status: { type: string }
                   url: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /partner/restaurant-applications:
     post:
       operationId: createRestaurantApplication
@@ -2036,6 +2101,9 @@ paths:
                 properties:
                   restaurantId: { $ref: '#/components/schemas/Uuid' }
                   status: { type: string }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /partner/restaurant-applications/{restaurantId}/submit:
     post:
       operationId: submitRestaurantApplication
@@ -2075,6 +2143,8 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/RestaurantDetail' } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /partner/restaurants/{restaurantId}:
     get:
       operationId: getMyRestaurant
@@ -2173,6 +2243,9 @@ paths:
         - { $ref: '#/components/parameters/XRovoClient' }
       responses:
         '200': { description: Closed }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /partner/restaurants/{restaurantId}/pause:
     post:
       operationId: pauseRestaurant
@@ -2198,6 +2271,10 @@ paths:
           content:
             application/json:
               schema: { type: object, properties: { pausedUntil: { type: [string, 'null'], format: date-time } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /partner/restaurants/{restaurantId}/resume:
     post:
       operationId: resumeRestaurant
@@ -2208,6 +2285,9 @@ paths:
         - { $ref: '#/components/parameters/XRovoClient' }
       responses:
         '200': { description: Resumed }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /partner/restaurants/{restaurantId}/devices/heartbeat:
     post:
       operationId: deviceHeartbeat
@@ -2239,6 +2319,10 @@ paths:
                 properties:
                   serverTime: { $ref: '#/components/schemas/Timestamp' }
                   outletState: { type: string }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /partner/restaurants/{restaurantId}/menu:
     get:
       operationId: getPartnerMenu
@@ -2252,6 +2336,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Menu' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /partner/restaurants/{restaurantId}/menu-items:
     post:
       operationId: createMenuItem
@@ -2320,6 +2407,9 @@ paths:
         - { $ref: '#/components/parameters/XRovoClient' }
       responses:
         '204': { description: Archived }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /partner/restaurants/{restaurantId}/menu-items/{id}/availability:
     post:
       operationId: setMenuItemAvailability
@@ -2342,6 +2432,10 @@ paths:
                 until: { type: [string, 'null'] }
       responses:
         '200': { description: Toggled }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /partner/restaurants/{restaurantId}/menu-categories:
     post:
       operationId: createMenuCategory
@@ -2417,6 +2511,9 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/PartnerOrder' } }
                   nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /partner/restaurants/{restaurantId}/orders/{orderId}:
     get:
       operationId: getPartnerOrder
@@ -2445,6 +2542,9 @@ paths:
         - { $ref: '#/components/parameters/XRovoClient' }
       responses:
         '204': { description: Acknowledged }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /partner/restaurants/{restaurantId}/orders/{orderId}/accept:
     post:
       operationId: acceptRestaurantOrder
@@ -2518,6 +2618,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PartnerOrder' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /partner/restaurants/{restaurantId}/orders/{orderId}/ready:
     post:
       operationId: markReady
@@ -2534,6 +2637,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PartnerOrder' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /partner/restaurants/{restaurantId}/orders/{orderId}/issues:
     post:
       operationId: raisePartnerIssue
@@ -2562,6 +2668,10 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Ticket' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /partner/restaurants/{restaurantId}/analytics/summary:
     get:
       operationId: getPartnerAnalytics
@@ -2584,6 +2694,9 @@ paths:
                   avgRating: { type: [number, 'null'] }
                   acceptRate: { type: number }
                   missedOrders: { type: integer }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /partner/restaurants/{restaurantId}/statements:
     get:
       operationId: getPartnerStatements
@@ -2599,6 +2712,9 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { type: object, additionalProperties: true } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /partner/restaurants/{restaurantId}/payout-accounts:
     post:
       operationId: addPartnerPayoutAccount
@@ -2642,6 +2758,9 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /rider/applications:
     post:
       operationId: createRiderApplication
@@ -2706,6 +2825,8 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /rider/availability:
     put:
       operationId: setRiderAvailability
@@ -2772,6 +2893,8 @@ paths:
           content:
             application/json:
               schema: { type: [object, 'null'], additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /rider/offers/{offerId}/accept:
     post:
       operationId: acceptDeliveryOffer
@@ -2818,6 +2941,8 @@ paths:
           content:
             application/json:
               schema: { oneOf: [ { $ref: '#/components/schemas/RiderDelivery' }, { type: 'null' } ] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /rider/deliveries/{deliveryId}:
     get:
       operationId: getRiderDelivery
@@ -2902,6 +3027,10 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RiderDelivery' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /rider/deliveries/{deliveryId}/delivered:
     post:
       operationId: markDeliveryDelivered
@@ -2959,6 +3088,8 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /rider/earnings:
     get:
       operationId: getRiderEarnings
@@ -2973,6 +3104,8 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /rider/cash:
     get:
       operationId: getRiderCash
@@ -2984,6 +3117,8 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /rider/cash-deposits:
     post:
       operationId: createCashDeposit
@@ -3049,6 +3184,8 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/OrderSummary' } }
                   nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /admin/orders/{orderId}:
     get:
       operationId: adminGetOrder
@@ -3098,6 +3235,10 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/deliveries/{deliveryId}/assign:
     post:
       operationId: adminAssignDelivery
@@ -3148,6 +3289,10 @@ paths:
                 note: { type: [string, 'null'] }
       responses:
         '200': { description: Confirmed }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/refunds:
     get:
       operationId: adminListRefunds
@@ -3167,6 +3312,8 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/Refund' } }
                   nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /admin/orders/{orderId}/refunds:
     post:
       operationId: adminCreateRefund
@@ -3226,6 +3373,10 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Refund' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/goodwill-coupons:
     post:
       operationId: adminCreateGoodwillCoupon
@@ -3255,6 +3406,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/ledger-adjustments:
     post:
       operationId: adminCreateLedgerAdjustment
@@ -3284,6 +3438,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/cod-deposits/{id}/verify:
     post:
       operationId: adminVerifyCodDeposit
@@ -3295,6 +3452,9 @@ paths:
         - { $ref: '#/components/parameters/XRovoClient' }
       responses:
         '200': { description: Verified }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /admin/payout-runs:
     post:
       operationId: adminCreatePayoutRun
@@ -3321,6 +3481,9 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/payouts:
     get:
       operationId: adminListPayouts
@@ -3335,6 +3498,8 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { type: object, additionalProperties: true } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /admin/payouts/{id}/approve:
     post:
       operationId: adminApprovePayoutBatch
@@ -3370,6 +3535,10 @@ paths:
                 method: { type: string, enum: [NEFT, IMPS, UPI, RTGS, PA_PAYOUT, PA_TRANSFER_RELEASE] }
       responses:
         '200': { description: Marked paid }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/users:
     get:
       operationId: adminListUsers
@@ -3385,6 +3554,8 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /admin/users/{id}/block:
     post:
       operationId: adminBlockUser
@@ -3401,6 +3572,10 @@ paths:
             schema: { $ref: '#/components/schemas/ReasonCodeRequest' }
       responses:
         '200': { description: Blocked }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/users/{id}/unblock:
     post:
       operationId: adminUnblockUser
@@ -3412,6 +3587,9 @@ paths:
         - { $ref: '#/components/parameters/XRovoClient' }
       responses:
         '200': { description: Unblocked }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /admin/restaurant-applications:
     get:
       operationId: adminListRestaurantApplications
@@ -3426,6 +3604,8 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /admin/restaurants/{id}/approve:
     post:
       operationId: adminApproveRestaurant
@@ -3454,6 +3634,10 @@ paths:
             schema: { $ref: '#/components/schemas/ReasonCodeRequest' }
       responses:
         '200': { description: Rejected }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/restaurants/{id}/suspend:
     post:
       operationId: adminSuspendRestaurant
@@ -3470,7 +3654,26 @@ paths:
             schema: { $ref: '#/components/schemas/ReasonCodeRequest' }
       responses:
         '200': { description: Suspended }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/restaurants/{id}/commission-plans:
+    get:
+      operationId: adminListCommissionPlans
+      tags: [Admin Restaurants]
+      summary: Commission plans of a restaurant
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
     post:
       operationId: adminSetCommissionPlan
       tags: [Admin Restaurants]
@@ -3528,6 +3731,8 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /admin/riders/{id}/approve:
     post:
       operationId: adminApproveRider
@@ -3556,6 +3761,10 @@ paths:
             schema: { $ref: '#/components/schemas/ReasonCodeRequest' }
       responses:
         '200': { description: Suspended }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/coupons:
     get:
       operationId: adminListCoupons
@@ -3569,6 +3778,8 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
     post:
       operationId: adminCreateCoupon
       tags: [Admin Coupons]
@@ -3628,6 +3839,8 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
     post:
       operationId: adminCreateZone
       tags: [Admin Geography]
@@ -3683,6 +3896,8 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
     post:
       operationId: adminCreateFeeConfig
       tags: [Admin Geography]
@@ -3722,6 +3937,8 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/Ticket' } }
                   nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /admin/support/tickets/{id}/resolve:
     post:
       operationId: adminResolveTicket
@@ -3745,6 +3962,10 @@ paths:
                 note: { type: [string, 'null'] }
       responses:
         '200': { description: Resolved }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/approvals:
     get:
       operationId: adminListApprovals
@@ -3759,6 +3980,8 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { $ref: '#/components/schemas/ApprovalRequest' } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /admin/approvals/{id}/approve:
     post:
       operationId: adminApprove
@@ -3805,6 +4028,10 @@ paths:
                 reason: { type: string }
       responses:
         '200': { description: Rejected }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/reports:
     post:
       operationId: adminCreateReport
@@ -3832,6 +4059,9 @@ paths:
           content:
             application/json:
               schema: { type: object, properties: { reportExportId: { $ref: '#/components/schemas/Uuid' } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '422': { $ref: '#/components/responses/Problem422' }
   /admin/reports/{id}:
     get:
       operationId: adminGetReport
@@ -3850,6 +4080,9 @@ paths:
                   status: { type: string }
                   downloadUrl: { type: [string, 'null'] }
                   rowCount: { type: [integer, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
   /admin/audit-logs:
     get:
       operationId: adminListAuditLogs
@@ -3867,10 +4100,29 @@ paths:
           content:
             application/json:
               schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /admin/app-config/{scopeType}/{scopeId}/{key}:
+    get:
+      operationId: adminGetAppConfig
+      tags: [Admin Config]
+      summary: Read an app_config value
+      parameters:
+        - { name: scopeType, in: path, required: true, schema: { type: string, enum: [GLOBAL, CITY, ZONE, RESTAURANT] } }
+        - { name: scopeId, in: path, required: true, schema: { type: string } }
+        - { name: key, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
     put:
       operationId: adminSetAppConfig
-      tags: [Admin Audit]
+      tags: [Admin Config]
       summary: Set an app_config value (SUPER)
       parameters:
         - { name: scopeType, in: path, required: true, schema: { type: string, enum: [GLOBAL, CITY, ZONE, RESTAURANT] } }
@@ -3886,6 +4138,1926 @@ paths:
       responses:
         '200': { description: Updated }
         '412': { $ref: '#/components/responses/Problem412' }
+  /admin/orders/{orderId}/accept-on-behalf:
+    post:
+      operationId: adminAcceptOrderOnBehalf
+      tags: [Admin Orders]
+      summary: Accept an order on behalf of the restaurant (O-06)
+      parameters:
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [prepTimeMinutes, reason]
+              properties:
+                prepTimeMinutes: { type: integer, minimum: 5, maximum: 90 }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/orders/{orderId}/ready-on-behalf:
+    post:
+      operationId: adminReadyOrderOnBehalf
+      tags: [Admin Orders]
+      summary: Mark an order ready on behalf of the restaurant (O-12)
+      parameters:
+        - { $ref: '#/components/parameters/OrderIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/deliveries/{deliveryId}/unassign:
+    post:
+      operationId: adminUnassignDelivery
+      tags: [Admin Orders]
+      summary: Unassign the rider from a delivery (D-13)
+      parameters:
+        - { $ref: '#/components/parameters/DeliveryIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/deliveries/{deliveryId}/milestones/{milestone}:
+    post:
+      operationId: adminDeliveryMilestone
+      tags: [Admin Orders]
+      summary: Record a rider milestone on behalf of the rider
+      parameters:
+        - { $ref: '#/components/parameters/DeliveryIdPath' }
+        - { name: milestone, in: path, required: true, schema: { type: string, enum: [arrived-at-restaurant, picked-up, arrived-at-drop, delivered] } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/deliveries/{deliveryId}/undeliverable/reject:
+    post:
+      operationId: adminRejectUndeliverable
+      tags: [Admin Orders]
+      summary: Reject a rider undeliverable request (D-11r)
+      parameters:
+        - { $ref: '#/components/parameters/DeliveryIdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note]
+              properties:
+                note: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/users/{id}:
+    get:
+      operationId: adminGetUser
+      tags: [Admin Users]
+      summary: User detail with masked PII
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /admin/users/{id}/reveal:
+    post:
+      operationId: adminRevealUserPii
+      tags: [Admin Users]
+      summary: Reveal a masked PII field (step-up; audited)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [field, reason]
+              properties:
+                field: { type: string, enum: [PHONE, EMAIL, ADDRESS] }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/users/{id}/sessions/revoke:
+    post:
+      operationId: adminRevokeUserSessions
+      tags: [Admin Users]
+      summary: Revoke all of a user's sessions
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/users/{id}/cod-status:
+    post:
+      operationId: adminSetUserCodStatus
+      tags: [Admin Users]
+      summary: Enable or disable cash on delivery for a customer
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [status, reason]
+              properties:
+                status: { type: string, enum: [ENABLED, DISABLED] }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/admins:
+    post:
+      operationId: adminCreateAdmin
+      tags: [Admin Staff]
+      summary: Invite an admin user (maker-checker, R31 family 5)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, fullName, role, reason]
+              properties:
+                email: { type: string, format: email }
+                fullName: { type: string, maxLength: 100 }
+                role: { $ref: '#/components/schemas/Role' }
+                cityId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Applied without approval
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '202':
+          description: Approval required (maker-checker, R31)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/admins/{id}/roles:
+    post:
+      operationId: adminGrantAdminRole
+      tags: [Admin Staff]
+      summary: Grant an admin role (maker-checker, R31 family 5)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [role, reason]
+              properties:
+                role: { $ref: '#/components/schemas/Role' }
+                cityId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Applied without approval
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '202':
+          description: Approval required (maker-checker, R31)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/admins/{id}/roles/{roleId}:
+    delete:
+      operationId: adminRevokeAdminRole
+      tags: [Admin Staff]
+      summary: Revoke an admin role (step-up; audited)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { name: roleId, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '204': { description: Done }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /admin/admins/{id}/totp-reset:
+    post:
+      operationId: adminResetAdminTotp
+      tags: [Admin Staff]
+      summary: Reset an admin's TOTP enrolment (step-up; audited)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/restaurants:
+    get:
+      operationId: adminListRestaurants
+      tags: [Admin Restaurants]
+      summary: List restaurants
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/restaurants/{id}:
+    get:
+      operationId: adminGetRestaurant
+      tags: [Admin Restaurants]
+      summary: Restaurant detail (profile, KYC, commission, devices)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+    patch:
+      operationId: adminUpdateRestaurant
+      tags: [Admin Restaurants]
+      summary: Update admin-only restaurant fields (radius cap, zone override)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                maxDeliveryRadiusM: { type: integer, minimum: 500, maximum: 15000 }
+                zoneId: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '200':
+          description: Updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '412': { $ref: '#/components/responses/Problem412' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/restaurants/{id}/request-changes:
+    post:
+      operationId: adminRestaurantRequestChanges
+      tags: [Admin Restaurants]
+      summary: Request changes to a restaurant application
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/restaurants/{id}/reinstate:
+    post:
+      operationId: adminRestaurantReinstate
+      tags: [Admin Restaurants]
+      summary: Reinstate a suspended restaurant
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/restaurants/{id}/offboard:
+    post:
+      operationId: adminRestaurantOffboard
+      tags: [Admin Restaurants]
+      summary: Offboard a restaurant
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/restaurants/{id}/pause:
+    post:
+      operationId: adminRestaurantPause
+      tags: [Admin Restaurants]
+      summary: Pause a restaurant (ops)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/restaurants/{id}/resume:
+    post:
+      operationId: adminRestaurantResume
+      tags: [Admin Restaurants]
+      summary: Resume a paused restaurant (ops)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/restaurants/{id}/devices/{deviceId}/revoke:
+    post:
+      operationId: adminRevokeRestaurantDevice
+      tags: [Admin Restaurants]
+      summary: Revoke a device-bound restaurant session (R44)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { name: deviceId, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/kyc/{id}/decision:
+    post:
+      operationId: adminDecideKycDocument
+      tags: [Admin Restaurants]
+      summary: Approve or reject a KYC document
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [APPROVED, REJECTED] }
+                reason: { type: [string, 'null'], maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/riders/{id}:
+    get:
+      operationId: adminGetRider
+      tags: [Admin Riders]
+      summary: Rider detail (profile, KYC, availability, cash in hand)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /admin/riders/{id}/reject:
+    post:
+      operationId: adminRiderReject
+      tags: [Admin Riders]
+      summary: Reject a rider application
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/riders/{id}/reinstate:
+    post:
+      operationId: adminRiderReinstate
+      tags: [Admin Riders]
+      summary: Reinstate a suspended rider
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/riders/{id}/force-offline:
+    post:
+      operationId: adminRiderForceOffline
+      tags: [Admin Riders]
+      summary: Force a rider offline
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/riders/{id}/cash-limit:
+    post:
+      operationId: adminSetRiderCashLimit
+      tags: [Admin Riders]
+      summary: Override a rider cash-in-hand limit (audited)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [cashLimit, reason]
+              properties:
+                cashLimit: { oneOf: [ { $ref: '#/components/schemas/Money' }, { type: 'null' } ] }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/riders/{id}/cash-adjustments:
+    post:
+      operationId: adminAdjustRiderCash
+      tags: [Admin Finance]
+      summary: Correct a rider cash-in-hand balance (maker-checker above threshold)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [amount, direction, reason]
+              properties:
+                amount: { $ref: '#/components/schemas/Money' }
+                direction: { type: string, enum: [INCREASE, DECREASE] }
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Applied without approval
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '202':
+          description: Approval required (maker-checker, R31)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/sos-events:
+    get:
+      operationId: adminListSosEvents
+      tags: [Admin Riders]
+      summary: SOS board
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/sos-events/{id}/acknowledge:
+    post:
+      operationId: adminAcknowledgeSosEvent
+      tags: [Admin Riders]
+      summary: Acknowledge an SOS event
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note: { type: [string, 'null'], maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/sos-events/{id}/resolve:
+    post:
+      operationId: adminResolveSosEvent
+      tags: [Admin Riders]
+      summary: Resolve an SOS event
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note]
+              properties:
+                note: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/cod-deposits:
+    get:
+      operationId: adminListCodDeposits
+      tags: [Admin Finance]
+      summary: List rider COD deposits
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: riderId, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/cod-deposits/{id}/reject:
+    post:
+      operationId: adminRejectCodDeposit
+      tags: [Admin Finance]
+      summary: Reject a declared COD deposit
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/coupons/{id}/activate:
+    post:
+      operationId: adminCouponActivate
+      tags: [Admin Coupons]
+      summary: Activate a coupon
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /admin/coupons/{id}/pause:
+    post:
+      operationId: adminCouponPause
+      tags: [Admin Coupons]
+      summary: Pause a coupon
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /admin/coupons/{id}/end:
+    post:
+      operationId: adminCouponEnd
+      tags: [Admin Coupons]
+      summary: End a coupon
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /admin/cities:
+    get:
+      operationId: adminListCities
+      tags: [Admin Geography]
+      summary: List cities
+      responses:
+        '200':
+          description: Page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+    post:
+      operationId: adminCreateCity
+      tags: [Admin Geography]
+      summary: Create a city (SUPER)
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code, slug, name, stateName, gstStateCode, centroid]
+              properties:
+                code: { type: string, pattern: '^[A-Z]{3,8}$' }
+                slug: { type: string, pattern: '^[a-z0-9-]{2,40}$' }
+                name: { type: string }
+                nameI18n: { $ref: '#/components/schemas/I18nText' }
+                stateName: { type: string }
+                gstStateCode: { type: string, pattern: '^[0-9]{2}$' }
+                timezone: { type: string }
+                centroid: { $ref: '#/components/schemas/LatLng' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/cities/{id}:
+    patch:
+      operationId: adminUpdateCity
+      tags: [Admin Geography]
+      summary: Update a city (status LIVE gate)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { type: string }
+                nameI18n: { $ref: '#/components/schemas/I18nText' }
+                status: { type: string, enum: [PLANNED, LIVE, PAUSED, RETIRED] }
+      responses:
+        '200':
+          description: Updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '412': { $ref: '#/components/responses/Problem412' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/zones/{id}/activate:
+    post:
+      operationId: adminActivateZone
+      tags: [Admin Geography]
+      summary: Activate a zone (save-time outlet check)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /admin/zones/{id}/deactivate:
+    post:
+      operationId: adminDeactivateZone
+      tags: [Admin Geography]
+      summary: Deactivate a zone
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/zones/{id}/pause:
+    post:
+      operationId: adminPauseZone
+      tags: [Admin Geography]
+      summary: Pause deliveries in a zone
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reasonCode, pausedUntil]
+              properties:
+                reasonCode: { type: string, enum: [RAIN, RIDER_SHORTAGE, LAW_AND_ORDER, FESTIVAL, TECHNICAL, OTHER] }
+                pausedUntil: { $ref: '#/components/schemas/Timestamp' }
+                messageI18n: { $ref: '#/components/schemas/I18nText' }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/zones/{id}/resume:
+    post:
+      operationId: adminResumeZone
+      tags: [Admin Geography]
+      summary: Resume a paused zone
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+  /admin/localities:
+    get:
+      operationId: adminListLocalities
+      tags: [Admin Geography]
+      summary: List localities for a city
+      parameters:
+        - { $ref: '#/components/parameters/CityIdQuery' }
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+    post:
+      operationId: adminCreateLocality
+      tags: [Admin Geography]
+      summary: Create a locality
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [cityId, name, slug, centroid]
+              properties:
+                cityId: { $ref: '#/components/schemas/Uuid' }
+                name: { type: string }
+                nameI18n: { $ref: '#/components/schemas/I18nText' }
+                slug: { type: string }
+                searchAliases: { type: array, items: { type: string } }
+                pinCodes: { type: array, items: { $ref: '#/components/schemas/PinCode' } }
+                centroid: { $ref: '#/components/schemas/LatLng' }
+                isActive: { type: boolean }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/localities/{id}:
+    patch:
+      operationId: adminUpdateLocality
+      tags: [Admin Geography]
+      summary: Update a locality
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { type: string }
+                nameI18n: { $ref: '#/components/schemas/I18nText' }
+                slug: { type: string }
+                searchAliases: { type: array, items: { type: string } }
+                pinCodes: { type: array, items: { $ref: '#/components/schemas/PinCode' } }
+                centroid: { $ref: '#/components/schemas/LatLng' }
+                isActive: { type: boolean }
+      responses:
+        '200':
+          description: Updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '412': { $ref: '#/components/responses/Problem412' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/fee-configs/{id}/retire:
+    post:
+      operationId: adminRetireFeeConfig
+      tags: [Admin Geography]
+      summary: Retire an approved fee-config version
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/tax-rules:
+    get:
+      operationId: adminListTaxRules
+      tags: [Admin Finance]
+      summary: List tax rules (read-only; seeded by migration)
+      responses:
+        '200':
+          description: Page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/restaurant-leads:
+    get:
+      operationId: adminListRestaurantLeads
+      tags: [Admin Restaurants]
+      summary: Restaurant lead pipeline
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/restaurant-leads/{id}:
+    patch:
+      operationId: adminUpdateRestaurantLead
+      tags: [Admin Restaurants]
+      summary: Update a restaurant lead (assign, status, notes)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                status: { type: string, enum: [NEW, CONTACTED, CONVERTED, DISQUALIFIED] }
+                assignedAdminId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                notes: { type: [string, 'null'], maxLength: 2000 }
+      responses:
+        '200':
+          description: Updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '412': { $ref: '#/components/responses/Problem412' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/waitlist/summary:
+    get:
+      operationId: adminWaitlistSummary
+      tags: [Admin Geography]
+      summary: Waitlist counts by locality and PIN (no PII)
+      parameters:
+        - { $ref: '#/components/parameters/CityIdQuery' }
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/support/tickets/{id}:
+    get:
+      operationId: adminGetTicket
+      tags: [Admin Support]
+      summary: Ticket detail with thread and internal notes
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticket' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+    patch:
+      operationId: adminUpdateTicket
+      tags: [Admin Support]
+      summary: Assign, re-prioritise or change the status of a ticket
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                assignedAdminId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                priority: { type: string, enum: [LOW, NORMAL, HIGH, URGENT] }
+                status: { type: string, enum: [OPEN, IN_PROGRESS, AWAITING_REQUESTER, AWAITING_APPROVAL, REOPENED] }
+      responses:
+        '200':
+          description: Updated resource
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticket' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '412': { $ref: '#/components/responses/Problem412' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/support/tickets/{id}/messages:
+    post:
+      operationId: adminAddTicketMessage
+      tags: [Admin Support]
+      summary: Reply to the requester or add an internal note
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                body: { type: string, minLength: 1, maxLength: 2000 }
+                internal: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/payouts/{id}:
+    get:
+      operationId: adminGetPayout
+      tags: [Admin Finance]
+      summary: Payout detail with its items
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /admin/payouts/{id}/mark-failed:
+    post:
+      operationId: adminMarkPayoutFailed
+      tags: [Admin Finance]
+      summary: Mark a payout failed
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/payouts/{id}/cancel:
+    post:
+      operationId: adminCancelPayout
+      tags: [Admin Finance]
+      summary: Cancel a payout
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/pa-settlements:
+    get:
+      operationId: adminListPaSettlements
+      tags: [Admin Finance]
+      summary: List payment-aggregator settlements
+      parameters:
+        - { name: from, in: query, required: false, schema: { type: string, format: date } }
+        - { name: to, in: query, required: false, schema: { type: string, format: date } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/pa-settlements/{id}:
+    get:
+      operationId: adminGetPaSettlement
+      tags: [Admin Finance]
+      summary: Settlement lines with match status
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /admin/bank-statement-imports:
+    post:
+      operationId: adminImportBankStatement
+      tags: [Admin Finance]
+      summary: Import a bank statement CSV for UTR matching
+      parameters:
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [fileId]
+              properties:
+                fileId: { $ref: '#/components/schemas/Uuid' }
+      responses:
+        '202':
+          description: Import accepted
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/recon-exceptions:
+    get:
+      operationId: adminListReconExceptions
+      tags: [Admin Finance]
+      summary: List reconciliation exceptions
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: type, in: query, required: false, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/recon-exceptions/{id}:
+    patch:
+      operationId: adminUpdateReconException
+      tags: [Admin Finance]
+      summary: Assign, annotate or change the status of a reconciliation exception
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                status: { type: string }
+                assignedAdminId: { oneOf: [ { $ref: '#/components/schemas/Uuid' }, { type: 'null' } ] }
+                note: { type: [string, 'null'], maxLength: 1000 }
+      responses:
+        '200':
+          description: Updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '412': { $ref: '#/components/responses/Problem412' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/erasure-requests:
+    get:
+      operationId: adminListErasureRequests
+      tags: [Admin Privacy]
+      summary: DPDP erasure-request queue
+      parameters:
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+  /admin/erasure-requests/{id}/hold:
+    post:
+      operationId: adminHoldErasureRequest
+      tags: [Admin Privacy]
+      summary: Put an erasure request on hold
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [holdReason]
+              properties:
+                holdReason: { type: string, enum: [OPEN_ORDER, OPEN_PAYOUT, OPEN_DISPUTE, LEGAL_HOLD, CASH_IN_HAND] }
+                note: { type: [string, 'null'], maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/erasure-requests/{id}/release:
+    post:
+      operationId: adminReleaseErasureRequest
+      tags: [Admin Privacy]
+      summary: Release an erasure request from hold
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note]
+              properties:
+                note: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/approvals/{id}:
+    get:
+      operationId: adminGetApproval
+      tags: [Admin Approvals]
+      summary: Approval request detail
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+  /admin/approvals/{id}/break-glass:
+    post:
+      operationId: adminBreakGlassApproval
+      tags: [Admin Approvals]
+      summary: Self-approve when no checker is reachable (step-up; post-review due in 24 h)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 15, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/approvals/{id}/post-review:
+    post:
+      operationId: adminPostReviewApproval
+      tags: [Admin Approvals]
+      summary: Close a break-glass review (reviewer must differ from the maker)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note]
+              properties:
+                note: { type: string, minLength: 3, maxLength: 500 }
+      responses:
+        '200':
+          description: Command applied; the updated resource
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApprovalRequest' }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/feature-flags/{key}:
+    get:
+      operationId: adminGetFeatureFlag
+      tags: [Admin Config]
+      summary: Read a feature flag
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+    put:
+      operationId: adminSetFeatureFlag
+      tags: [Admin Config]
+      summary: Set a feature flag (SUPER)
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+        - { $ref: '#/components/parameters/IfMatchRequired' }
+        - { $ref: '#/components/parameters/XRovoClient' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+                rules: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Updated resource
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '412': { $ref: '#/components/responses/Problem412' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /admin/reason-codes:
+    get:
+      operationId: adminListReasonCodes
+      tags: [Admin Config]
+      summary: Reason-code catalogue
+      parameters:
+        - { name: category, in: query, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Page of results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { type: object, additionalProperties: true } }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
   /webhooks/payments/{provider}:
     post:
       operationId: receivePaymentWebhook

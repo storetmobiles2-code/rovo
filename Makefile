@@ -197,16 +197,16 @@ image-push: ## Build + push multi-arch images to the registry (CI)
 
 # --- production-like stack ---------------------------------------------------
 # TLS=off (default, plain HTTP) | internal (Caddy local CA) | acme
-.PHONY: prod-up prod-down prod-seed prod-logs smoke
+.PHONY: prod-up prod-down prod-seed prod-logs prod-obs-up prod-obs-down smoke smoke-up
 prod-up: ## Build + start the production-like stack (ADR-P2-003). TLS=off|internal
 	@test -f $(ROOT)/.env || $(ROOT)/scripts/dev-keys.sh $(ROOT)/.env
 	@tls="$${TLS:-off}"; scheme=http; [ "$$tls" != off ] && scheme=https; \
-	  ROVO_CADDY_TLS=$$tls ROVO_SITE_SCHEME=$$scheme VERSION=$(VERSION) COMMIT=$(COMMIT) \
+	  ROVO_CADDY_TLS=$$tls ROVO_SITE_SCHEME=$$scheme ROVO_VERSION=$(VERSION) ROVO_COMMIT=$(COMMIT) \
 	  $(COMPOSE_PROD) --env-file $(ROOT)/.env up -d --build --wait
 	@echo "edge up (TLS=$${TLS:-off}); add *.$${ROVO_DOMAIN:-rovo.localhost} to /etc/hosts -> 127.0.0.1"
 
 prod-down: ## Stop the production-like stack (DOWN_ARGS=-v to wipe volumes)
-	@$(COMPOSE_PROD) --env-file $(ROOT)/.env down $(DOWN_ARGS)
+	@$(COMPOSE_PROD) --env-file $(ROOT)/.env --profile observability down $(DOWN_ARGS)
 
 prod-seed: ## Load demo data into the production-like stack
 	@$(COMPOSE_PROD) --env-file $(ROOT)/.env run --rm --no-deps migrate seed || \
@@ -215,8 +215,18 @@ prod-seed: ## Load demo data into the production-like stack
 prod-logs: ## Tail the production-like stack logs
 	@$(COMPOSE_PROD) --env-file $(ROOT)/.env logs -f --tail=100
 
-smoke: ## Run the edge smoke test (BASE=<domain>, default $$ROVO_DOMAIN)
-	@$(with_env) $(ROOT)/scripts/smoke.sh $(BASE)
+prod-obs-up: ## Start Prometheus + Grafana next to the production-like stack
+	@$(COMPOSE_PROD) --env-file $(ROOT)/.env --profile observability up -d prometheus grafana
+	@echo "Grafana: http://localhost:3000 (admin / $${ROVO_GRAFANA_ADMIN_PASSWORD:-rovo-dev})   Prometheus: http://localhost:9091"
+
+prod-obs-down: ## Stop the production-like Prometheus + Grafana
+	@$(COMPOSE_PROD) --env-file $(ROOT)/.env --profile observability stop prometheus grafana
+
+smoke: ## Smoke-test the running production-like stack (BASE=<domain>, default $$ROVO_DOMAIN)
+	@$(ROOT)/scripts/smoke.sh $(BASE)
+
+smoke-up: ## Bring the production-like stack up, then smoke-test it (SMOKE_ARGS="--no-build --down")
+	@$(ROOT)/scripts/smoke.sh --up $(SMOKE_ARGS) $(BASE)
 
 # --- backup / restore --------------------------------------------------------
 .PHONY: backup restore verify-restore

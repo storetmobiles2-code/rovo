@@ -24,7 +24,7 @@ git fetch --tags && git checkout vX.Y.Z
 make prod-up                 # TLS=off (default) | internal | acme
 
 # Verify.
-make smoke                   # edge contract: health, security headers, CORS, webhooks host
+make smoke                   # /healthz on every host, security headers, same-origin /api, no foreign CORS
 make prod-logs               # watch for clean startup; migrate exits 0
 ```
 

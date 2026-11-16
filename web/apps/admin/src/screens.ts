@@ -55,13 +55,3 @@ export function canOpenScreen(roles: readonly RoleName[], mine: readonly RoleNam
   if (roles.length === 0) return true;
   return roles.some((role) => mine.includes(role));
 }
-
-/**
- * Only same-origin app paths are accepted as a post-login target, so a crafted
- * `?redirect=https://evil.example` or `//evil.example` link cannot bounce an admin off-site.
- */
-export function safeRedirect(target: string | undefined): string {
-  if (!target || !target.startsWith('/') || target.startsWith('//') || target.includes('\\')) return '/';
-  if (target === '/login' || target.startsWith('/login?')) return '/';
-  return target;
-}

@@ -64,20 +64,40 @@ the same images that would run in the cloud:
 ```bash
 make prod-up       # build + start + wait healthy (TLS=off | internal | acme)
 make prod-seed     # load the Mahabubnagar demo dataset
-make smoke         # edge smoke test (health, security headers, CORS, webhooks host)
+make smoke         # smoke-test the running stack (see below)
+make prod-obs-up   # optional: Prometheus + Grafana next to the stack
 make prod-down     # stop (DOWN_ARGS=-v to wipe volumes)
+
+make smoke-up      # one shot: bring the stack up, then smoke-test it
 ```
 
-Add `*.rovo.localhost` to `/etc/hosts → 127.0.0.1`, or use `make smoke` which
-resolves the hosts for you.
+| Host | Serves |
+|---|---|
+| <http://app.rovo.localhost> | customer app |
+| <http://restaurant.rovo.localhost> | restaurant app |
+| <http://rider.rovo.localhost> | rider app |
+| <http://admin.rovo.localhost> | admin app |
+| `api.rovo.localhost` | provider webhooks only (`POST /api/v1/webhooks/*`) |
+
+Most browsers resolve `*.localhost` to `127.0.0.1` on their own; otherwise add
+the five hosts to `/etc/hosts`. Mailpit (OTP and e-mail capture) is at
+<http://localhost:8025>.
+
+`make smoke` (`scripts/smoke.sh`) needs no hosts entries. It checks, on every
+host, that `GET /healthz` is answered by the API through the edge; on each app
+host, that the SPA and its fallback are served, the security headers are
+present, a same-origin `/api/v1` request reaches the API, and **no CORS grant**
+is given to a foreign origin; and that the `api.` host refuses everything except
+webhooks.
 
 ## Observability
 
 ```bash
-make obs-up        # Prometheus + Grafana (scrape api/worker :9090)
-# Grafana  http://localhost:3000 (anonymous viewer)
-# Prometheus http://localhost:9091
+make obs-up        # local dev: Prometheus + Grafana scraping api/worker on the host
 make obs-down
+make prod-obs-up   # production-like stack: scrape the api/worker containers
+# Grafana    http://localhost:3000
+# Prometheus http://localhost:9091
 ```
 
 Prometheus scrapes the api and worker internal port (`:9090`, `/metrics`), Grafana

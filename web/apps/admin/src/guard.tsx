@@ -1,5 +1,5 @@
-import { useNavigate } from '@tanstack/react-router';
-import { type ReactNode, useEffect } from 'react';
+import { useLocation, useNavigate } from '@tanstack/react-router';
+import { type ReactNode, useEffect, useState } from 'react';
 import { RequireAuth, ROLES_BY_APP, type RoleName, userRoles, useSession } from '@rovo/auth';
 import { ForbiddenScreen, WrongAppScreen } from '@rovo/shell';
 import { SkeletonList } from '@rovo/ui';
@@ -15,10 +15,12 @@ function Loading() {
 
 function LoginRedirect() {
   const navigate = useNavigate();
+  const { href } = useLocation();
+  // Captured once: the page the admin asked for, before this redirect changes the location.
+  const [redirect] = useState(href);
   useEffect(() => {
-    const redirect = window.location.pathname + window.location.search;
     void navigate({ to: '/login', search: redirect === '/' ? {} : { redirect }, replace: true });
-  }, [navigate]);
+  }, [navigate, redirect]);
   return <Loading />;
 }
 

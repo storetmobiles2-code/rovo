@@ -10,6 +10,6 @@ rules:
   operation-operationId: error
   no-identical-paths: error
   path-declaration-must-exist: error
-  spec: error
+  struct: error
   no-invalid-media-type-examples: warn
   security-defined: warn

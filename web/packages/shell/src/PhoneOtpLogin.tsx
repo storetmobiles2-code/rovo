@@ -38,8 +38,10 @@ export function PhoneOtpLoginScreen({ onSuccess, showLanguage = true }: PhoneOtp
     }
   }
 
-  async function verify() {
-    const ok = await otp.verify(code).catch(() => false);
+  // `entered` comes from OtpInput.onComplete: the `code` state has not re-rendered yet when the
+  // last digit lands, so auto-submit must use the value it was handed.
+  async function verify(entered: string = code) {
+    const ok = await otp.verify(entered).catch(() => false);
     if (ok) onSuccess();
   }
 
@@ -80,7 +82,7 @@ export function PhoneOtpLoginScreen({ onSuccess, showLanguage = true }: PhoneOtp
             hint={t('auth:otp.sentTo', { phone: otp.challenge?.phone ?? '' })}
             value={code}
             onValueChange={setCode}
-            onComplete={() => void verify()}
+            onComplete={(entered) => void verify(entered)}
             error={otp.verifyError ? t([`errors:${otp.verifyError.code}`, 'errors:generic']) : undefined}
             ref={focusOtp}
           />

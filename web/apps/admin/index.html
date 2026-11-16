@@ -9,7 +9,8 @@
     <meta name="robots" content="noindex" />
     <title>rovo Admin</title>
     <meta name="description" content="rovo operations console" />
-    <script id="rovo-config" type="application/json">{ "apiBase": "/api/v1", "env": "local", "mediaBase": "/media", "cityDefault": "mahabubnagar" }</script>
+    <!-- Runtime config as a meta tag: the admin page has no inline <script> at all (strict CSP, doc 17 §15.6). -->
+    <meta name="rovo-config" content='{ "apiBase": "/api/v1", "env": "local", "mediaBase": "/media", "cityDefault": "mahabubnagar" }' />
   </head>
   <body>
     <div id="root"></div>

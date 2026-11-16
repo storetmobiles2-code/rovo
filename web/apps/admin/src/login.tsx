@@ -2,7 +2,7 @@ import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { canUseApp, useSession } from '@rovo/auth';
 import { AdminLoginScreen } from '@rovo/shell';
-import { safeRedirect } from './screens';
+import { safeRedirect } from '@rovo/utils';
 
 /** Admin email + password → TOTP login (A-00). */
 export function LoginScreen() {

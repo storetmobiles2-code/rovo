@@ -15,8 +15,9 @@ compromise) live in `docs/planning/23-backup-disaster-recovery.md` §8.
 **On-call quick reference**
 
 - Stack control: `make prod-up` / `make prod-down` / `make prod-logs`
-- Health: `make smoke`, or `curl http://127.0.0.1:9090/healthz` (internal port)
-- Dashboards: Grafana (`make obs-up` → <http://localhost:3000>), Prometheus
+- Health: `make smoke` (every host's `/healthz` through the edge, headers, CORS),
+  or `GET /healthz` / `/readyz` on the internal port `:9090` inside the stack
+- Dashboards: Grafana (`make prod-obs-up` → <http://localhost:3000>), Prometheus
   <http://localhost:9091>
 - Alert definitions: `deploy/observability/prometheus/rules/alerts.yml`
 - Severity: **P1** pages on-call, **P2** on-call (business-hours ops for business

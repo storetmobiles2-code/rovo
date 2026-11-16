@@ -41,4 +41,24 @@ describe('runtime config', () => {
     expect(cfg.apiBase).toBe('/api/v1');
     expect(cfg.env).toBe('local');
   });
+
+  it('reads the admin meta-tag config (no inline script needed) and the script-tag config', () => {
+    const meta = document.createElement('meta');
+    meta.name = 'rovo-config';
+    meta.content = '{ "apiBase": "/x/v1", "env": "staging" }';
+    document.head.append(meta);
+    __setRuntimeConfig(null);
+    expect(readRuntimeConfig()).toMatchObject({ apiBase: '/x/v1', env: 'staging', mediaBase: '/media' });
+    meta.remove();
+
+    const script = document.createElement('script');
+    script.id = 'rovo-config';
+    script.type = 'application/json';
+    script.textContent = '{ "apiBase": "/y/v1" }';
+    document.head.append(script);
+    __setRuntimeConfig(null);
+    expect(readRuntimeConfig().apiBase).toBe('/y/v1');
+    script.remove();
+    __setRuntimeConfig(null);
+  });
 });

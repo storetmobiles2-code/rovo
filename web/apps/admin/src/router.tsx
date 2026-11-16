@@ -4,7 +4,7 @@ import { NotFoundScreen } from '@rovo/shell';
 import { RootLayout } from './layout';
 import { LoginScreen } from './login';
 import { AdminScreenSkeleton } from './placeholder';
-import { ADMIN_SCREENS, type AdminScreen } from './screens';
+import { ADMIN_SCREENS, type AdminPath, type AdminScreen } from './screens';
 
 function NotFound() {
   const navigate = useNavigate();
@@ -23,10 +23,12 @@ const loginRoute = createRoute({
   component: LoginScreen,
 });
 
-function screenRoute<const S extends AdminScreen>(screen: S) {
+/** Typed by its literal path so `<Link to>` / `navigate` stay checked; data comes from the table. */
+function screenRoute<const P extends AdminPath>(path: P) {
+  const screen: AdminScreen = ADMIN_SCREENS.find((s) => s.path === path)!;
   return createRoute({
     getParentRoute: () => layoutRoute,
-    path: screen.path as S['path'],
+    path,
     staticData: { roles: screen.roles },
     component: function Screen() {
       return <AdminScreenSkeleton screen={screen} />;
@@ -34,10 +36,33 @@ function screenRoute<const S extends AdminScreen>(screen: S) {
   });
 }
 
-type ScreenRoutes = { [K in keyof typeof ADMIN_SCREENS]: ReturnType<typeof screenRoute<(typeof ADMIN_SCREENS)[K]>> };
-const screenRoutes = ADMIN_SCREENS.map((screen) => screenRoute(screen)) as unknown as ScreenRoutes;
-
-const routeTree = rootRoute.addChildren([layoutRoute.addChildren(screenRoutes), loginRoute]);
+// One entry per ADMIN_SCREENS row (app.test.tsx fails if a row has no route).
+const routeTree = rootRoute.addChildren([
+  layoutRoute.addChildren([
+    screenRoute('/'),
+    screenRoute('/live'),
+    screenRoute('/orders'),
+    screenRoute('/orders/$orderId'),
+    screenRoute('/dispatch'),
+    screenRoute('/restaurants'),
+    screenRoute('/restaurants/$restaurantId'),
+    screenRoute('/riders'),
+    screenRoute('/riders/$riderId'),
+    screenRoute('/customers'),
+    screenRoute('/customers/$customerId'),
+    screenRoute('/coupons'),
+    screenRoute('/approvals'),
+    screenRoute('/finance/payouts'),
+    screenRoute('/finance/payouts/$batchId'),
+    screenRoute('/zones'),
+    screenRoute('/pricing'),
+    screenRoute('/support/tickets'),
+    screenRoute('/support/tickets/$ticketId'),
+    screenRoute('/audit-log'),
+    screenRoute('/reports'),
+  ]),
+  loginRoute,
+]);
 
 /** `history` is injectable so tests can drive the console with a memory history. */
 export function createAdminRouter(history?: RouterHistory) {

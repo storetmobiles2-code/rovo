@@ -317,9 +317,8 @@ jobs:
       - name: Edge smoke test
         if: steps.pre.outputs.ready == 'true'
         run: |
-          set -a; . ./.env; set +a
-          SMOKE_CURL_OPTS="--resolve app.rovo.localhost:80:127.0.0.1 --resolve restaurant.rovo.localhost:80:127.0.0.1 --resolve rider.rovo.localhost:80:127.0.0.1 --resolve admin.rovo.localhost:80:127.0.0.1 --resolve api.rovo.localhost:80:127.0.0.1" \
-            ./scripts/smoke.sh rovo.localhost
+          # *.localhost hosts are pinned to 127.0.0.1 by the script (no /etc/hosts needed).
+          ./scripts/smoke.sh rovo.localhost
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always() && steps.pre.outputs.ready == 'true'
         with:

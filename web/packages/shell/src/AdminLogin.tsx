@@ -22,10 +22,15 @@ export function AdminLoginScreen({ onSuccess }: AdminLoginScreenProps) {
     e.preventDefault();
     await login.submitCredentials(email, password).catch(() => {});
   }
-  async function submitTotp(e: FormEvent) {
-    e.preventDefault();
-    const ok = await login.submitTotp({ totp }).catch(() => false);
+  // `code` comes from OtpInput.onComplete: the `totp` state has not re-rendered yet when the
+  // last digit lands, so auto-submit must use the value it was handed.
+  async function verifyTotp(code: string) {
+    const ok = await login.submitTotp({ totp: code }).catch(() => false);
     if (ok) onSuccess();
+  }
+  function submitTotp(e: FormEvent) {
+    e.preventDefault();
+    void verifyTotp(totp);
   }
 
   return (
@@ -62,7 +67,7 @@ export function AdminLoginScreen({ onSuccess }: AdminLoginScreenProps) {
             hint={t('auth:admin.totpHint')}
             value={totp}
             onValueChange={setTotp}
-            onComplete={() => void submitTotp(new Event('submit') as unknown as FormEvent)}
+            onComplete={(code) => void verifyTotp(code)}
             webOtp={false}
             error={login.mfaError ? t([`errors:${login.mfaError.code}`, 'errors:MFA_INVALID']) : undefined}
             ref={focusTotp}

@@ -1,4 +1,4 @@
-import { createRootRoute, createRoute, createRouter, Link, Outlet, useNavigate } from '@tanstack/react-router';
+import { createRootRoute, createRoute, createRouter, Link, Outlet, type RouterHistory, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from '@rovo/i18n';
 import { NotFoundScreen, PlaceholderScreen } from '@rovo/shell';
 import { Protected } from './guard';
@@ -54,7 +54,12 @@ const routeTree = rootRoute.addChildren([
   full('/help', 'screens.help.title', 'help-screen'),
 ]);
 
-export const router = createRouter({ routeTree, defaultPreload: 'intent', defaultNotFoundComponent: NotFound, scrollRestoration: true });
+/** `history` is injectable so tests can drive the app with a memory history. */
+export function createAppRouter(history?: RouterHistory) {
+  return createRouter({ routeTree, history, defaultPreload: 'intent', defaultNotFoundComponent: NotFound, scrollRestoration: true });
+}
+
+export const router = createAppRouter();
 
 declare module '@tanstack/react-router' {
   interface Register {

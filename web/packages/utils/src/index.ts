@@ -6,3 +6,4 @@ export * from './address';
 export * from './datetime';
 export * from './id';
 export * from './bill';
+export * from './redirect';
