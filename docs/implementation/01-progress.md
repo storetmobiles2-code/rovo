@@ -1,5 +1,7 @@
 # Phase 2 — Implementation Progress
 
+> **2026-11-16: See [`HANDOFF.md`](HANDOFF.md) for the authoritative current state.** `cmd/rovo` and the module domain logic are NOT yet done (empty/skeleton); the backend builds but does not yet run.
+
 | | |
 |---|---|
 | **Updated** | 2026-10-21 |
