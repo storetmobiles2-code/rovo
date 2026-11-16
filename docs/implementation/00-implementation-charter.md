@@ -11,7 +11,7 @@ Implement → Test → Review → Fix → Security check → Refine → Validate
 
 | Area | Choice |
 |---|---|
-| Go | `go 1.25` (toolchain auto-download), stdlib `net/http` ServeMux, `log/slog` JSON |
+| Go | `go 1.26` (toolchain auto-download), stdlib `net/http` ServeMux, `log/slog` JSON |
 | DB | PostgreSQL 17 + PostGIS 3.5 (`postgis/postgis:17-3.5` locally; RDS in prod) |
 | DB access | `jackc/pgx/v5` (pgxpool), **hand-written parameterised SQL** in per-module `store` packages (ADR-P2-002) |
 | Migrations | `pressly/goose/v3`, SQL files embedded in the binary (`backend/migrations`), run by `rovo migrate` |
