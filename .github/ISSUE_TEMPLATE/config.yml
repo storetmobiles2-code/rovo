@@ -1,0 +1,13 @@
+# Issue template chooser (doc 26 §10). Security reports are redirected to
+# private disclosure; general questions go to Discussions.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/storetmobiles2-code/rovo/security/advisories/new
+    about: >-
+      Please do NOT open a public issue for security problems. Use GitHub
+      Private Vulnerability Reporting (or the email in SECURITY.md) so we can
+      fix it before disclosure.
+  - name: Questions & discussion
+    url: https://github.com/storetmobiles2-code/rovo/discussions
+    about: Ask a question, share an idea, or get help. Issues are for bugs and tracked work.

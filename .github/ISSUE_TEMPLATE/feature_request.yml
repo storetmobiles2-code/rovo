@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest a new capability or improvement.
+labels: [enhancement, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        rovo has a deliberately scoped V1 (see docs/planning/02-v1-scope.md).
+        Proposals outside that scope are welcome but may be filed for a later
+        milestone.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What problem does this solve, and for whom (customer, restaurant, rider, admin)?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you would like to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Mockups, links to related docs/ADRs, or anything else.
