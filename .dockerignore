@@ -1,0 +1,45 @@
+# Build context is the repo root; keep it small and deterministic.
+# Backend and web sources are added explicitly in the Dockerfiles, so exclude
+# everything that is not needed to build an image.
+
+.git
+.github
+.gitignore
+.editorconfig
+**/.DS_Store
+
+# Docs, planning, IaC, local ops — never part of an image.
+docs
+deploy/terraform
+deploy/observability
+backups
+e2e
+
+# Local env and secrets (must never enter an image layer).
+.env
+.env.*
+!.env.example
+**/*.env
+deploy/compose/env
+
+# Build outputs and caches.
+backend/bin
+**/dist
+**/.vite
+**/coverage
+**/*.test
+node_modules
+**/node_modules
+.pnpm-store
+**/.pnpm-store
+**/.turbo
+
+# Editor / OS noise.
+.vscode
+.idea
+*.swp
+
+# Scratch and test artifacts.
+tmp
+**/testdata/tmp
+*.log

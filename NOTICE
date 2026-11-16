@@ -1,0 +1,48 @@
+rovo — open-source food delivery platform
+Copyright 2026 The rovo authors
+
+This product includes software developed by The rovo authors and contributors.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this software except in compliance with the License. You may obtain a copy of
+the License in the LICENSE file at the root of this repository, or at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
+
+--------------------------------------------------------------------------------
+TRADEMARKS
+--------------------------------------------------------------------------------
+
+The Apache License 2.0 is a copyright license. It does NOT grant permission to
+use the trade names, trademarks, service marks, logos, or product names of The
+rovo authors, including the name "rovo" and the rovo logos and app-icon marks in
+docs/brand/.
+
+You may use, modify and redistribute the source code under Apache-2.0, but you
+may not use the "rovo" name or logos in a way that suggests your fork,
+distribution or service is endorsed by or affiliated with the rovo project. If
+you redistribute a modified version, remove or replace the rovo brand assets in
+docs/brand/ and choose your own name and logo. Nominative, factual references
+(for example, "a fork of rovo") remain permitted.
+
+"rovo" is intended to be used as a trademark for the platform in India (a
+trademark clearance in Classes 39 and 43 is pending before public launch).
+
+--------------------------------------------------------------------------------
+THIRD-PARTY NOTICES
+--------------------------------------------------------------------------------
+
+This software depends on third-party open-source components. Their licenses and
+copyright notices are retained in the dependency manifests and lockfiles
+(backend/go.mod, backend/go.sum, web/pnpm-lock.yaml) and in the source of each
+dependency. A full dependency license report is produced in CI (go-licenses /
+license-checker).
+
+Map data, where used, is © OpenStreetMap contributors and available under the
+Open Database License (ODbL). The Noto Sans Telugu font is licensed under the
+SIL Open Font License (OFL).

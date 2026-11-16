@@ -1,0 +1,32 @@
+{
+  "nav": {
+    "home": "Home",
+    "search": "Search",
+    "cart": "Cart",
+    "orders": "Orders",
+    "account": "Account"
+  },
+  "home": {
+    "greeting": "Food from Mahabubnagar's favourite restaurants",
+    "deliverTo": "Deliver to"
+  },
+  "screens": {
+    "home": { "title": "Restaurants near you" },
+    "city": { "title": "Restaurants in {{city}}" },
+    "search": { "title": "Search restaurants and dishes" },
+    "restaurant": { "title": "Restaurant menu" },
+    "cart": { "title": "Your cart" },
+    "checkout": { "title": "Checkout" },
+    "payment": { "title": "Payment" },
+    "orders": { "title": "Your orders" },
+    "orderTracking": { "title": "Order status" },
+    "orderRate": { "title": "Rate your order" },
+    "orderHelp": { "title": "Help with this order" },
+    "account": { "title": "Your account" },
+    "addresses": { "title": "Saved addresses" },
+    "addressNew": { "title": "Add a new address" },
+    "addressEdit": { "title": "Edit address" },
+    "privacy": { "title": "Privacy and data" },
+    "legal": { "title": "Terms and policies" }
+  }
+}

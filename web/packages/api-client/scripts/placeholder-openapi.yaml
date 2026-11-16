@@ -1,0 +1,174 @@
+# PLACEHOLDER — minimal subset of doc 11 §2.2 so the web workspace compiles before the real
+# contract (openapi/openapi.yaml, owned by the Architect) exists. `pnpm gen:api` prefers the
+# real spec automatically. Do not extend this file; extend openapi/openapi.yaml instead.
+openapi: 3.1.0
+info: { title: rovo API (placeholder), version: 0.0.0 }
+servers: [{ url: /api/v1 }]
+paths:
+  /auth/otp/request:
+    post:
+      operationId: requestOtp
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/OtpRequest' } } }
+      responses:
+        '202': { description: Challenge, content: { application/json: { schema: { $ref: '#/components/schemas/OtpChallenge' } } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /auth/otp/verify:
+    post:
+      operationId: verifyOtp
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/OtpVerify' } } }
+      responses:
+        '200': { description: Session, content: { application/json: { schema: { $ref: '#/components/schemas/OtpVerifyResult' } } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /auth/refresh:
+    post:
+      operationId: refreshSession
+      responses:
+        '200': { description: Rotated, content: { application/json: { schema: { $ref: '#/components/schemas/RefreshResult' } } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /auth/logout:
+    post:
+      operationId: logout
+      responses:
+        '204': { description: Logged out }
+        default: { $ref: '#/components/responses/Problem' }
+  /auth/admin/login:
+    post:
+      operationId: adminLogin
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AdminLogin' } } }
+      responses:
+        '200': { description: MFA required, content: { application/json: { schema: { $ref: '#/components/schemas/AdminMfaChallenge' } } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /auth/admin/mfa:
+    post:
+      operationId: adminMfa
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AdminMfa' } } }
+      responses:
+        '200': { description: Session, content: { application/json: { schema: { $ref: '#/components/schemas/RefreshResult' } } } }
+        default: { $ref: '#/components/responses/Problem' }
+  /me:
+    get:
+      operationId: getMe
+      responses:
+        '200': { description: Me, content: { application/json: { schema: { $ref: '#/components/schemas/Me' } } } }
+        default: { $ref: '#/components/responses/Problem' }
+    patch:
+      operationId: updateMe
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/MeUpdate' } } }
+      responses:
+        '200': { description: Me, content: { application/json: { schema: { $ref: '#/components/schemas/Me' } } } }
+        default: { $ref: '#/components/responses/Problem' }
+components:
+  responses:
+    Problem:
+      description: RFC 9457 problem
+      content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } }
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code: { type: string }
+        traceId: { type: string }
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            required: [field, code]
+            properties: { field: { type: string }, code: { type: string }, message: { type: string } }
+    OtpRequest:
+      type: object
+      required: [phone, channel]
+      properties:
+        phone: { type: string, description: E.164 Indian mobile }
+        channel: { type: string, enum: [SMS] }
+        captchaToken: { type: string }
+    OtpChallenge:
+      type: object
+      required: [challengeId, resendAfterSeconds, expiresAt]
+      properties:
+        challengeId: { type: string }
+        resendAfterSeconds: { type: integer }
+        expiresAt: { type: string, format: date-time }
+    OtpVerify:
+      type: object
+      required: [challengeId, code, deviceInstallId]
+      properties:
+        challengeId: { type: string }
+        code: { type: string }
+        deviceInstallId: { type: string }
+    OtpVerifyResult:
+      type: object
+      required: [user, isNewUser, accessExpiresAt, needsAccountConfirmation]
+      properties:
+        user:
+          type: object
+          required: [id, roles]
+          properties:
+            id: { type: string }
+            fullName: { type: [string, 'null'] }
+            roles: { type: array, items: { $ref: '#/components/schemas/RoleName' } }
+        isNewUser: { type: boolean }
+        accessExpiresAt: { type: string, format: date-time }
+        needsAccountConfirmation: { type: boolean }
+    RefreshResult:
+      type: object
+      required: [accessExpiresAt]
+      properties: { accessExpiresAt: { type: string, format: date-time } }
+    AdminLogin:
+      type: object
+      required: [email, password]
+      properties: { email: { type: string, format: email }, password: { type: string } }
+    AdminMfaChallenge:
+      type: object
+      required: [mfaToken, mfaMethods]
+      properties:
+        mfaToken: { type: string }
+        mfaMethods: { type: array, items: { type: string, enum: [TOTP, RECOVERY_CODE] } }
+    AdminMfa:
+      type: object
+      required: [mfaToken]
+      properties: { mfaToken: { type: string }, totp: { type: string }, recoveryCode: { type: string } }
+    RoleName:
+      type: string
+      enum: [CUSTOMER, RESTAURANT_OWNER, RESTAURANT_STAFF, RIDER, ADMIN_SUPER, ADMIN_OPS, ADMIN_SUPPORT, ADMIN_FINANCE]
+    RoleGrant:
+      type: object
+      required: [role]
+      properties:
+        role: { $ref: '#/components/schemas/RoleName' }
+        cityId: { type: [string, 'null'] }
+        restaurantId: { type: [string, 'null'] }
+    Me:
+      type: object
+      required: [id, kind, roles, preferredLocale, accessExpiresAt]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [CUSTOMER, PARTNER, RIDER, ADMIN] }
+        fullName: { type: [string, 'null'] }
+        phoneMasked: { type: [string, 'null'] }
+        email: { type: [string, 'null'] }
+        preferredLocale: { type: string, enum: [en, te] }
+        roles: { type: array, items: { $ref: '#/components/schemas/RoleGrant' } }
+        activeContext: { type: [string, 'null'] }
+        consents: { type: object, additionalProperties: { type: boolean } }
+        accessExpiresAt: { type: string, format: date-time }
+    MeUpdate:
+      type: object
+      properties:
+        fullName: { type: string }
+        preferredLocale: { type: string, enum: [en, te] }

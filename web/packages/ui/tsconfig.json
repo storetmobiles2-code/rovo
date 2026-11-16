@@ -1,0 +1,12 @@
+{
+  "extends": "@rovo/config/tsconfig/react.json",
+  "include": [
+    "src"
+  ],
+  "compilerOptions": {
+    "types": [
+      "vite/client",
+      "@testing-library/jest-dom/vitest"
+    ]
+  }
+}

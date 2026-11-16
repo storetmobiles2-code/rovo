@@ -1,0 +1,40 @@
+# rovo code ownership (doc 26 §3). Ownership is by area, using GitHub teams
+# under the @storetmobiles2-code/rovo org (create the teams in Phase 2). Review
+# is enforced on protected branches for the critical paths; payments, ledger,
+# migrations, auth and deploy/terraform/envs/prod require two Code Owner
+# approvals (set in branch protection).
+#
+# Last match wins, so the most specific rule for a path takes effect.
+
+# Default owner for everything not matched below.
+*                                       @storetmobiles2-code/maintainers
+
+# --- backend --------------------------------------------------------------
+/backend/                               @storetmobiles2-code/backend
+/backend/internal/modules/payments/     @storetmobiles2-code/backend @storetmobiles2-code/payments-reviewers
+/backend/internal/modules/ledger/       @storetmobiles2-code/backend @storetmobiles2-code/payments-reviewers
+/backend/migrations/                    @storetmobiles2-code/backend @storetmobiles2-code/db-reviewers
+/backend/internal/platform/auth/        @storetmobiles2-code/backend @storetmobiles2-code/security
+
+# --- contract (needs both sides) ------------------------------------------
+/openapi/                               @storetmobiles2-code/backend @storetmobiles2-code/frontend
+
+# --- web ------------------------------------------------------------------
+/web/                                   @storetmobiles2-code/frontend
+/web/packages/ui/                       @storetmobiles2-code/frontend @storetmobiles2-code/design
+
+# --- deploy / CI ----------------------------------------------------------
+/deploy/                                @storetmobiles2-code/devops
+/deploy/terraform/                      @storetmobiles2-code/devops
+/deploy/terraform/envs/prod/            @storetmobiles2-code/devops @storetmobiles2-code/security
+/.github/                               @storetmobiles2-code/devops
+/.github/workflows/                     @storetmobiles2-code/devops @storetmobiles2-code/security
+/Makefile                               @storetmobiles2-code/devops
+/scripts/                               @storetmobiles2-code/devops
+
+# --- docs & governance ----------------------------------------------------
+/docs/adr/                              @storetmobiles2-code/architects
+/docs/runbooks/                         @storetmobiles2-code/devops
+/SECURITY.md                            @storetmobiles2-code/maintainers @storetmobiles2-code/security
+/LICENSE                                @storetmobiles2-code/maintainers
+/NOTICE                                 @storetmobiles2-code/maintainers

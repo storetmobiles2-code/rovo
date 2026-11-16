@@ -1,0 +1,115 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "live": "Live board",
+    "orders": "Orders",
+    "dispatch": "Dispatch",
+    "restaurants": "Restaurants",
+    "riders": "Riders",
+    "customers": "Customers",
+    "coupons": "Coupons",
+    "approvals": "Approvals",
+    "payouts": "Payouts",
+    "zones": "Zones and fees",
+    "tickets": "Support tickets",
+    "auditLog": "Audit log",
+    "reports": "Reports",
+    "pricing": "Fees and pricing"
+  },
+  "screens": {
+    "dashboard": {
+      "title": "Today at a glance",
+      "summary": "Live health for the city: today's orders, SLA breaches, online delivery partners, offline restaurants and the alert feed."
+    },
+    "live": {
+      "title": "Live order board",
+      "summary": "Active orders sorted by risk, with filters and saved views, updated over the live stream."
+    },
+    "orders": {
+      "title": "Orders",
+      "summary": "Search and browse all orders by code, phone, restaurant or delivery partner."
+    },
+    "orderDetail": {
+      "title": "Order details",
+      "summary": "Timeline, offers log, bill, parties and interventions: cancel, refund and manual assign, each with a reason and a preview."
+    },
+    "dispatch": {
+      "title": "Unassigned deliveries",
+      "summary": "Deliveries without a delivery partner, and the manual assign panel with eligible partners by distance."
+    },
+    "restaurants": {
+      "title": "Restaurants",
+      "summary": "Leads, the approval queue and all outlets with their health."
+    },
+    "restaurantDetail": {
+      "title": "Restaurant",
+      "summary": "Profile, KYC documents, menu, hours, commission versions, counter devices, payouts and suspend or reinstate."
+    },
+    "riders": {
+      "title": "Delivery partners",
+      "summary": "Applications, the approval queue and all delivery partners with availability."
+    },
+    "riderDetail": {
+      "title": "Delivery partner",
+      "summary": "KYC review, training and kit, metrics, cash in hand, deposits and adjustments."
+    },
+    "customers": {
+      "title": "Customers",
+      "summary": "Find customers by phone or order code. Phone numbers stay masked until revealed with a reason."
+    },
+    "coupons": {
+      "title": "Coupons",
+      "summary": "Coupon list with status and burn, and the create or edit wizard."
+    },
+    "approvals": {
+      "title": "Approvals (maker-checker)",
+      "summary": "Pending maker-checker requests with a preview; approve or reject. You cannot approve your own request."
+    },
+    "payouts": {
+      "title": "Payout batches",
+      "summary": "Weekly payout run: totals, exceptions, payees, mark paid with UTR and on-demand delivery partner requests."
+    },
+    "zones": {
+      "title": "Delivery zones and fees",
+      "summary": "Zones, the polygon editor, zone pause or resume, and localities."
+    },
+    "tickets": {
+      "title": "Support tickets",
+      "summary": "Support queues with SLA timers."
+    },
+    "ticketDetail": {
+      "title": "Ticket",
+      "summary": "Thread, macros, order context and resolution actions."
+    },
+    "auditLog": {
+      "title": "Audit log",
+      "summary": "Append-only record of every admin action with filters and before/after diffs."
+    },
+    "reports": {
+      "title": "Reports and exports",
+      "summary": "Pick a report, start an export and download finished CSV files."
+    },
+    "customerDetail": {
+      "title": "Customer",
+      "summary": "Order history, flags and account actions."
+    },
+    "payoutDetail": {
+      "title": "Payee statement",
+      "summary": "Statement lines for one payee, with links to the ledger."
+    },
+    "pricing": {
+      "title": "Fee configuration",
+      "summary": "Versioned delivery fee slabs with a simulator and an effective date. Changes need a second approver."
+    }
+  },
+  "shell": {
+    "product": "Admin",
+    "screenIds": "Screens: {{ids}}"
+  },
+  "roles": {
+    "ADMIN_SUPER": "Super admin",
+    "ADMIN_OPS": "Operations",
+    "ADMIN_SUPPORT": "Support",
+    "ADMIN_FINANCE": "Finance"
+  }
+}

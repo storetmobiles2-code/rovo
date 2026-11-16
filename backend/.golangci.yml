@@ -1,0 +1,9 @@
+version: "2"
+linters:
+  settings:
+    staticcheck:
+      # ST1018 flags U+200C (ZWNJ), which is correct, required orthography in
+      # Telugu (and other Indic scripts) used throughout the seed/i18n data.
+      checks:
+        - all
+        - -ST1018

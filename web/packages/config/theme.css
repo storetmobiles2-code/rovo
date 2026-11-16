@@ -1,0 +1,218 @@
+/*
+ * rovo Tailwind CSS v4 theme. Import after `@import "tailwindcss";`.
+ * Values mirror src/tokens.ts (kept in sync by tokens.test.ts).
+ * Semantic colours (bg, surface, text, primary, …) switch with the theme:
+ *   <html data-theme="light">  (default; customer, restaurant, admin)
+ *   <html data-theme="system"> (rider: follows prefers-color-scheme)
+ *   <html data-theme="dark">
+ */
+@theme {
+  --color-white: #ffffff;
+  --color-ink-900: #0c1825;
+  --color-ink-700: #1e2a3a;
+  --color-ink-500: #4b5768;
+  --color-ink-400: #7a8494;
+  --color-ink-200: #d5dae1;
+  --color-ink-100: #eef0f3;
+  --color-flame-50: #fff4eb;
+  --color-flame-100: #ffe4cc;
+  --color-flame-400: #ff8603;
+  --color-flame-500: #f85000;
+  --color-flame-600: #e03a00;
+  --color-flame-700: #c2410c;
+  --color-flame-800: #9a3412;
+  --color-plate-50: #f6f4ec;
+  --color-success-700: #15803d;
+  --color-success-50: #ecfdf3;
+  --color-warning-700: #a15c07;
+  --color-warning-50: #fffaeb;
+  --color-danger-700: #b42318;
+  --color-danger-50: #fef3f2;
+  --color-info-700: #1d4ed8;
+  --color-info-50: #eff4ff;
+  --color-veg: #0f7b34;
+  --color-nonveg: #7a3e1d;
+  --color-egg: #a15c07;
+
+  --font-sans:
+    system-ui, -apple-system, Roboto, 'Noto Sans', 'Noto Sans Telugu', 'Segoe UI', sans-serif;
+  --font-telugu: 'Noto Sans Telugu', 'Noto Sans Telugu UI', system-ui, sans-serif;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.25rem;
+
+  --spacing-touch: 3rem; /* 48 px touch target (WCAG 2.5.8 asks ≥ 24, we use ≥ 44) */
+
+  --shadow-card: 0 1px 2px rgb(12 24 37 / 0.06), 0 1px 3px rgb(12 24 37 / 0.1);
+  --shadow-sheet: 0 -4px 24px rgb(12 24 37 / 0.18);
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+
+  --animate-skeleton: rv-pulse 1.4s ease-in-out infinite;
+
+  --background-image-brand-gradient: linear-gradient(90deg, #ff8603, #f85000 55%, #e03a00);
+
+  @keyframes rv-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
+  }
+}
+
+/* Semantic, theme-switchable colours. Use these in components: bg-bg, text-fg, bg-primary … */
+@theme inline {
+  --color-bg: var(--rv-bg);
+  --color-surface: var(--rv-surface);
+  --color-surface-muted: var(--rv-surface-muted);
+  --color-fg: var(--rv-fg);
+  --color-fg-muted: var(--rv-fg-muted);
+  --color-border: var(--rv-border);
+  --color-border-subtle: var(--rv-border-subtle);
+  --color-primary: var(--rv-primary);
+  --color-primary-hover: var(--rv-primary-hover);
+  --color-on-primary: var(--rv-on-primary);
+  --color-link: var(--rv-link);
+  --color-accent: var(--rv-accent);
+  --color-focus: var(--rv-focus);
+  --color-success: var(--rv-success);
+  --color-success-bg: var(--rv-success-bg);
+  --color-warning: var(--rv-warning);
+  --color-warning-bg: var(--rv-warning-bg);
+  --color-danger: var(--rv-danger);
+  --color-danger-bg: var(--rv-danger-bg);
+  --color-info: var(--rv-info);
+  --color-info-bg: var(--rv-info-bg);
+}
+
+@layer base {
+  :root,
+  [data-theme='light'] {
+    color-scheme: light;
+    --rv-bg: #f6f4ec;
+    --rv-surface: #ffffff;
+    --rv-surface-muted: #eef0f3;
+    --rv-fg: #0c1825;
+    --rv-fg-muted: #4b5768;
+    --rv-border: #7a8494;
+    --rv-border-subtle: #d5dae1;
+    --rv-primary: #c2410c;
+    --rv-primary-hover: #9a3412;
+    --rv-on-primary: #ffffff;
+    --rv-link: #c2410c;
+    --rv-accent: #f85000;
+    --rv-focus: #0c1825;
+    --rv-success: #15803d;
+    --rv-success-bg: #ecfdf3;
+    --rv-warning: #a15c07;
+    --rv-warning-bg: #fffaeb;
+    --rv-danger: #b42318;
+    --rv-danger-bg: #fef3f2;
+    --rv-info: #1d4ed8;
+    --rv-info-bg: #eff4ff;
+  }
+
+  [data-theme='dark'] {
+    color-scheme: dark;
+    --rv-bg: #0c1825;
+    --rv-surface: #1e2a3a;
+    --rv-surface-muted: #16212f;
+    --rv-fg: #f6f4ec;
+    --rv-fg-muted: #b8c0cc;
+    --rv-border: #8a94a3;
+    --rv-border-subtle: #2c3a4d;
+    --rv-primary: #ff8a4c;
+    --rv-primary-hover: #ffb061;
+    --rv-on-primary: #0c1825;
+    --rv-link: #ff8a4c;
+    --rv-accent: #ff8a4c;
+    --rv-focus: #ffb061;
+    --rv-success: #4ade80;
+    --rv-success-bg: #12301f;
+    --rv-warning: #fbbf24;
+    --rv-warning-bg: #33260a;
+    --rv-danger: #f87171;
+    --rv-danger-bg: #3a1414;
+    --rv-info: #93b4ff;
+    --rv-info-bg: #14223f;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    [data-theme='system'] {
+      color-scheme: dark;
+      --rv-bg: #0c1825;
+      --rv-surface: #1e2a3a;
+      --rv-surface-muted: #16212f;
+      --rv-fg: #f6f4ec;
+      --rv-fg-muted: #b8c0cc;
+      --rv-border: #8a94a3;
+      --rv-border-subtle: #2c3a4d;
+      --rv-primary: #ff8a4c;
+      --rv-primary-hover: #ffb061;
+      --rv-on-primary: #0c1825;
+      --rv-link: #ff8a4c;
+      --rv-accent: #ff8a4c;
+      --rv-focus: #ffb061;
+      --rv-success: #4ade80;
+      --rv-success-bg: #12301f;
+      --rv-warning: #fbbf24;
+      --rv-warning-bg: #33260a;
+      --rv-danger: #f87171;
+      --rv-danger-bg: #3a1414;
+      --rv-info: #93b4ff;
+      --rv-info-bg: #14223f;
+    }
+  }
+
+  html {
+    font-family: var(--font-sans);
+    background-color: var(--rv-bg);
+    color: var(--rv-fg);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100dvh;
+    font-size: 1rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Telugu: stacked vowel signs need room; never letter-space or uppercase. */
+  :lang(te) {
+    line-height: 1.6;
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  /* Visible focus for keyboard users on every interactive element. */
+  :focus-visible {
+    outline: 3px solid var(--rv-focus);
+    outline-offset: 2px;
+  }
+
+  /* Keep focused elements clear of sticky bars and bottom sheets (SC 2.4.11). */
+  html {
+    scroll-padding-bottom: 6rem;
+    scroll-padding-top: 4rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

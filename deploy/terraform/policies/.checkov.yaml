@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# Policy checks for `tofu plan` output (doc 22 §12 policies/). Run: make tf-lint.
+directory:
+  - .
+framework:
+  - terraform
+# Skips: documented, deliberate for the closed-pilot phase. Each references the
+# ruling that accepts the residual risk; revisit before Gate B.
+skip-check:
+  - CKV_AWS_144  # S3 cross-region replication — DR pre-provisioning deferred to after Gate B (C10)
+  - CKV_AWS_18   # S3 access logging on every bucket — the logs bucket itself is the sink
+  - CKV2_AWS_6   # public access block handled by a dedicated resource, flagged as not-inline
+  - CKV_AWS_338  # CloudWatch 1-year retention — app logs are 180 d by design (R36), security logs are 400 d
+compact: true
+quiet: true

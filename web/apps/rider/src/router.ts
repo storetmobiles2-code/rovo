@@ -1,0 +1,52 @@
+import { createRootRoute, createRoute, createRouter, Link, Outlet, type RouterHistory } from '@tanstack/react-router';
+import { RootLayout } from './layout';
+import { LoginScreen } from './login';
+import { NotFound } from './not-found';
+import { makeScreen } from './route-screens';
+
+const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFound });
+
+const layoutRoute = createRoute({ getParentRoute: () => rootRoute, id: 'layout', component: RootLayout });
+const tab = <const P extends string>(path: P, title: string, testId: string) =>
+  createRoute({ getParentRoute: () => layoutRoute, path, component: makeScreen(title, undefined, testId, false) });
+const full = <const P extends string>(path: P, title: string, testId: string, note?: string) =>
+  createRoute({ getParentRoute: () => rootRoute, path, component: makeScreen(title, note, testId, true) });
+
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/login',
+  validateSearch: (s: Record<string, unknown>): { redirect?: string } => ({ redirect: typeof s.redirect === 'string' ? s.redirect : undefined }),
+  component: LoginScreen,
+});
+
+const routeTree = rootRoute.addChildren([
+  layoutRoute.addChildren([
+    tab('/', 'screens.home.title', 'home-screen'),
+    tab('/earnings', 'screens.earnings.title', 'earnings-screen'),
+    tab('/cash', 'screens.cash.title', 'cash-screen'),
+    tab('/history', 'screens.history.title', 'history-screen'),
+    tab('/profile', 'screens.profile.title', 'profile-screen'),
+  ]),
+  loginRoute,
+  full('/onboarding', 'screens.onboarding.title', 'onboarding-screen', 'Document status, permissions checklist (location, notifications) and install prompt.'),
+  full('/offers/$offerId', 'screens.offer.title', 'offer-screen', 'Offer card with a 45 s countdown, accept/decline, distance and pay estimate.'),
+  full('/deliveries/$deliveryId', 'screens.delivery.title', 'delivery-screen', 'Step flow: to restaurant → picked up → at drop → delivered (COD / delivery code per R39).'),
+  full('/earnings/$weekId', 'screens.earnings.title', 'earnings-week-screen'),
+  full('/settings', 'screens.profile.title', 'settings-screen'),
+  full('/help', 'screens.help.title', 'help-screen'),
+]);
+
+/** `history` is injectable so tests can drive the app with a memory history. */
+export function createAppRouter(history?: RouterHistory) {
+  return createRouter({ routeTree, history, defaultPreload: 'intent', defaultNotFoundComponent: NotFound, scrollRestoration: true });
+}
+
+export const router = createAppRouter();
+
+declare module '@tanstack/react-router' {
+  interface Register {
+    router: typeof router;
+  }
+}
+
+export { Link };

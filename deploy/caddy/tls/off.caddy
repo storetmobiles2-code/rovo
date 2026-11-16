@@ -1,0 +1,2 @@
+# ROVO_CADDY_TLS=off: plain HTTP (local only). Sites must use ROVO_SITE_SCHEME=http.
+auto_https off

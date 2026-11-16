@@ -1,0 +1,27 @@
+{
+  "nav": {
+    "inbox": "ఆర్డర్లు",
+    "menu": "మెనూ",
+    "hours": "సమయాలు",
+    "analytics": "రిపోర్టులు",
+    "payouts": "చెల్లింపులు",
+    "more": "మరిన్ని"
+  },
+  "screens": {
+    "outlets": { "title": "మీ అవుట్‌లెట్ ఎంచుకోండి" },
+    "start": { "title": "షిఫ్ట్ ప్రారంభించండి" },
+    "inbox": { "title": "లైవ్ ఆర్డర్లు" },
+    "orders": { "title": "ఆర్డర్ చరిత్ర" },
+    "orderDetail": { "title": "ఆర్డర్ వివరాలు" },
+    "menu": { "title": "మెనూ" },
+    "menuItem": { "title": "ఐటమ్ మార్చండి" },
+    "availability": { "title": "అవుట్‌లెట్ స్థితి మరియు స్టాక్" },
+    "hours": { "title": "తెరిచే సమయాలు" },
+    "analytics": { "title": "ఈరోజు మరియు ఈ వారం" },
+    "payouts": { "title": "చెల్లింపులు" },
+    "payoutDetail": { "title": "చెల్లింపు స్టేట్‌మెంట్" },
+    "devices": { "title": "ఆర్డర్ స్వీకరించే పరికరాలు" },
+    "alerts": { "title": "అలర్ట్ సెల్ఫ్-టెస్ట్" },
+    "help": { "title": "సహాయం" }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "@rovo/shell",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared app shell for rovo frontends: providers, layout, error boundary, 404, login screens",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./runtime-config": "./src/runtime-config.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@rovo/api-client": "workspace:*",
+    "@rovo/auth": "workspace:*",
+    "@rovo/i18n": "workspace:*",
+    "@rovo/ui": "workspace:*",
+    "@rovo/utils": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "lucide-react": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@rovo/config": "workspace:*",
+    "@rovo/testing": "workspace:*",
+    "@testing-library/jest-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  }
+}

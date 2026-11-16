@@ -1,0 +1,27 @@
+{
+  "nav": {
+    "home": "Home",
+    "earnings": "Earnings",
+    "cash": "Cash",
+    "history": "History",
+    "profile": "Profile"
+  },
+  "screens": {
+    "home": { "title": "Go online" },
+    "onboarding": { "title": "Get ready to deliver" },
+    "offer": { "title": "New delivery offer" },
+    "delivery": { "title": "Active delivery" },
+    "earnings": { "title": "Earnings" },
+    "cash": { "title": "Cash in hand" },
+    "history": { "title": "Delivery history" },
+    "profile": { "title": "Profile and settings" },
+    "help": { "title": "Help" }
+  },
+  "steps": {
+    "toRestaurant": "Go to restaurant",
+    "atRestaurant": "At restaurant",
+    "pickedUp": "Picked up",
+    "atDrop": "At customer",
+    "delivered": "Delivered"
+  }
+}

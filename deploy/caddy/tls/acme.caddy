@@ -1,0 +1,2 @@
+# ROVO_CADDY_TLS=acme: public certificates via ACME (real domain pointed at this host).
+email {$ROVO_ACME_EMAIL}
