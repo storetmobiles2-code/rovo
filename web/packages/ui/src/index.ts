@@ -25,3 +25,5 @@ export { StatusTimeline, Countdown } from './components/Timeline';
 export type { StatusTimelineProps, TimelineStep, StepState, CountdownProps } from './components/Timeline';
 export { PageHeader, BottomNav, OfflineBanner, LanguageSwitcher } from './components/Shell';
 export type { PageHeaderProps, BottomNavProps, BottomNavItem, OfflineBannerProps, LanguageSwitcherProps } from './components/Shell';
+export { BillBreakdown } from './components/Bill';
+export type { BillBreakdownProps, BillBreakdownLine } from './components/Bill';

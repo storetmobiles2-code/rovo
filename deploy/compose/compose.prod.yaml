@@ -258,6 +258,7 @@ services:
       ROVO_ACME_EMAIL: ${ROVO_ACME_EMAIL:-}
       ROVO_TRUSTED_ORIGIN_SECRET: ${ROVO_TRUSTED_ORIGIN_SECRET:?run make dev-keys}
       ROVO_API_UPSTREAM: api:8080
+      ROVO_API_HEALTH_UPSTREAM: api:9090
       ROVO_MEDIA_UPSTREAM: minio:9000
     # Mount the repo Caddyfile over the baked one (edit without rebuilding).
     volumes:

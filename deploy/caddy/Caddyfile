@@ -16,6 +16,7 @@
 #   ROVO_ACME_EMAIL             contact for acme mode
 #   ROVO_TRUSTED_ORIGIN_SECRET  sent to the API as X-Rovo-Origin-Verify (required)
 #   ROVO_API_UPSTREAM           default api:8080
+#   ROVO_API_HEALTH_UPSTREAM    default api:9090 (internal listener; only /healthz is exposed)
 #   ROVO_MEDIA_UPSTREAM         default minio:9000
 {
 	admin off
@@ -78,6 +79,28 @@
 			read_timeout 130s
 			write_timeout 130s
 			keepalive 90s
+		}
+	}
+}
+
+# Edge-to-API liveness on every host: GET /healthz -> the API's internal
+# listener /healthz (liveness only; /readyz and /metrics are never proxied).
+# Used by scripts/smoke.sh and external uptime probes.
+(health_route) {
+	@health {
+		path /healthz
+		method GET HEAD
+	}
+	handle @health {
+		header Cache-Control "no-store"
+		reverse_proxy {$ROVO_API_HEALTH_UPSTREAM:api:9090} {
+			header_up -Cookie
+			header_up -Authorization
+			header_down -Set-Cookie
+			transport http {
+				dial_timeout 2s
+				response_header_timeout 5s
+			}
 		}
 	}
 }
@@ -179,6 +202,7 @@
 
 {$ROVO_SITE_SCHEME:http}://app.{$ROVO_DOMAIN:rovo.localhost} {
 	import base
+	import health_route
 	import api_route
 	import media_route
 	import csp_customer
@@ -187,6 +211,7 @@
 
 {$ROVO_SITE_SCHEME:http}://restaurant.{$ROVO_DOMAIN:rovo.localhost} {
 	import base
+	import health_route
 	import api_route
 	import media_route
 	import csp_restaurant
@@ -195,6 +220,7 @@
 
 {$ROVO_SITE_SCHEME:http}://rider.{$ROVO_DOMAIN:rovo.localhost} {
 	import base
+	import health_route
 	import api_route
 	import media_route
 	import csp_rider
@@ -203,6 +229,7 @@
 
 {$ROVO_SITE_SCHEME:http}://admin.{$ROVO_DOMAIN:rovo.localhost} {
 	import base
+	import health_route
 	import api_route
 	import media_route
 	import csp_admin
@@ -216,6 +243,7 @@
 		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
 		Cache-Control "no-store"
 	}
+	import health_route
 	@webhook {
 		path /api/v1/webhooks/*
 		method POST

@@ -96,5 +96,19 @@
   },
   "toast": {
     "region": "Notifications"
+  },
+  "bill": {
+    "title": "Bill details",
+    "ITEM_TOTAL": "Item total",
+    "PACKAGING": "Packaging",
+    "DELIVERY_FEE": "Delivery fee",
+    "PLATFORM_FEE": "Platform fee",
+    "SMALL_CART_FEE": "Small cart fee",
+    "DISCOUNT": "Discount",
+    "TAX": "Taxes",
+    "ROUND_OFF": "Round off",
+    "included": "included",
+    "payable": "To pay",
+    "savings": "You save"
   }
 }
