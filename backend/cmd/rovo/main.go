@@ -207,12 +207,7 @@ func runServers(ctx context.Context, cfg *config.Config, logger *slog.Logger, ap
 
 	var publicSrv *http.Server
 	if api {
-		mux := httpx.NewMux(
-			httpx.RequestContext(logger),
-			httpx.Recover(logger),
-			httpx.SecurityHeaders(),
-			httpx.BodyLimit(1<<20),
-		)
+		mux := httpx.NewMux(application.PublicMiddleware()...)
 		// Every domain module registers its routes on the public mux.
 		modules := application.RegisterRoutes(mux)
 		logger.Info("modules registered", "count", len(modules), "modules", modules)

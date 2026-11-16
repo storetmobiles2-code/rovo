@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -94,10 +95,12 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, opts Optio
 
 	a := &App{Deps: deps, Outbox: &testhooks.Outbox{}, jobs: queue.NewRegistry(), work: opts.Worker}
 
+	sms := notifications.FakeSMS{Outbox: a.Outbox}
+
 	// Modules are constructed against deps before the queue client exists; they must not enqueue
 	// from New. Order follows the dependency direction (identity/geo first, read models last).
 	a.Modules = []*platform.Module{
-		identity.New(deps),
+		identity.New(deps, otpSender{sms: sms, outbox: a.Outbox}),
 		geo.New(deps),
 		users.New(deps),
 		catalog.New(deps),
@@ -108,7 +111,7 @@ func New(cfg *config.Config, logger *slog.Logger, pool *pgxpool.Pool, opts Optio
 		dispatch.New(deps),
 		ledger.New(deps),
 		ratings.New(deps),
-		notifications.New(deps, notifications.FakeSMS{Outbox: a.Outbox}, notifications.FakePush{Outbox: a.Outbox}),
+		notifications.New(deps, sms, notifications.FakePush{Outbox: a.Outbox}),
 		support.New(deps),
 		adminaudit.New(deps),
 		reporting.New(deps),
@@ -155,6 +158,28 @@ func (a *App) RegisterRoutes(mux *httpx.Mux) []string {
 	return names
 }
 
+// PublicMiddleware is the chain for the public API listener, outermost first: request context,
+// panic recovery, security headers, body limit, edge-origin check, audience-from-Host, CSRF
+// (cross-origin + client header) and principal extraction. Handlers enforce authorisation with
+// httpx.Require*.
+func (a *App) PublicMiddleware() []httpx.Middleware {
+	cfg, logger := a.Deps.Config, a.Deps.Logger
+	mw := []httpx.Middleware{
+		httpx.RequestContext(logger),
+		httpx.Recover(logger),
+		httpx.SecurityHeaders(),
+		httpx.BodyLimit(1 << 20),
+		httpx.OriginVerify(cfg.TrustedOriginSecret),
+		httpx.Audiences(cfg.AppHosts).ResolveAudience(),
+		httpx.CrossOriginProtection(),
+		httpx.RequireClientHeader(),
+	}
+	if id, ok := a.Deps.Service(platform.ServiceIdentity).(identity.Service); ok {
+		mw = append(mw, httpx.Authenticate(httpx.AuthConfig{Issuer: id, Cookies: a.Deps.Cookies, Sessions: id}))
+	}
+	return mw
+}
+
 // Working reports whether this process works River jobs (false for the api-only process).
 func (a *App) Working() bool { return a.work }
 
@@ -178,4 +203,21 @@ func (a *App) Stop(ctx context.Context) error {
 		return a.queue.Stop(ctx)
 	}
 	return nil
+}
+
+// otpSender delivers login codes through the SMS port. Outside production it also records the
+// code in the testhooks outbox so E2E tests and local developers can read it (QA-16); the code is
+// never logged.
+type otpSender struct {
+	sms    notifications.SMSSender
+	outbox *testhooks.Outbox
+}
+
+func (o otpSender) SendOTP(ctx context.Context, phoneE164, code string, aud auth.Audience) error {
+	if o.outbox != nil {
+		o.outbox.Add(testhooks.Message{Channel: "OTP", To: phoneE164, Code: code,
+			Meta: map[string]string{"audience": string(aud)}, CreatedAt: time.Now().UTC()})
+	}
+	_, err := o.sms.SendSMS(ctx, phoneE164, "otp_login", map[string]string{"code": code, "audience": string(aud)})
+	return err
 }
