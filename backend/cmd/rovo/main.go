@@ -18,6 +18,7 @@ import (
 
 	"log/slog"
 
+	rovoapp "github.com/storetmobiles2-code/rovo/backend/internal/app"
 	"github.com/storetmobiles2-code/rovo/backend/internal/platform/config"
 	"github.com/storetmobiles2-code/rovo/backend/internal/platform/db"
 	"github.com/storetmobiles2-code/rovo/backend/internal/platform/health"
@@ -134,7 +135,7 @@ func runSeed(_ context.Context, cfg *config.Config, logger *slog.Logger) error {
 
 // runServers starts the requested servers and blocks until ctx is cancelled, then
 // drains connections. The public mux carries the platform middleware chain; feature
-// routes are added by module registration (a follow-up wires the modules in).
+// routes are added by module registration through the composition root (internal/app).
 func runServers(ctx context.Context, cfg *config.Config, logger *slog.Logger, api, worker bool) error {
 	pool, err := db.NewPool(ctx, cfg.DatabaseURL, db.Options{
 		MaxConns:         10,
@@ -145,6 +146,11 @@ func runServers(ctx context.Context, cfg *config.Config, logger *slog.Logger, ap
 		return fmt.Errorf("db pool: %w", err)
 	}
 	defer pool.Close()
+
+	application, err := rovoapp.New(cfg, logger, pool, rovoapp.Options{Worker: worker})
+	if err != nil {
+		return err
+	}
 
 	checker := health.New(pool, version)
 
@@ -162,7 +168,9 @@ func runServers(ctx context.Context, cfg *config.Config, logger *slog.Logger, ap
 			httpx.SecurityHeaders(),
 			httpx.BodyLimit(1<<20),
 		)
-		// Feature routes are registered here by the domain modules (follow-up).
+		// Every domain module registers its routes on the public mux.
+		modules := application.RegisterRoutes(mux)
+		logger.Info("modules registered", "count", len(modules), "modules", modules)
 		publicSrv = &http.Server{Addr: cfg.HTTPAddr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	}
 
@@ -182,8 +190,11 @@ func runServers(ctx context.Context, cfg *config.Config, logger *slog.Logger, ap
 			}
 		}()
 	}
+	if err := application.Start(ctx, api); err != nil {
+		return err
+	}
 	if worker {
-		logger.Info("worker enabled (River job registration is a follow-up)")
+		logger.Info("worker enabled", "working_jobs", application.Working())
 	}
 
 	select {
@@ -199,6 +210,9 @@ func runServers(ctx context.Context, cfg *config.Config, logger *slog.Logger, ap
 		_ = publicSrv.Shutdown(shutdownCtx)
 	}
 	_ = internalSrv.Shutdown(shutdownCtx)
+	if err := application.Stop(shutdownCtx); err != nil {
+		logger.Warn("river stop", "err", err)
+	}
 	return nil
 }
 

@@ -38,10 +38,10 @@ const (
 
 // QuoteRequest is the quote input (doc 11 schema QuoteRequest).
 type QuoteRequest struct {
-	RestaurantID uuid.UUID
-	AddressID    uuid.UUID
-	Lines        []QuoteLineInput
-	CouponCode   string
+	RestaurantID  uuid.UUID
+	AddressID     uuid.UUID
+	Lines         []QuoteLineInput
+	CouponCode    string
 	PaymentMethod string
 }
 
@@ -55,10 +55,10 @@ type QuoteLineInput struct {
 
 // BillLine is one priced bill component.
 type BillLine struct {
-	Component  BillComponent
-	LabelI18n  map[string]string
+	Component   BillComponent
+	LabelI18n   map[string]string
 	AmountPaise int64
-	Hidden     bool // true for the zero PLATFORM_FEE line (R59)
+	Hidden      bool // true for the zero PLATFORM_FEE line (R59)
 }
 
 // Quote is the signed, stored price breakdown.
@@ -82,5 +82,5 @@ func (s *service) Quote(context.Context, QuoteRequest) (Quote, error) {
 	return Quote{}, apperr.NotImplemented("pricing.Quote")
 }
 
-func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps) {}
+func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps)    {}
 func (s *service) registerJobs(_ *queue.Registry, _ *app.Deps) {}

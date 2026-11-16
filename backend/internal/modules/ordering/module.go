@@ -53,10 +53,10 @@ const (
 
 // Order is the order aggregate view.
 type Order struct {
-	ID        uuid.UUID
-	Code      string
-	Status    Status
-	Version   int
+	ID         uuid.UUID
+	Code       string
+	Status     Status
+	Version    int
 	TotalPaise int64
 }
 
@@ -101,5 +101,5 @@ func (s *service) Get(context.Context, uuid.UUID) (Order, error) {
 	return Order{}, apperr.NotImplemented("ordering.Get")
 }
 
-func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps) {}
+func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps)    {}
 func (s *service) registerJobs(_ *queue.Registry, _ *app.Deps) {}

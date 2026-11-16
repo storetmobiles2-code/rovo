@@ -24,10 +24,10 @@ type Service interface {
 
 // Restaurant is a public restaurant profile.
 type Restaurant struct {
-	ID       uuid.UUID
-	Name     string
-	ZoneID   uuid.UUID
-	IsOpen   bool
+	ID          uuid.UUID
+	Name        string
+	ZoneID      uuid.UUID
+	IsOpen      bool
 	MenuVersion int
 }
 
@@ -47,11 +47,11 @@ type MenuCategory struct {
 
 // MenuItem is a sellable item (veg/non-veg/egg per doc 05).
 type MenuItem struct {
-	ID        uuid.UUID
-	Name      string
-	VegType   string
+	ID         uuid.UUID
+	Name       string
+	VegType    string
 	PricePaise int64
-	Available bool
+	Available  bool
 }
 
 type service struct{ deps *app.Deps }
@@ -70,5 +70,5 @@ func (s *service) Menu(context.Context, uuid.UUID) (Menu, error) {
 	return Menu{}, apperr.NotImplemented("catalog.Menu")
 }
 
-func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps) {}
+func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps)    {}
 func (s *service) registerJobs(_ *queue.Registry, _ *app.Deps) {}

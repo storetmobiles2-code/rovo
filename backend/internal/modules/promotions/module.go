@@ -22,17 +22,17 @@ type Service interface {
 
 // CouponContext is the order context a coupon is validated against.
 type CouponContext struct {
-	UserID        uuid.UUID
-	RestaurantID  uuid.UUID
-	ZoneID        uuid.UUID
+	UserID         uuid.UUID
+	RestaurantID   uuid.UUID
+	ZoneID         uuid.UUID
 	ItemTotalPaise int64
 }
 
 // CouponResult is the outcome of validation.
 type CouponResult struct {
-	Code         string
+	Code          string
 	DiscountPaise int64
-	FundedBy     string // PLATFORM | RESTAURANT
+	FundedBy      string // PLATFORM | RESTAURANT
 }
 
 type service struct{ deps *app.Deps }
@@ -47,5 +47,5 @@ func (s *service) Validate(context.Context, string, CouponContext) (CouponResult
 	return CouponResult{}, apperr.NotImplemented("promotions.Validate")
 }
 
-func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps) {}
+func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps)    {}
 func (s *service) registerJobs(_ *queue.Registry, _ *app.Deps) {}

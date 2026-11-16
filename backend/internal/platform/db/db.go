@@ -24,10 +24,10 @@ type Querier interface {
 
 // Options tune the pool. Zero values use the defaults below.
 type Options struct {
-	MaxConns          int32
-	StatementTimeout  time.Duration // 5 s for api, 60 s for jobs (08 §7.2)
-	IdleInTxTimeout   time.Duration
-	ApplicationName   string
+	MaxConns         int32
+	StatementTimeout time.Duration // 5 s for api, 60 s for jobs (08 §7.2)
+	IdleInTxTimeout  time.Duration
+	ApplicationName  string
 }
 
 // NewPool opens a pgx pool and pings it.

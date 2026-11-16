@@ -24,20 +24,20 @@ import (
 // Services by the composition root after construction so modules can call each other through the
 // exported interfaces (never internals).
 type Deps struct {
-	Config    *config.Config
-	Logger    *slog.Logger
-	Pool      *pgxpool.Pool
-	Clock     clock.Clock
-	IDs       idgen.Generator
-	Queue     queue.Enqueuer
-	Events    *events.Publisher
-	Realtime  *realtime.Bus
-	RateLimit *ratelimit.Limiter
-	Blob      blob.Store
-	Tokens    *auth.Issuer
-	Cookies   auth.Cookies
-	Fields    *auth.FieldKeyring
-	Passwords *auth.PasswordHasher
+	Config      *config.Config
+	Logger      *slog.Logger
+	Pool        *pgxpool.Pool
+	Clock       clock.Clock
+	IDs         idgen.Generator
+	Queue       queue.Enqueuer
+	Events      *events.Publisher
+	Realtime    *realtime.Bus
+	RateLimit   *ratelimit.Limiter
+	Blob        blob.Store
+	Tokens      *auth.Issuer
+	Cookies     auth.Cookies
+	Fields      *auth.FieldKeyring
+	Passwords   *auth.PasswordHasher
 	Idempotency *httpx.IdempotencyStore
 
 	// Services holds the cross-module service interfaces. It is an opaque map keyed by a
@@ -87,8 +87,8 @@ type RegisterJobs func(reg *queue.Registry, deps *Deps)
 // composition root collects modules, publishes their services into Deps.Services, then calls
 // Routes and Jobs.
 type Module struct {
-	Name     string
-	Service  any
-	Routes   Register
-	Jobs     RegisterJobs
+	Name    string
+	Service any
+	Routes  Register
+	Jobs    RegisterJobs
 }

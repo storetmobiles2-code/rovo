@@ -20,18 +20,18 @@ const Channel = "rovo_events"
 
 // Frame is the thin envelope sent over NOTIFY and to SSE clients (≤ 8000 bytes on the wire).
 type Frame struct {
-	Topic   string          `json:"topic"`
-	Event   string          `json:"event"`   // SSE event: name (11 §4.2)
-	ID      string          `json:"id"`      // <entityType>:<entityId>:<version>
-	Data    json.RawMessage `json:"data"`
+	Topic string          `json:"topic"`
+	Event string          `json:"event"` // SSE event: name (11 §4.2)
+	ID    string          `json:"id"`    // <entityType>:<entityId>:<version>
+	Data  json.RawMessage `json:"data"`
 }
 
 // Bus publishes frames (transactionally via NotifyTx) and, on the subscriber side, reads the
 // LISTEN channel and dispatches to the local hub.
 type Bus struct {
-	pool   *pgxpool.Pool
-	hub    *Hub
-	logger *slog.Logger
+	pool    *pgxpool.Pool
+	hub     *Hub
+	logger  *slog.Logger
 	onState func(up bool)
 }
 

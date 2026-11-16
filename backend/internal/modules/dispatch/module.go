@@ -66,5 +66,5 @@ func (s *service) AcceptOffer(context.Context, uuid.UUID, uuid.UUID) (Delivery, 
 	return Delivery{}, apperr.NotImplemented("dispatch.AcceptOffer")
 }
 
-func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps) {}
+func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps)    {}
 func (s *service) registerJobs(_ *queue.Registry, _ *app.Deps) {}

@@ -23,21 +23,21 @@ type Service interface {
 
 // Me is the /me response shape (doc 11 §2.2).
 type Me struct {
-	ID            uuid.UUID
-	FullName      string
-	PhoneMasked   string
+	ID              uuid.UUID
+	FullName        string
+	PhoneMasked     string
 	PreferredLocale string
 }
 
 // Address is a saved delivery address.
 type Address struct {
-	ID            uuid.UUID
-	HouseNo       string
+	ID             uuid.UUID
+	HouseNo        string
 	BuildingStreet string
-	Landmark      string
-	LocalityID    uuid.UUID
-	PinCode       string
-	Lat, Lng      float64
+	Landmark       string
+	LocalityID     uuid.UUID
+	PinCode        string
+	Lat, Lng       float64
 }
 
 type service struct{ deps *app.Deps }
@@ -56,5 +56,5 @@ func (s *service) ListAddresses(context.Context, uuid.UUID) ([]Address, error) {
 	return nil, apperr.NotImplemented("users.ListAddresses")
 }
 
-func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps) {}
+func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps)    {}
 func (s *service) registerJobs(_ *queue.Registry, _ *app.Deps) {}

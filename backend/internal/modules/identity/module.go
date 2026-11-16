@@ -66,7 +66,7 @@ func (s *service) Verify(token string, aud auth.Audience) (*auth.Principal, erro
 // SessionValid is a stub that trusts the token until session revocation is wired (AUTH-D05).
 func (s *service) SessionValid(uuid.UUID) bool { return true }
 
-func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps) {}
+func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps)    {}
 func (s *service) registerJobs(_ *queue.Registry, _ *app.Deps) {}
 
 var _ httpx.Authenticator = (*service)(nil)

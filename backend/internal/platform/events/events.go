@@ -8,8 +8,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/storetmobiles2-code/rovo/backend/internal/platform/queue"
 )
@@ -18,8 +18,8 @@ import (
 // minimal facts; consumers that need more call the owning module's reader (08 §3.3).
 type Envelope struct {
 	ID               uuid.UUID `json:"id"`
-	Type             string    `json:"type"`    // e.g. "ordering.order_accepted.v1"
-	Name             string    `json:"name"`    // e.g. "OrderAccepted"
+	Type             string    `json:"type"` // e.g. "ordering.order_accepted.v1"
+	Name             string    `json:"name"` // e.g. "OrderAccepted"
 	Version          int       `json:"version"`
 	OccurredAt       time.Time `json:"occurredAt"`
 	CityID           uuid.UUID `json:"cityId"`

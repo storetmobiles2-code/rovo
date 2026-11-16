@@ -25,11 +25,11 @@ type Config struct {
 // Controls are the hooks the composition root hands the test surface: an advanceable clock, a
 // function to run due River jobs, and the fake-provider outbox.
 type Controls struct {
-	Clock   *clock.Offset
-	Outbox  *Outbox
-	RunDue  func(ctx context.Context) (int, error)
-	Reset   func(ctx context.Context) error
-	Seed    func(ctx context.Context) error
+	Clock  *clock.Offset
+	Outbox *Outbox
+	RunDue func(ctx context.Context) (int, error)
+	Reset  func(ctx context.Context) error
+	Seed   func(ctx context.Context) error
 }
 
 // Mount registers /_test/* on mux. Every call requires the shared secret header.

@@ -33,11 +33,11 @@ type Job[T JobArgs] = river.Job[T]
 
 // InsertOpts controls scheduling, queue, uniqueness and retries.
 type InsertOpts struct {
-	Queue       string
-	ScheduledAt time.Time     // zero = now
-	MaxAttempts int           // 0 = River default
-	Priority    int           // 1 (highest) .. 4
-	UniqueByArgs bool         // dedupe identical args (idempotent timers/subscribers)
+	Queue        string
+	ScheduledAt  time.Time // zero = now
+	MaxAttempts  int       // 0 = River default
+	Priority     int       // 1 (highest) .. 4
+	UniqueByArgs bool      // dedupe identical args (idempotent timers/subscribers)
 	UniquePeriod time.Duration
 }
 

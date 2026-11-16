@@ -42,10 +42,10 @@ type Session struct {
 
 // Refund records a refund request/result.
 type Refund struct {
-	ID       uuid.UUID
-	OrderID  uuid.UUID
-	Amount   money.Money
-	Status   string
+	ID         uuid.UUID
+	OrderID    uuid.UUID
+	Amount     money.Money
+	Status     string
 	ReasonCode string
 }
 
@@ -67,10 +67,10 @@ type Provider interface {
 
 // CheckoutRequest is the input to CreateCheckout.
 type CheckoutRequest struct {
-	OrderID    uuid.UUID
-	OrderCode  string
+	OrderID     uuid.UUID
+	OrderCode   string
 	AmountPaise int64
-	ReturnURL  string
+	ReturnURL   string
 }
 
 // CheckoutResponse is the provider's hosted-checkout handoff.
@@ -128,7 +128,7 @@ func (s *service) Refund(context.Context, uuid.UUID, money.Money, string) (Refun
 	return Refund{}, apperr.NotImplemented("payments.Refund")
 }
 
-func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps) {}
+func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps)    {}
 func (s *service) registerJobs(_ *queue.Registry, _ *app.Deps) {}
 
 // FakePA is the in-house fake aggregator used in dev/test (charter §3). It signs webhooks with

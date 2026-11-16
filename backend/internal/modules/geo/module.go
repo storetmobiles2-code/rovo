@@ -25,18 +25,18 @@ type ServiceStatus string
 
 // Serviceability statuses (doc 11 schema Serviceability).
 const (
-	StatusServiceable      ServiceStatus = "SERVICEABLE"
-	StatusOutsideService   ServiceStatus = "OUTSIDE_SERVICE_AREA"
-	StatusCityNotLive      ServiceStatus = "CITY_NOT_LIVE"
-	StatusZonePaused       ServiceStatus = "ZONE_PAUSED"
-	StatusTooFar           ServiceStatus = "TOO_FAR"
+	StatusServiceable    ServiceStatus = "SERVICEABLE"
+	StatusOutsideService ServiceStatus = "OUTSIDE_SERVICE_AREA"
+	StatusCityNotLive    ServiceStatus = "CITY_NOT_LIVE"
+	StatusZonePaused     ServiceStatus = "ZONE_PAUSED"
+	StatusTooFar         ServiceStatus = "TOO_FAR"
 )
 
 // Serviceability is the resolved coverage for a point.
 type Serviceability struct {
-	Status          ServiceStatus
-	CityID          uuid.UUID
-	ZoneID          uuid.UUID
+	Status           ServiceStatus
+	CityID           uuid.UUID
+	ZoneID           uuid.UUID
 	DeliveryFeePaise int64
 }
 
@@ -52,5 +52,5 @@ func (s *service) Serviceability(context.Context, float64, float64) (Serviceabil
 	return Serviceability{}, apperr.NotImplemented("geo.Serviceability")
 }
 
-func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps) {}
+func (s *service) registerRoutes(_ *httpx.Mux, _ *app.Deps)    {}
 func (s *service) registerJobs(_ *queue.Registry, _ *app.Deps) {}
