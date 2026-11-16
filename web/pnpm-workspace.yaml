@@ -39,7 +39,10 @@ catalog:
   '@tailwindcss/vite': 4.3.3
   vite-plugin-pwa: 2.0.0
   workbox-build: 7.4.1
-  typescript: 5.9.3
+  # TypeScript 7 (native compiler) runs `tsc`; tools that need the JS API (typescript-eslint,
+  # openapi-typescript) resolve `typescript` to the TS 6 API package until they support TS 7.
+  typescript: npm:@typescript/typescript6@6.0.2
+  '@typescript/native': npm:typescript@7.0.2
   openapi-typescript: 7.13.0
   '@types/react': 19.3.0
   '@types/react-dom': 19.3.0

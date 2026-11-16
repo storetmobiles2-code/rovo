@@ -14,6 +14,7 @@
   },
   "devDependencies": {
     "@rovo/config": "workspace:*",
+    "@typescript/native": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

@@ -27,6 +27,7 @@
     "@eslint/js": "catalog:",
     "@rovo/config": "workspace:*",
     "@types/node": "catalog:",
+    "@typescript/native": "catalog:",
     "eslint": "catalog:",
     "prettier": "catalog:",
     "typescript": "catalog:"
