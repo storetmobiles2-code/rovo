@@ -43,7 +43,7 @@ catalog:
   openapi-typescript: 7.13.0
   '@types/react': 19.3.0
   '@types/react-dom': 19.3.0
-  '@types/node': 22.20.5
+  '@types/node': 26.6.6
   # lint / format
   eslint: 9.39.5
   '@eslint/js': 9.39.5
