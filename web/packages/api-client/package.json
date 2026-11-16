@@ -26,10 +26,11 @@
   "devDependencies": {
     "@rovo/config": "workspace:*",
     "@tanstack/react-query": "catalog:",
-    "@testing-library/react": "catalog:",
     "@testing-library/dom": "catalog:",
+    "@testing-library/react": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@typescript/native": "catalog:",
     "jsdom": "catalog:",
     "openapi-typescript": "catalog:",
     "react": "catalog:",

@@ -43,7 +43,7 @@
 docker run -d --name rovo-pg-test -e POSTGRES_PASSWORD=postgres -p 55432:5432 postgis/postgis:17-3.5
 export ROVO_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres?sslmode=disable
 
-# 3. Go toolchain auto-downloads 1.25
+# 3. Go toolchain auto-downloads 1.26
 export GOTOOLCHAIN=auto
 
 # 4. Graphify CLI (project CLAUDE.md requires querying the graph before grep)

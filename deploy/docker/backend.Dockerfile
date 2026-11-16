@@ -13,7 +13,7 @@
 # (CGO_ENABLED=0), so `--platform linux/amd64,linux/arm64` needs no QEMU for Go.
 
 # Keep in step with the `go` line of backend/go.mod (CI passes it explicitly).
-ARG GO_VERSION=1.25
+ARG GO_VERSION=1.26
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
 WORKDIR /src

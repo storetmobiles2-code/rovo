@@ -24,6 +24,7 @@
   "devDependencies": {
     "@rovo/config": "workspace:*",
     "@types/react": "catalog:",
+    "@typescript/native": "catalog:",
     "jsdom": "catalog:",
     "react": "catalog:",
     "typescript": "catalog:",
