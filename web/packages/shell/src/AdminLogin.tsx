@@ -35,7 +35,10 @@ export function AdminLoginScreen({ onSuccess }: AdminLoginScreenProps) {
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-6 p-6">
-      <BrandLogo height={36} className="mx-auto" />
+      {/* The admin header logo is the white wordmark, so it sits on brand ink (docs/brand). */}
+      <div className="mx-auto rounded-lg bg-ink-900 px-5 py-3">
+        <BrandLogo height={36} />
+      </div>
       {login.step === 'credentials' ? (
         <form onSubmit={submitCredentials} className="flex flex-col gap-4" data-testid="login-credentials-form" noValidate>
           <h1 className="text-xl font-semibold text-fg">{t('auth:admin.title')}</h1>

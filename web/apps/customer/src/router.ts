@@ -1,49 +1,13 @@
-import {
-  createRootRoute,
-  createRoute,
-  createRouter,
-  Link,
-  Outlet,
-  type RouterHistory,
-} from '@tanstack/react-router';
-import { type ReactNode } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { useTranslation } from '@rovo/i18n';
-import { NotFoundScreen, PlaceholderScreen } from '@rovo/shell';
-import { Protected } from './guard';
+import { createRootRoute, createRoute, createRouter, Link, Outlet, type RouterHistory } from '@tanstack/react-router';
 import { RootLayout } from './layout';
 import { LoginScreen } from './login';
+import { NotFound } from './not-found';
+import { guarded, publicScreen } from './route-screens';
 
 const rootRoute = createRootRoute({
-  component: () => <Outlet />,
+  component: Outlet,
   notFoundComponent: NotFound,
 });
-
-function NotFound() {
-  const navigate = useNavigate();
-  return <NotFoundScreen onHome={() => void navigate({ to: '/' })} />;
-}
-
-/** A customer screen that needs login (doc 17 §3.1). */
-function guarded(title: string, note?: string, testId?: string) {
-  return function GuardedScreen() {
-    const { t } = useTranslation('customer');
-    const navigate = useNavigate();
-    return (
-      <Protected>
-        <PlaceholderScreen title={t(title)} note={note} onBack={() => void navigate({ to: '/' })} testId={testId} />
-      </Protected>
-    );
-  };
-}
-
-/** A public screen (home, discovery, restaurant, search, cart, legal). */
-function publicScreen(title: string, testId?: string, withNav = true): () => ReactNode {
-  return function PublicScreen() {
-    const { t } = useTranslation('customer');
-    return <PlaceholderScreen title={t(title)} testId={testId} onBack={withNav ? undefined : undefined} />;
-  };
-}
 
 // Layout route hosts the tabbed, public-shell pages.
 const layoutRoute = createRoute({ getParentRoute: () => rootRoute, id: 'layout', component: RootLayout });

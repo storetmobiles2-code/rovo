@@ -76,9 +76,10 @@ function ConsoleFrame() {
         {t('common:actions.skipToContent')}
       </a>
       <aside className="border-b border-border-subtle bg-surface lg:sticky lg:top-0 lg:h-dvh lg:w-60 lg:shrink-0 lg:overflow-y-auto lg:border-b-0 lg:border-e">
-        <div className="flex items-center gap-2 px-4 py-3">
+        {/* White wordmark on brand ink (docs/brand: admin uses the monochrome mark on ink-900). */}
+        <div className="mb-2 flex items-center gap-3 bg-ink-900 px-4 py-3">
           <BrandLogo height={28} />
-          <span className="text-sm font-semibold text-fg-muted">{t('admin:shell.product')}</span>
+          <span className="text-sm font-semibold text-white">{t('admin:shell.product')}</span>
         </div>
         <nav aria-label={t('common:nav.label')}>
           <ul className="flex gap-1 overflow-x-auto px-2 pb-2 lg:flex-col lg:overflow-visible">

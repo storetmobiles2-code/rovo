@@ -4,6 +4,1869 @@
  */
 
 export interface paths {
+    "/admin/admins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Invite an admin user (maker-checker, R31 family 5) */
+        post: operations["adminCreateAdmin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/admins/{id}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Grant an admin role (maker-checker, R31 family 5) */
+        post: operations["adminGrantAdminRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/admins/{id}/roles/{roleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an admin role (step-up; audited) */
+        delete: operations["adminRevokeAdminRole"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/admins/{id}/totp-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reset an admin's TOTP enrolment (step-up; audited) */
+        post: operations["adminResetAdminTotp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/app-config/{scopeType}/{scopeId}/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read an app_config value */
+        get: operations["adminGetAppConfig"];
+        /** Set an app_config value (SUPER) */
+        put: operations["adminSetAppConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pending maker-checker approvals */
+        get: operations["adminListApprovals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/approvals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Approval request detail */
+        get: operations["adminGetApproval"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/approvals/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a request (checker must differ from maker; step-up) */
+        post: operations["adminApprove"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/approvals/{id}/break-glass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Self-approve when no checker is reachable (step-up; post-review due in 24 h) */
+        post: operations["adminBreakGlassApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/approvals/{id}/post-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close a break-glass review (reviewer must differ from the maker) */
+        post: operations["adminPostReviewApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/approvals/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a request */
+        post: operations["adminReject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/audit-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Query the audit log */
+        get: operations["adminListAuditLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/bank-statement-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import a bank statement CSV for UTR matching */
+        post: operations["adminImportBankStatement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/cities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List cities */
+        get: operations["adminListCities"];
+        put?: never;
+        /** Create a city (SUPER) */
+        post: operations["adminCreateCity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/cities/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update a city (status LIVE gate) */
+        patch: operations["adminUpdateCity"];
+        trace?: never;
+    };
+    "/admin/cod-deposits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List rider COD deposits */
+        get: operations["adminListCodDeposits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/cod-deposits/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a declared COD deposit */
+        post: operations["adminRejectCodDeposit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/cod-deposits/{id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify a COD cash deposit (posts the journal) */
+        post: operations["adminVerifyCodDeposit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/coupons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List coupons */
+        get: operations["adminListCoupons"];
+        put?: never;
+        /** Create a coupon */
+        post: operations["adminCreateCoupon"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/coupons/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update a coupon */
+        patch: operations["adminUpdateCoupon"];
+        trace?: never;
+    };
+    "/admin/coupons/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate a coupon */
+        post: operations["adminCouponActivate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/coupons/{id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** End a coupon */
+        post: operations["adminCouponEnd"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/coupons/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause a coupon */
+        post: operations["adminCouponPause"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** City operations dashboard */
+        get: operations["adminDashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/deliveries/{deliveryId}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Manually assign a delivery to a rider (revokes a pending offer) */
+        post: operations["adminAssignDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/deliveries/{deliveryId}/milestones/{milestone}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record a rider milestone on behalf of the rider */
+        post: operations["adminDeliveryMilestone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/deliveries/{deliveryId}/unassign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unassign the rider from a delivery (D-13) */
+        post: operations["adminUnassignDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/deliveries/{deliveryId}/undeliverable/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm an undeliverable request (support/ops) */
+        post: operations["confirmUndeliverable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/deliveries/{deliveryId}/undeliverable/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a rider undeliverable request (D-11r) */
+        post: operations["adminRejectUndeliverable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/erasure-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** DPDP erasure-request queue */
+        get: operations["adminListErasureRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/erasure-requests/{id}/hold": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put an erasure request on hold */
+        post: operations["adminHoldErasureRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/erasure-requests/{id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Release an erasure request from hold */
+        post: operations["adminReleaseErasureRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/feature-flags/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a feature flag */
+        get: operations["adminGetFeatureFlag"];
+        /** Set a feature flag (SUPER) */
+        put: operations["adminSetFeatureFlag"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/fee-configs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List fee configs */
+        get: operations["adminListFeeConfigs"];
+        put?: never;
+        /** Create a fee-config version (maker-checker; slab validator) */
+        post: operations["adminCreateFeeConfig"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/fee-configs/{id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retire an approved fee-config version */
+        post: operations["adminRetireFeeConfig"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/goodwill-coupons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue a single-user goodwill coupon (maker-checker above threshold) */
+        post: operations["adminCreateGoodwillCoupon"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/kyc/{id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve or reject a KYC document */
+        post: operations["adminDecideKycDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/kyc/{id}/view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream a KYC document (step-up, audited, no-store) */
+        get: operations["adminViewKyc"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/ledger-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post a ledger adjustment (MG_TOPUP, PEAK_BONUS, RECOVERY, WRITE_OFF) */
+        post: operations["adminCreateLedgerAdjustment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/localities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List localities for a city */
+        get: operations["adminListLocalities"];
+        put?: never;
+        /** Create a locality */
+        post: operations["adminCreateLocality"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/localities/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update a locality */
+        patch: operations["adminUpdateLocality"];
+        trace?: never;
+    };
+    "/admin/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Live order board */
+        get: operations["adminListOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/orders/{orderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Full order view (payments, delivery, ledger, tickets, audit) */
+        get: operations["adminGetOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/orders/{orderId}/accept-on-behalf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept an order on behalf of the restaurant (O-06) */
+        post: operations["adminAcceptOrderOnBehalf"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/orders/{orderId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ops cancel with fault attribution and refund policy (maker-checker above threshold) */
+        post: operations["adminCancelOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/orders/{orderId}/ready-on-behalf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark an order ready on behalf of the restaurant (O-12) */
+        post: operations["adminReadyOrderOnBehalf"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/orders/{orderId}/refunds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue a refund (maker-checker above threshold) */
+        post: operations["adminCreateRefund"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/pa-settlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List payment-aggregator settlements */
+        get: operations["adminListPaSettlements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/pa-settlements/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Settlement lines with match status */
+        get: operations["adminGetPaSettlement"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/payout-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a payout batch (maker-checker release) */
+        post: operations["adminCreatePayoutRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/payouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List payouts */
+        get: operations["adminListPayouts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/payouts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Payout detail with its items */
+        get: operations["adminGetPayout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/payouts/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a payout batch (checker, step-up) */
+        post: operations["adminApprovePayoutBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/payouts/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel a payout */
+        post: operations["adminCancelPayout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/payouts/{id}/mark-failed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a payout failed */
+        post: operations["adminMarkPayoutFailed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/payouts/{id}/mark-paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record the UTR for a paid payout */
+        post: operations["adminMarkPayoutPaid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/reason-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reason-code catalogue */
+        get: operations["adminListReasonCodes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/recon-exceptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List reconciliation exceptions */
+        get: operations["adminListReconExceptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/recon-exceptions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Assign, annotate or change the status of a reconciliation exception */
+        patch: operations["adminUpdateReconException"];
+        trace?: never;
+    };
+    "/admin/refunds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List refunds */
+        get: operations["adminListRefunds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/refunds/{id}/mark-paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record the UTR for a manual refund */
+        post: operations["adminMarkRefundPaid"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request a CSV report (PII reports need step-up) */
+        post: operations["adminCreateReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/reports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report status and short-lived download URL */
+        get: operations["adminGetReport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurant-applications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Onboarding review queue */
+        get: operations["adminListRestaurantApplications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurant-leads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Restaurant lead pipeline */
+        get: operations["adminListRestaurantLeads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurant-leads/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update a restaurant lead (assign, status, notes) */
+        patch: operations["adminUpdateRestaurantLead"];
+        trace?: never;
+    };
+    "/admin/restaurants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List restaurants */
+        get: operations["adminListRestaurants"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurants/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Restaurant detail (profile, KYC, commission, devices) */
+        get: operations["adminGetRestaurant"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update admin-only restaurant fields (radius cap, zone override) */
+        patch: operations["adminUpdateRestaurant"];
+        trace?: never;
+    };
+    "/admin/restaurants/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a restaurant (needs FSSAI doc, zone, commission plan) */
+        post: operations["adminApproveRestaurant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurants/{id}/commission-plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Commission plans of a restaurant */
+        get: operations["adminListCommissionPlans"];
+        put?: never;
+        /** Set a commission plan (maker-checker) */
+        post: operations["adminSetCommissionPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurants/{id}/devices/{deviceId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke a device-bound restaurant session (R44) */
+        post: operations["adminRevokeRestaurantDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurants/{id}/offboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Offboard a restaurant */
+        post: operations["adminRestaurantOffboard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurants/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause a restaurant (ops) */
+        post: operations["adminRestaurantPause"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurants/{id}/reinstate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reinstate a suspended restaurant */
+        post: operations["adminRestaurantReinstate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurants/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a restaurant application */
+        post: operations["adminRejectRestaurant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurants/{id}/request-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request changes to a restaurant application */
+        post: operations["adminRestaurantRequestChanges"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurants/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume a paused restaurant (ops) */
+        post: operations["adminRestaurantResume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/restaurants/{id}/suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Suspend an active restaurant */
+        post: operations["adminSuspendRestaurant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/riders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List riders */
+        get: operations["adminListRiders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/riders/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rider detail (profile, KYC, availability, cash in hand) */
+        get: operations["adminGetRider"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/riders/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a rider */
+        post: operations["adminApproveRider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/riders/{id}/cash-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Correct a rider cash-in-hand balance (maker-checker above threshold) */
+        post: operations["adminAdjustRiderCash"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/riders/{id}/cash-limit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Override a rider cash-in-hand limit (audited) */
+        post: operations["adminSetRiderCashLimit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/riders/{id}/force-offline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Force a rider offline */
+        post: operations["adminRiderForceOffline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/riders/{id}/reinstate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reinstate a suspended rider */
+        post: operations["adminRiderReinstate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/riders/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a rider application */
+        post: operations["adminRiderReject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/riders/{id}/suspend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Suspend a rider */
+        post: operations["adminSuspendRider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/sos-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** SOS board */
+        get: operations["adminListSosEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/sos-events/{id}/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledge an SOS event */
+        post: operations["adminAcknowledgeSosEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/sos-events/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve an SOS event */
+        post: operations["adminResolveSosEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/support/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Support queue (SLA ordering) */
+        get: operations["adminListTickets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/support/tickets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ticket detail with thread and internal notes */
+        get: operations["adminGetTicket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Assign, re-prioritise or change the status of a ticket */
+        patch: operations["adminUpdateTicket"];
+        trace?: never;
+    };
+    "/admin/support/tickets/{id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reply to the requester or add an internal note */
+        post: operations["adminAddTicketMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/support/tickets/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resolve a ticket */
+        post: operations["adminResolveTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/tax-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List tax rules (read-only; seeded by migration) */
+        get: operations["adminListTaxRules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search users (masked PII) */
+        get: operations["adminListUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** User detail with masked PII */
+        get: operations["adminGetUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{id}/block": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Block a user (audited; no maker-checker) */
+        post: operations["adminBlockUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{id}/cod-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable or disable cash on delivery for a customer */
+        post: operations["adminSetUserCodStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{id}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reveal a masked PII field (step-up; audited) */
+        post: operations["adminRevealUserPii"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{id}/sessions/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke all of a user's sessions */
+        post: operations["adminRevokeUserSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/users/{id}/unblock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Unblock a user */
+        post: operations["adminUnblockUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/waitlist/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Waitlist counts by locality and PIN (no PII) */
+        get: operations["adminWaitlistSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/zones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List zones for a city */
+        get: operations["adminListZones"];
+        put?: never;
+        /** Create a zone from a GeoJSON polygon */
+        post: operations["adminCreateZone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/zones/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update a zone */
+        put: operations["adminUpdateZone"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/zones/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate a zone (save-time outlet check) */
+        post: operations["adminActivateZone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/zones/{id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate a zone */
+        post: operations["adminDeactivateZone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/zones/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause deliveries in a zone */
+        post: operations["adminPauseZone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/zones/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume a paused zone */
+        post: operations["adminResumeZone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/admin/login": {
         parameters: {
             query?: never;
@@ -468,6 +2331,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/partner/restaurants/{restaurantId}/analytics/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Today / this-week summary */
+        get: operations["getPartnerAnalytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/partner/restaurants/{restaurantId}/close": {
         parameters: {
             query?: never;
@@ -622,6 +2502,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/partner/restaurants/{restaurantId}/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Restaurant order inbox */
+        get: operations["listPartnerOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/partner/restaurants/{restaurantId}/orders/{orderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Partner order detail */
+        get: operations["getPartnerOrder"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/partner/restaurants/{restaurantId}/orders/{orderId}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept a PLACED order with a prep time */
+        post: operations["acceptRestaurantOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/partner/restaurants/{restaurantId}/orders/{orderId}/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Acknowledge a new order (stops the device ring; no state change) */
+        post: operations["ackPartnerOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/partner/restaurants/{restaurantId}/orders/{orderId}/issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Raise an urgent issue after accept (ops-mediated; no self-cancel, R40) */
+        post: operations["raisePartnerIssue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/partner/restaurants/{restaurantId}/orders/{orderId}/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark an order ready for pickup */
+        post: operations["markReady"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/partner/restaurants/{restaurantId}/orders/{orderId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a PLACED order */
+        post: operations["rejectRestaurantOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/partner/restaurants/{restaurantId}/orders/{orderId}/start-preparing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move an accepted order to PREPARING */
+        post: operations["startPreparing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/partner/restaurants/{restaurantId}/pause": {
         parameters: {
             query?: never;
@@ -639,6 +2655,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/partner/restaurants/{restaurantId}/payout-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a payout destination (maker-checker + cooling-off) */
+        post: operations["addPartnerPayoutAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/partner/restaurants/{restaurantId}/resume": {
         parameters: {
             query?: never;
@@ -650,6 +2683,40 @@ export interface paths {
         put?: never;
         /** Resume taking orders (also clears auto-pauses) */
         post: operations["resumeRestaurant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/partner/restaurants/{restaurantId}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Visible reviews and ratings (no reply in V1) */
+        get: operations["listPartnerReviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/partner/restaurants/{restaurantId}/statements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-order settlement lines */
+        get: operations["getPartnerStatements"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -894,6 +2961,352 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/rider/applications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply to become a rider (gig-worker registration fields) */
+        post: operations["createRiderApplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/applications/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit the rider application for review */
+        post: operations["submitRiderApplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Go online or offline */
+        put: operations["setRiderAvailability"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/cash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cash in hand and pending deposits */
+        get: operations["getRiderCash"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/cash-deposits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Declare a COD cash deposit */
+        post: operations["createCashDeposit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/deliveries/{deliveryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Delivery detail */
+        get: operations["getRiderDelivery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/deliveries/{deliveryId}/arrived-at-drop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rider reached the drop location */
+        post: operations["markArrivedAtDrop"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/deliveries/{deliveryId}/arrived-at-restaurant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rider reached the restaurant */
+        post: operations["markArrivedAtRestaurant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/deliveries/{deliveryId}/delivered": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Handover complete (COD collected, delivery code) */
+        post: operations["markDeliveryDelivered"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/deliveries/{deliveryId}/picked-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rider collected the food */
+        post: operations["markDeliveryPickedUp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/deliveries/{deliveryId}/undeliverable-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request undeliverable (support approval required) */
+        post: operations["requestUndeliverable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/deliveries/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The rider's active delivery or null */
+        get: operations["getActiveDelivery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/earnings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Earnings breakdown */
+        get: operations["getRiderEarnings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Completed deliveries */
+        get: operations["getRiderHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/location": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Batched location pings (1-10 points) */
+        post: operations["recordRiderLocation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rider profile, availability, cash and earnings snapshot */
+        get: operations["getRiderMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/offers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current pending offer (SSE polling fallback) */
+        get: operations["getRiderOffer"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/offers/{offerId}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept a pending delivery offer */
+        post: operations["acceptDeliveryOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rider/offers/{offerId}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decline a pending offer */
+        post: operations["declineDeliveryOffer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Multiplexed Server-Sent Events stream
+         * @description One stream per tab. Topics default to the principal's entitlements and `?topics=` may only
+         *     narrow them. Heartbeat every 20 s; the server closes the stream after 30 min with a
+         *     `reconnect` event and immediately with `revoked` on session revocation. There is no replay
+         *     buffer: clients refetch snapshots over REST on every (re)connect.
+         */
+        get: operations["stream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/support/tickets": {
         parameters: {
             query?: never;
@@ -991,6 +3404,46 @@ export interface paths {
         put?: never;
         /** Finalise an upload (validates and re-encodes images) */
         post: operations["completeUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/notifications/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** SMS delivery-receipt receiver (api host) */
+        post: operations["receiveNotificationWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/webhooks/payments/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Payment-aggregator event receiver (api host; HMAC-verified)
+         * @description Verify the signature over the raw body before parsing, persist to payment_events
+         *     (PII-redacted) and enqueue payments.process_event in the same transaction, then respond
+         *     200 within ~1 s. Duplicates return 200. A bad signature returns 401 and is stored
+         *     unprocessed and rate-alerted. Business processing happens asynchronously in the worker.
+         */
+        post: operations["receivePaymentWebhook"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1814,6 +4267,4203 @@ export type HeaderRateLimit = components['headers']['RateLimit'];
 export type HeaderRetryAfter = components['headers']['RetryAfter'];
 export type $defs = Record<string, never>;
 export interface operations {
+    adminCreateAdmin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    cityId?: components["schemas"]["Uuid"] | null;
+                    /** Format: email */
+                    email: string;
+                    fullName: string;
+                    reason: string;
+                    role: components["schemas"]["Role"];
+                };
+            };
+        };
+        responses: {
+            /** @description Applied without approval */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Approval required (maker-checker, R31) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminGrantAdminRole: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    cityId?: components["schemas"]["Uuid"] | null;
+                    reason: string;
+                    role: components["schemas"]["Role"];
+                };
+            };
+        };
+        responses: {
+            /** @description Applied without approval */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Approval required (maker-checker, R31) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRevokeAdminRole: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+                roleId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+        };
+    };
+    adminResetAdminTotp: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminGetAppConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+                scopeId: string;
+                scopeType: "GLOBAL" | "CITY" | "ZONE" | "RESTAURANT";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminSetAppConfig: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatchRequired"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                key: string;
+                scopeId: string;
+                scopeType: "GLOBAL" | "CITY" | "ZONE" | "RESTAURANT";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            412: components["responses"]["Problem412"];
+        };
+    };
+    adminListApprovals: {
+        parameters: {
+            query?: {
+                actionType?: string;
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approvals */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"][];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminGetApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminApprove: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Approved and executed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminBreakGlassApproval: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminPostReviewApproval: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    note: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminReject: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Rejected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListAuditLogs: {
+        parameters: {
+            query?: {
+                action?: string;
+                actorId?: components["schemas"]["Uuid"];
+                cursor?: components["parameters"]["Cursor"];
+                resourceId?: components["schemas"]["Uuid"];
+                resourceType?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audit entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminImportBankStatement: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    fileId: components["schemas"]["Uuid"];
+                };
+            };
+        };
+        responses: {
+            /** @description Import accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListCities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminCreateCity: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    centroid: components["schemas"]["LatLng"];
+                    code: string;
+                    gstStateCode: string;
+                    name: string;
+                    nameI18n?: components["schemas"]["I18nText"];
+                    slug: string;
+                    stateName: string;
+                    timezone?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminUpdateCity: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatchRequired"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    nameI18n?: components["schemas"]["I18nText"];
+                    /** @enum {string} */
+                    status?: "PLANNED" | "LIVE" | "PAUSED" | "RETIRED";
+                };
+            };
+        };
+        responses: {
+            /** @description Updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            412: components["responses"]["Problem412"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListCodDeposits: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+                riderId?: components["schemas"]["Uuid"];
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminRejectCodDeposit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminVerifyCodDeposit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verified */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminListCoupons: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Coupons */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminCreateCoupon: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    code: string;
+                    /** @enum {string} */
+                    discountType: "FLAT" | "PERCENT";
+                    flatPaise?: number | null;
+                    /** @enum {string} */
+                    fundedBy: "PLATFORM" | "RESTAURANT";
+                    maxDiscountPaise?: number | null;
+                    minOrderPaise?: number;
+                    percentBps?: number | null;
+                    title: string;
+                    validFrom: components["schemas"]["Timestamp"];
+                    validUntil: components["schemas"]["Timestamp"];
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Problem409"];
+        };
+    };
+    adminUpdateCoupon: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatchRequired"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            412: components["responses"]["Problem412"];
+        };
+    };
+    adminCouponActivate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+        };
+    };
+    adminCouponEnd: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+        };
+    };
+    adminCouponPause: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+        };
+    };
+    adminDashboard: {
+        parameters: {
+            query?: {
+                cityId?: components["parameters"]["CityIdQuery"];
+                date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dashboard KPIs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminAssignDelivery: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                deliveryId: components["parameters"]["DeliveryIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    overrideCashLimit?: boolean;
+                    reason: string;
+                    riderId: components["schemas"]["Uuid"];
+                };
+            };
+        };
+        responses: {
+            /** @description Assigned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiderDelivery"];
+                };
+            };
+            409: components["responses"]["Problem409"];
+        };
+    };
+    adminDeliveryMilestone: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                deliveryId: components["parameters"]["DeliveryIdPath"];
+                milestone: "arrived-at-restaurant" | "picked-up" | "arrived-at-drop" | "delivered";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminUnassignDelivery: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                deliveryId: components["parameters"]["DeliveryIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    confirmUndeliverable: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                deliveryId: components["parameters"]["DeliveryIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    faultParty: "CUSTOMER" | "RESTAURANT" | "RIDER" | "PLATFORM" | "NONE";
+                    note?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Confirmed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRejectUndeliverable: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                deliveryId: components["parameters"]["DeliveryIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    note: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListErasureRequests: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminHoldErasureRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    holdReason: "OPEN_ORDER" | "OPEN_PAYOUT" | "OPEN_DISPUTE" | "LEGAL_HOLD" | "CASH_IN_HAND";
+                    note?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminReleaseErasureRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    note: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminGetFeatureFlag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminSetFeatureFlag: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatchRequired"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    enabled: boolean;
+                    rules?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            412: components["responses"]["Problem412"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListFeeConfigs: {
+        parameters: {
+            query?: {
+                cityId?: components["parameters"]["CityIdQuery"];
+                zoneId?: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fee configs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminCreateFeeConfig: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Approval required */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRetireFeeConfig: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminCreateGoodwillCoupon: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    amount: components["schemas"]["Money"];
+                    orderId?: components["schemas"]["Uuid"] | null;
+                    ticketId?: components["schemas"]["Uuid"] | null;
+                    userId: components["schemas"]["Uuid"];
+                    validDays: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Coupon issued */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Approval required */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminDecideKycDocument: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    decision: "APPROVED" | "REJECTED";
+                    reason?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminViewKyc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Document stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            401: components["responses"]["Problem401"];
+        };
+    };
+    adminCreateLedgerAdjustment: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    adjustmentType: "MG_TOPUP" | "PEAK_BONUS" | "RECOVERY" | "WRITE_OFF" | "OTHER";
+                    amount: components["schemas"]["Money"];
+                    payeeId: components["schemas"]["Uuid"];
+                    /** @enum {string} */
+                    payeeType: "RIDER" | "RESTAURANT";
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Posted */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Approval required */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListLocalities: {
+        parameters: {
+            query?: {
+                cityId?: components["parameters"]["CityIdQuery"];
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminCreateLocality: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    centroid: components["schemas"]["LatLng"];
+                    cityId: components["schemas"]["Uuid"];
+                    isActive?: boolean;
+                    name: string;
+                    nameI18n?: components["schemas"]["I18nText"];
+                    pinCodes?: components["schemas"]["PinCode"][];
+                    searchAliases?: string[];
+                    slug: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminUpdateLocality: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatchRequired"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    centroid?: components["schemas"]["LatLng"];
+                    isActive?: boolean;
+                    name?: string;
+                    nameI18n?: components["schemas"]["I18nText"];
+                    pinCodes?: components["schemas"]["PinCode"][];
+                    searchAliases?: string[];
+                    slug?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            412: components["responses"]["Problem412"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListOrders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                late?: boolean;
+                q?: string;
+                status?: string;
+                zoneId?: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Orders */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["OrderSummary"][];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminGetOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminAcceptOrderOnBehalf: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    prepTimeMinutes: number;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminCancelOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    faultParty: "CUSTOMER" | "RESTAURANT" | "RIDER" | "PLATFORM" | "NONE";
+                    note?: string | null;
+                    reasonCode: string;
+                    refundAmount?: components["schemas"]["Money"] | null;
+                    /** @enum {string} */
+                    refundPolicy: "FULL" | "PARTIAL" | "NONE";
+                    restaurantCompensation?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Cancelled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            /** @description Approval required */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminReadyOrderOnBehalf: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminCreateRefund: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    amount: components["schemas"]["Money"];
+                    note?: string | null;
+                    reasonCode: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Refund created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Refund"];
+                };
+            };
+            /** @description Approval required */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListPaSettlements: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                from?: string;
+                limit?: components["parameters"]["Limit"];
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminGetPaSettlement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminCreatePayoutRun: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    cityId: components["schemas"]["Uuid"];
+                    /** @enum {string} */
+                    payeeType: "RESTAURANT" | "RIDER";
+                    periodEnd: components["schemas"]["Timestamp"];
+                };
+            };
+        };
+        responses: {
+            /** @description Draft batch created; approval releases it */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListPayouts: {
+        parameters: {
+            query?: {
+                batchId?: components["schemas"]["Uuid"];
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Payouts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminGetPayout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminApprovePayoutBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminCancelPayout: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminMarkPayoutFailed: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminMarkPayoutPaid: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    method: "NEFT" | "IMPS" | "UPI" | "RTGS" | "PA_PAYOUT" | "PA_TRANSFER_RELEASE";
+                    paidAt: components["schemas"]["Timestamp"];
+                    utrReference: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Marked paid */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListReasonCodes: {
+        parameters: {
+            query?: {
+                category?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminListReconExceptions: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+                status?: string;
+                type?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminUpdateReconException: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatchRequired"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    assignedAdminId?: components["schemas"]["Uuid"] | null;
+                    note?: string | null;
+                    status?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            412: components["responses"]["Problem412"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListRefunds: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Refunds */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Refund"][];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminMarkRefundPaid: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    paidAt: components["schemas"]["Timestamp"];
+                    utrReference: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Marked paid */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Refund"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminCreateReport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    cityId?: components["schemas"]["Uuid"] | null;
+                    /** Format: date */
+                    from: string;
+                    /** Format: date */
+                    to: string;
+                    /** @enum {string} */
+                    type: "ORDERS" | "SETTLEMENT_STATEMENT" | "GST_SUMMARY" | "RIDER_EARNINGS" | "COD_CASH" | "REFUNDS" | "GIG_WORKER_REGISTRATION";
+                };
+            };
+        };
+        responses: {
+            /** @description Export queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        reportExportId?: components["schemas"]["Uuid"];
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminGetReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        downloadUrl?: string | null;
+                        rowCount?: number | null;
+                        status?: string;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminListRestaurantApplications: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Applications */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminListRestaurantLeads: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminUpdateRestaurantLead: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatchRequired"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    assignedAdminId?: components["schemas"]["Uuid"] | null;
+                    notes?: string | null;
+                    /** @enum {string} */
+                    status?: "NEW" | "CONTACTED" | "CONVERTED" | "DISQUALIFIED";
+                };
+            };
+        };
+        responses: {
+            /** @description Updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            412: components["responses"]["Problem412"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListRestaurants: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+                q?: string;
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminGetRestaurant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminUpdateRestaurant: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatchRequired"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    maxDeliveryRadiusM?: number;
+                    zoneId?: components["schemas"]["Uuid"];
+                };
+            };
+        };
+        responses: {
+            /** @description Updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            412: components["responses"]["Problem412"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminApproveRestaurant: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListCommissionPlans: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminSetCommissionPlan: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    basis?: "ITEM_TOTAL_NET_OF_RESTAURANT_DISCOUNT" | "ITEM_TOTAL_PLUS_PACKAGING_NET";
+                    commissionBps: number;
+                    contractRef?: string | null;
+                    effectiveFrom: components["schemas"]["Timestamp"];
+                };
+            };
+        };
+        responses: {
+            /** @description Approval required */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            409: components["responses"]["Problem409"];
+        };
+    };
+    adminRevokeRestaurantDevice: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                deviceId: components["schemas"]["Uuid"];
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRestaurantOffboard: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRestaurantPause: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRestaurantReinstate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRejectRestaurant: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReasonCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Rejected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRestaurantRequestChanges: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRestaurantResume: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminSuspendRestaurant: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReasonCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Suspended */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListRiders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                state?: string;
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Riders */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminGetRider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminApproveRider: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Approved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminAdjustRiderCash: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    amount: components["schemas"]["Money"];
+                    /** @enum {string} */
+                    direction: "INCREASE" | "DECREASE";
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Applied without approval */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Approval required (maker-checker, R31) */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminSetRiderCashLimit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    cashLimit: components["schemas"]["Money"] | null;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRiderForceOffline: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRiderReinstate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRiderReject: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminSuspendRider: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReasonCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Suspended */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListSosEvents: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminAcknowledgeSosEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    note?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminResolveSosEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    note: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListTickets: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                priority?: string;
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tickets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Ticket"][];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminGetTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminUpdateTicket: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatchRequired"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    assignedAdminId?: components["schemas"]["Uuid"] | null;
+                    /** @enum {string} */
+                    priority?: "LOW" | "NORMAL" | "HIGH" | "URGENT";
+                    /** @enum {string} */
+                    status?: "OPEN" | "IN_PROGRESS" | "AWAITING_REQUESTER" | "AWAITING_APPROVAL" | "REOPENED";
+                };
+            };
+        };
+        responses: {
+            /** @description Updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            412: components["responses"]["Problem412"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminAddTicketMessage: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    body: string;
+                    /** @default false */
+                    internal?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminResolveTicket: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    faultParty: "CUSTOMER" | "RESTAURANT" | "RIDER" | "PLATFORM" | "NONE" | "UNDETERMINED";
+                    note?: string | null;
+                    resolutionCode: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Resolved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminListTaxRules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminListUsers: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                q?: string;
+                role?: components["schemas"]["Role"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Users */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminGetUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminBlockUser: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReasonCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Blocked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminSetUserCodStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                    /** @enum {string} */
+                    status: "ENABLED" | "DISABLED";
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRevealUserPii: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    field: "PHONE" | "EMAIL" | "ADDRESS";
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminRevokeUserSessions: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminUnblockUser: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unblocked */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    adminWaitlistSummary: {
+        parameters: {
+            query?: {
+                cityId?: components["parameters"]["CityIdQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminListZones: {
+        parameters: {
+            query?: {
+                cityId?: components["parameters"]["CityIdQuery"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Zones (GeoJSON geometry) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    adminCreateZone: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    cityId: components["schemas"]["Uuid"];
+                    code: string;
+                    /** @description GeoJSON Polygon/MultiPolygon */
+                    geometry: {
+                        [key: string]: unknown;
+                    };
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminUpdateZone: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IfMatchRequired"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            412: components["responses"]["Problem412"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminActivateZone: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+        };
+    };
+    adminDeactivateZone: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminPauseZone: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    messageI18n?: components["schemas"]["I18nText"];
+                    pausedUntil: components["schemas"]["Timestamp"];
+                    /** @enum {string} */
+                    reasonCode: "RAIN" | "RIDER_SHORTAGE" | "LAW_AND_ORDER" | "FESTIVAL" | "TECHNICAL" | "OTHER";
+                };
+            };
+        };
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    adminResumeZone: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                id: components["parameters"]["IdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Command applied; the updated resource */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+        };
+    };
     adminLogin: {
         parameters: {
             query?: never;
@@ -1895,6 +8545,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Problem401"];
         };
     };
     requestOtp: {
@@ -2043,6 +8694,7 @@ export interface operations {
                     "application/json": components["schemas"]["ClientConfig"];
                 };
             };
+            429: components["responses"]["Problem429"];
         };
     };
     healthz: {
@@ -2133,6 +8785,7 @@ export interface operations {
                     "application/json": components["schemas"]["Address"][];
                 };
             };
+            401: components["responses"]["Problem401"];
         };
     };
     createAddress: {
@@ -2187,6 +8840,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Problem401"];
+            404: components["responses"]["Problem404"];
         };
     };
     updateAddress: {
@@ -2272,6 +8927,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Problem401"];
+            422: components["responses"]["Problem422"];
         };
     };
     createPushSubscription: {
@@ -2310,6 +8967,8 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Problem401"];
+            422: components["responses"]["Problem422"];
         };
     };
     deletePushSubscription: {
@@ -2333,6 +8992,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Problem401"];
+            404: components["responses"]["Problem404"];
         };
     };
     listOrders: {
@@ -2541,6 +9202,8 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Problem401"];
+            404: components["responses"]["Problem404"];
         };
     };
     createRestaurantApplication: {
@@ -2581,6 +9244,9 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            422: components["responses"]["Problem422"];
         };
     };
     submitRestaurantApplication: {
@@ -2639,6 +9305,8 @@ export interface operations {
                     "application/json": components["schemas"]["RestaurantDetail"][];
                 };
             };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
         };
     };
     getMyRestaurant: {
@@ -2739,6 +9407,40 @@ export interface operations {
             422: components["responses"]["Problem422"];
         };
     };
+    getPartnerAnalytics: {
+        parameters: {
+            query?: {
+                period?: "TODAY" | "THIS_WEEK";
+            };
+            header?: never;
+            path: {
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        acceptRate?: number;
+                        avgRating?: number | null;
+                        gross?: components["schemas"]["Money"];
+                        missedOrders?: number;
+                        netEarnings?: components["schemas"]["Money"];
+                        orders?: number;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
     closeRestaurant: {
         parameters: {
             query?: never;
@@ -2760,6 +9462,9 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
         };
     };
     deviceHeartbeat: {
@@ -2797,6 +9502,10 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
         };
     };
     getPartnerMenu: {
@@ -2819,6 +9528,9 @@ export interface operations {
                     "application/json": components["schemas"]["Menu"];
                 };
             };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
         };
     };
     createMenuCategory: {
@@ -2918,6 +9630,9 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
         };
     };
     updateMenuItem: {
@@ -2983,6 +9698,10 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
         };
     };
     openRestaurant: {
@@ -3046,6 +9765,268 @@ export interface operations {
             422: components["responses"]["Problem422"];
         };
     };
+    listPartnerOrders: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+                view?: "NEW" | "PREPARING" | "READY" | "OUT" | "HISTORY";
+            };
+            header?: never;
+            path: {
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Orders */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PartnerOrder"][];
+                        nextCursor: string | null;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    getPartnerOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Order */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartnerOrder"];
+                };
+            };
+            404: components["responses"]["Problem404"];
+        };
+    };
+    acceptRestaurantOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Optimistic-concurrency guard; weak value is the row version, e.g. "v12". */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptOrderRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartnerOrder"];
+                };
+            };
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            412: components["responses"]["Problem412"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    ackPartnerOrder: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Acknowledged */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    raisePartnerIssue: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    itemIds?: components["schemas"]["Uuid"][];
+                    note: string;
+                    /** @enum {string} */
+                    type: "CANNOT_FULFIL" | "ITEM_PROBLEM";
+                };
+            };
+        };
+        responses: {
+            /** @description Issue ticket created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ticket"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    markReady: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ready */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartnerOrder"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    rejectRestaurantOrder: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    outOfStockItemIds?: components["schemas"]["Uuid"][];
+                    pauseMinutes?: number | null;
+                    reasonCode: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Rejected */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartnerOrder"];
+                };
+            };
+            422: components["responses"]["Problem422"];
+        };
+    };
+    startPreparing: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                orderId: components["parameters"]["OrderIdPath"];
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Preparing */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartnerOrder"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
     pauseRestaurant: {
         parameters: {
             query?: never;
@@ -3080,6 +10061,47 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    addPartnerPayoutAccount: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    accountHolderName: string;
+                    accountNumber?: string | null;
+                    ifsc?: string | null;
+                    /** @enum {string} */
+                    method: "BANK_ACCOUNT" | "UPI";
+                    upiVpa?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Approval requested */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalRequest"];
+                };
+            };
+            401: components["responses"]["Problem401"];
         };
     };
     resumeRestaurant: {
@@ -3103,6 +10125,68 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    listPartnerReviews: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path: {
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reviews */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    getPartnerStatements: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path: {
+                restaurantId: components["parameters"]["RestaurantIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Statement lines */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
         };
     };
     confirmPayment: {
@@ -3161,6 +10245,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["Problem400"];
         };
     };
     listCities: {
@@ -3181,6 +10266,7 @@ export interface operations {
                     "application/json": components["schemas"]["City"][];
                 };
             };
+            429: components["responses"]["Problem429"];
         };
     };
     listCuisines: {
@@ -3203,6 +10289,7 @@ export interface operations {
                     "application/json": components["schemas"]["Cuisine"][];
                 };
             };
+            429: components["responses"]["Problem429"];
         };
     };
     listLocalities: {
@@ -3226,6 +10313,7 @@ export interface operations {
                     "application/json": components["schemas"]["Locality"][];
                 };
             };
+            429: components["responses"]["Problem429"];
         };
     };
     listPublicOffers: {
@@ -3257,6 +10345,7 @@ export interface operations {
                     }[];
                 };
             };
+            429: components["responses"]["Problem429"];
         };
     };
     createRestaurantLead: {
@@ -3424,6 +10513,7 @@ export interface operations {
                     };
                 };
             };
+            429: components["responses"]["Problem429"];
         };
     };
     checkServiceability: {
@@ -3509,6 +10599,619 @@ export interface operations {
             };
         };
     };
+    createRiderApplication: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @constant */
+                    adultDeclaration: true;
+                    cityId: components["schemas"]["Uuid"];
+                    emergencyContact: {
+                        name?: string;
+                        phone?: components["schemas"]["Phone"];
+                    };
+                    gigRegistration: {
+                        /** Format: date */
+                        dateOfBirth: string;
+                        /** @enum {string} */
+                        gender: "FEMALE" | "MALE" | "TRANSGENDER" | "UNDISCLOSED";
+                        legalName: string;
+                        portalWorkerId?: string | null;
+                        residentialDistrict: string;
+                        residentialState: string;
+                    };
+                    vehicleRegNo?: string | null;
+                    /** @enum {string} */
+                    vehicleType: "BICYCLE" | "MOTORCYCLE" | "SCOOTER" | "EV_SCOOTER" | "EV_CYCLE";
+                };
+            };
+        };
+        responses: {
+            /** @description Application created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        riderId?: components["schemas"]["Uuid"];
+                        status?: string;
+                    };
+                };
+            };
+            409: components["responses"]["Problem409"];
+        };
+    };
+    submitRiderApplication: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Submitted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Problem422"];
+        };
+    };
+    setRiderAvailability: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    location: components["schemas"]["LatLng"];
+                    /** @enum {string} */
+                    state: "AVAILABLE" | "OFFLINE";
+                };
+            };
+        };
+        responses: {
+            /** @description Availability updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Problem422"];
+        };
+    };
+    getRiderCash: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cash */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    createCashDeposit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    amount: components["schemas"]["Money"];
+                    /** @enum {string} */
+                    method: "UPI_TO_COMPANY" | "BANK_DEPOSIT" | "CASH_AT_HUB";
+                    proofFileId?: components["schemas"]["Uuid"] | null;
+                    reference?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Declared */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            422: components["responses"]["Problem422"];
+        };
+    };
+    getRiderDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deliveryId: components["parameters"]["DeliveryIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Delivery */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiderDelivery"];
+                };
+            };
+            404: components["responses"]["Problem404"];
+        };
+    };
+    markArrivedAtDrop: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                deliveryId: components["parameters"]["DeliveryIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryMilestoneRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiderDelivery"];
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    markArrivedAtRestaurant: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Optimistic-concurrency guard; weak value is the row version, e.g. "v12". */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                deliveryId: components["parameters"]["DeliveryIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryMilestoneRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiderDelivery"];
+                };
+            };
+            409: components["responses"]["Problem409"];
+        };
+    };
+    markDeliveryDelivered: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Optimistic-concurrency guard; weak value is the row version, e.g. "v12". */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                deliveryId: components["parameters"]["DeliveryIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveredRequest"];
+            };
+        };
+        responses: {
+            /** @description Delivered */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiderDelivery"];
+                };
+            };
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    markDeliveryPickedUp: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Optimistic-concurrency guard; weak value is the row version, e.g. "v12". */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                deliveryId: components["parameters"]["DeliveryIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeliveryMilestoneRequest"] & {
+                    pickupPin?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Picked up */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiderDelivery"];
+                };
+            };
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    requestUndeliverable: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                deliveryId: components["parameters"]["DeliveryIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReasonCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Awaiting support */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status?: string;
+                        ticketId?: components["schemas"]["Uuid"];
+                    };
+                };
+            };
+            422: components["responses"]["Problem422"];
+        };
+    };
+    getActiveDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active delivery */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiderDelivery"] | null;
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    getRiderEarnings: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Earnings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    getRiderHistory: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description History */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    recordRiderLocation: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    points: {
+                        accuracyM?: number;
+                        headingDeg?: number | null;
+                        lat: number;
+                        lng: number;
+                        recordedAt: components["schemas"]["Timestamp"];
+                        speedMps?: number | null;
+                    }[];
+                };
+            };
+        };
+        responses: {
+            /** @description Recorded */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            429: components["responses"]["Problem429"];
+        };
+    };
+    getRiderMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rider */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    getRiderOffer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending offer or null */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    } | null;
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+        };
+    };
+    acceptDeliveryOffer: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                offerId: components["parameters"]["OfferIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assigned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiderDelivery"];
+                };
+            };
+            404: components["responses"]["Problem404"];
+            409: components["responses"]["Problem409"];
+            422: components["responses"]["Problem422"];
+        };
+    };
+    declineDeliveryOffer: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One UUIDv7 per user intent, reused on retries (§1.7). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required on unsafe methods on app hosts (customer-web|restaurant-web|rider-web|admin-web). */
+                "X-Rovo-Client"?: components["parameters"]["XRovoClient"];
+            };
+            path: {
+                offerId: components["parameters"]["OfferIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReasonCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Declined */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Problem409"];
+        };
+    };
+    stream: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated topic list (order:{id}, inbox:{restaurantId}, rider:{riderId}, ops:{cityId}, user:{id}). */
+                topics?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            401: components["responses"]["Problem401"];
+            403: components["responses"]["Problem403"];
+            429: components["responses"]["Problem429"];
+        };
+    };
     listMyTickets: {
         parameters: {
             query?: {
@@ -3532,6 +11235,7 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Problem401"];
         };
     };
     createTicket: {
@@ -3561,6 +11265,8 @@ export interface operations {
                     "application/json": components["schemas"]["Ticket"];
                 };
             };
+            401: components["responses"]["Problem401"];
+            422: components["responses"]["Problem422"];
         };
     };
     getTicket: {
@@ -3654,6 +11360,9 @@ export interface operations {
                 };
                 content?: never;
             };
+            401: components["responses"]["Problem401"];
+            404: components["responses"]["Problem404"];
+            422: components["responses"]["Problem422"];
         };
     };
     initUpload: {
@@ -3696,6 +11405,8 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Problem401"];
+            422: components["responses"]["Problem422"];
         };
     };
     completeUpload: {
@@ -3724,6 +11435,85 @@ export interface operations {
                         url?: string | null;
                     };
                 };
+            };
+            401: components["responses"]["Problem401"];
+            404: components["responses"]["Problem404"];
+        };
+    };
+    receiveNotificationWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+        };
+    };
+    receivePaymentWebhook: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Razorpay-Event-Id"?: string;
+                "X-Razorpay-Signature"?: string;
+                "x-webhook-signature"?: string;
+                "x-webhook-timestamp"?: string;
+            };
+            path: {
+                provider: components["parameters"]["ProviderPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Accepted (stored; processed asynchronously) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        received?: boolean;
+                    };
+                };
+            };
+            /** @description Malformed body or too large */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Problem401"];
+            /** @description Database unavailable; the provider retries */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

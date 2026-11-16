@@ -1,17 +1,13 @@
-import { createRootRoute, createRoute, createRouter, Outlet, type RouterHistory, useNavigate } from '@tanstack/react-router';
+import { createRootRoute, createRoute, createRouter, Outlet, type RouterHistory } from '@tanstack/react-router';
+import { createElement } from 'react';
 import type { RoleName } from '@rovo/auth';
-import { NotFoundScreen } from '@rovo/shell';
 import { RootLayout } from './layout';
 import { LoginScreen } from './login';
+import { NotFound } from './not-found';
 import { AdminScreenSkeleton } from './placeholder';
 import { ADMIN_SCREENS, type AdminPath, type AdminScreen } from './screens';
 
-function NotFound() {
-  const navigate = useNavigate();
-  return <NotFoundScreen onHome={() => void navigate({ to: '/' })} />;
-}
-
-const rootRoute = createRootRoute({ component: () => <Outlet />, notFoundComponent: NotFound });
+const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFound });
 
 // Everything under the layout route needs an admin session (guard in RootLayout).
 const layoutRoute = createRoute({ getParentRoute: () => rootRoute, id: 'console', component: RootLayout });
@@ -30,9 +26,7 @@ function screenRoute<const P extends AdminPath>(path: P) {
     getParentRoute: () => layoutRoute,
     path,
     staticData: { roles: screen.roles },
-    component: function Screen() {
-      return <AdminScreenSkeleton screen={screen} />;
-    },
+    component: () => createElement(AdminScreenSkeleton, { screen }),
   });
 }
 

@@ -1,28 +1,10 @@
-import { createRootRoute, createRoute, createRouter, Link, Outlet, type RouterHistory, redirect, useNavigate } from '@tanstack/react-router';
-import { useTranslation } from '@rovo/i18n';
-import { NotFoundScreen, PlaceholderScreen } from '@rovo/shell';
-import { Protected } from './guard';
+import { createRootRoute, createRoute, createRouter, Link, Outlet, redirect, type RouterHistory } from '@tanstack/react-router';
 import { RootLayout } from './layout';
 import { LoginScreen } from './login';
+import { NotFound } from './not-found';
+import { makeScreen } from './route-screens';
 
-const rootRoute = createRootRoute({ component: () => <Outlet />, notFoundComponent: NotFound });
-
-function NotFound() {
-  const navigate = useNavigate();
-  return <NotFoundScreen onHome={() => void navigate({ to: '/inbox' })} />;
-}
-
-function makeScreen(title: string, note?: string, testId?: string, withBack = false) {
-  return function Screen() {
-    const { t } = useTranslation('restaurant');
-    const navigate = useNavigate();
-    return (
-      <Protected>
-        <PlaceholderScreen title={t(title)} note={note} testId={testId} onBack={withBack ? () => void navigate({ to: '/inbox' }) : undefined} />
-      </Protected>
-    );
-  };
-}
+const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFound });
 
 const layoutRoute = createRoute({ getParentRoute: () => rootRoute, id: 'layout', component: RootLayout });
 const tab = <const P extends string>(path: P, title: string, testId: string) =>

@@ -54,6 +54,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  const { refetch } = query;
   const me = (query.data ?? null) as Me | null;
   const isAuthError = query.error?.status === 401;
 
@@ -63,10 +64,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       status: query.isLoading ? 'loading' : me ? 'authenticated' : 'guest',
       isLoading: query.isLoading,
       error: isAuthError ? null : (query.error ?? null),
-      refetch: () => void query.refetch(),
+      refetch: () => void refetch(),
       logout,
     }),
-    [me, query.isLoading, query.error, isAuthError, logout],
+    [me, query.isLoading, query.error, isAuthError, refetch, logout],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

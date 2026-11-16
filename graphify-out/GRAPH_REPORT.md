@@ -1,24 +1,24 @@
 # Graph Report - rovo  (2026-11-16)
 
 ## Corpus Check
-- 396 files · ~457,590 words
+- 413 files · ~486,240 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 27 file(s) not represented in the graph (top: (none) 9, .css 6, .caddy 5)
 
 ## Summary
-- 5336 nodes · 9711 edges · 358 communities (292 shown, 66 thin omitted)
-- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 228 edges (avg confidence: 0.86)
+- 5455 nodes · 9964 edges · 351 communities (289 shown, 62 thin omitted)
+- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 264 edges (avg confidence: 0.86)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `71593f93`
+- Built from commit: `df725b48`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - schema.d.ts
 - ui/src/index.ts
-- customer/src/guard.tsx
+- utils/src/index.ts
 - datetime.ts
 - ref_react
 - 10 — Database Schema (logical + physical)
@@ -35,7 +35,7 @@
 - 06 — Delivery Partner (Rider) Workflow
 - web/package.json
 - shell/src/index.ts
-- PasswordHasher
+- data.go
 - 18 — Mobile & PWA Strategy
 - i18n/package.json
 - customer/package.json
@@ -44,7 +44,7 @@
 - github.com/google/uuid.UUID
 - time.Time
 - 13 — Order & Delivery State Machines
-- Error
+- Querier
 - config.go
 - 07 — Admin Console Workflow
 - 05 — Restaurant Partner Workflow
@@ -58,11 +58,11 @@
 - shell/package.json
 - Audience
 - net/http.ResponseWriter
-- Middleware
+- Error
 - Client
-- totp.go
+- seed.go
 - testing.T
-- obs.go
+- rovo/main.go
 - 24 — Observability Strategy
 - 2. Milestones and exit criteria
 - 31 — Review Report (Red Team)
@@ -77,16 +77,16 @@
 - 23 — Backup & Disaster Recovery
 - (a) Risk register
 - client.ts
-- time.Duration
+- .SetSession
 - compute/main.tf
 - devDependencies
 - devDependencies
 - devDependencies
 - auth/src/index.ts
-- auth_test.go
+- go_pkg_time
 - rider/src/router.tsx
 - utils/package.json
-- BillLine
+- minio-init
 - module.compute
 - 11. Business rules (BR-*)
 - admin/src/router.tsx
@@ -98,11 +98,11 @@
 - 8. Functional requirements — Admin (ADM-*)
 - config/package.json
 - check-i18n.mjs
-- AppProviders.tsx
+- index.tsx
 - 8. Privacy and regulatory (DPDP, IT Act, CERT-In, RBI/PCI, Aadhaar) — `[LEGAL]` throughout
 - 9. Security requirements checklist (testable)
-- Toast.tsx
-- restaurant/src/router.tsx
+- WithTx
+- ref_tanstack_react_router
 - eslint.js
 - dependencies
 - devDependencies
@@ -125,13 +125,13 @@
 - environment
 - Phase 2 — Implementation Progress
 - 1. Conventions
-- 10. End-to-end tests
+- Clock
 - 20 — Testing Strategy
 - Part A — Free tiers for local / CI / dev-preview / demo
 - 32 — Final Plan Summary (Phase 1 close-out)
 - devDependencies
 - 00003_catalog.sql
-- rovo/main.go
+- db/db.go
 - aws_cloudfront_distribution.this
 - 6. Functional requirements — Restaurant partner (RES-*)
 - 08 — System Architecture
@@ -153,7 +153,7 @@
 - 7. Functional requirements — Delivery partner (RDR-*)
 - 1. UX principles (apply to all rovo apps: customer, restaurant, rider, admin — R14)
 - 15. Cost estimates (on-demand, excl. GST; ₹95/USD) — single source of cost (R46)
-- PROMPT — rovo Phase 2: implement V1
+- planning/README.md
 - smoke.sh
 - react.json
 - catalog
@@ -218,7 +218,7 @@
 - backup.sh
 - bootstrap.sh
 - dev.sh
-- EventStream
+- ADR-P2-003: Production-mode Docker Compose is the deployment target for this phase
 - api-client/tsconfig.json
 - devDependencies
 - Telugu translations — native review queue
@@ -228,13 +228,13 @@
 - customer/src/router.tsx
 - 00009_ratings_support_notifications.sql
 - 00010_admin_platform.sql
-- 2. Quality goals and risk-based prioritisation
+- 6. Fees and rider pay
 - x-app-env
 - test-integration.sh
 - tf-validate.sh
 - scripts
 - Outbox
-- New
+- NotImplemented
 - jobs
 - Store
 - services
@@ -249,7 +249,7 @@
 - github.com/storetmobiles2-code/rovo/backend
 - github.com/storetmobiles2-code/rovo/deploy/docker/healthcheck
 - cities
-- fieldcrypt.go
+- Sequence
 - name
 - .Post
 - orders
@@ -267,8 +267,8 @@
 - staging/.terraform.lock.hcl
 - terraform/versions.tf
 - migrate
-- FakeEventSource
-- money.ts
+- 5. DDL — quote & pricing, promotions
+- 15. Seed data plan — Mahabubnagar
 - Bus
 - grafana
 - caddy
@@ -289,7 +289,7 @@
 - mailpit
 - providers
 - datasources
-- planning/README.md
+- 3. DDL — geo, users, identity
 - outputs
 - healthcheck
 - minio-init
@@ -308,7 +308,6 @@
 - 12. Taxes, invoices and compliance `[LEGAL]`
 - 1. Top-level layout
 - contact_links
-- 8. Failure flows
 - 10. Ledger design (double-entry-lite)
 - pull_request_template.md
 - e2e
@@ -319,15 +318,9 @@
 - 19. Test environments and provider fakes
 - 13. Scope cut list and missing items
 - ci-ok
-- .Validate
-- address.ts
-- Claims
 - 16. Reconciliation
-- 20. Testability hooks required from backend and frontend
-- 23. Traceability
 - 5. Property-based tests and fuzzing
 - pnpm-workspace.yaml
-- ExpireApprovalsArgs
 - CLAUDE.md
 - .claude/CLAUDE.md
 - @radix-ui/react-select
@@ -369,65 +362,65 @@
 - vitest@catalog:
 
 ## God Nodes (most connected - your core abstractions)
-1. `Deps` - 82 edges
+1. `Deps` - 83 edges
 2. `users` - 55 edges
 3. `catalog` - 54 edges
-4. `NotImplemented()` - 48 edges
+4. `NotImplemented()` - 49 edges
 5. `with` - 47 edges
 6. `cn()` - 46 edges
 7. `New()` - 39 edges
 8. `cities` - 34 edges
-9. `x-app-env` - 31 edges
+9. `environment` - 31 edges
 10. `environment` - 31 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `2.3 Customer` --references--> `Order`  [INFERRED]
   docs/planning/11-api-specification.md → backend/internal/modules/ordering/module.go
-- `10.2 Time control in E2E` --references--> `Clock`  [INFERRED]
-  docs/planning/20-testing-strategy.md → backend/internal/platform/clock/clock.go
-- `18.6 Deterministic clocks and IDs` --references--> `Clock`  [INFERRED]
-  docs/planning/20-testing-strategy.md → backend/internal/platform/clock/clock.go
-- `6.5 River jobs and timers (fake clock)` --references--> `Clock`  [INFERRED]
-  docs/planning/20-testing-strategy.md → backend/internal/platform/clock/clock.go
+- `2.2 `packages/utils` (selected functions)` --references--> `newIdempotencyKey()`  [INFERRED]
+  docs/planning/17-frontend-architecture.md → web/packages/utils/src/id.ts
+- `E16 — Shared web packages` --references--> `formatMoney()`  [INFERRED]
+  docs/planning/27-implementation-backlog.md → web/packages/utils/src/money.ts
 - `8. Error, loading and empty-state patterns` --references--> `useOnline()`  [INFERRED]
   docs/planning/17-frontend-architecture.md → web/packages/ui/src/hooks.ts
+- `Consequences` --references--> `DecodeJSON()`  [INFERRED]
+  docs/adr/ADR-P2-001-openapi-contract-without-server-codegen.md → backend/internal/platform/httpx/respond.go
 
 ## Import Cycles
 - None detected.
 
-## Communities (358 total, 66 thin omitted)
+## Communities (351 total, 62 thin omitted)
 
 ### Community 0 - "schema.d.ts"
 Cohesion: 0.02
-Nodes (99): components, $defs, HeaderETag, HeaderIdempotentReplayed, HeaderLocation, HeaderRateLimit, HeaderRetryAfter, operations (+91 more)
+Nodes (99): RFC-9457, components, $defs, HeaderETag, HeaderIdempotentReplayed, HeaderLocation, HeaderRateLimit, HeaderRetryAfter (+91 more)
 
 ### Community 1 - "ui/src/index.ts"
-Cohesion: 0.06
-Nodes (68): cn(), BillBreakdown(), BillBreakdownLine, BillBreakdownProps, ButtonProps, ButtonSize, ButtonVariant, IconButton (+60 more)
+Cohesion: 0.07
+Nodes (66): cn(), BillBreakdown(), Button, ButtonProps, ButtonSize, ButtonVariant, IconButtonProps, sizes (+58 more)
 
-### Community 2 - "customer/src/guard.tsx"
-Cohesion: 0.31
-Nodes (12): Protected(), LoginRedirect(), ScreenSkeleton(), Loading(), Protected(), LoginRedirect(), Loading(), Protected() (+4 more)
+### Community 2 - "utils/src/index.ts"
+Cohesion: 0.14
+Nodes (10): LoginScreen(), LoginScreen(), LoginScreen(), LoginScreen(), BillBreakdownLine, BillBreakdownProps, BillLineLike, visibleBillLines() (+2 more)
 
 ### Community 3 - "datetime.ts"
-Cohesion: 0.21
-Nodes (18): useFormatters(), cache, DateInput, dtf(), formatDate(), formatDateTime(), formatDuration(), formatRelative() (+10 more)
+Cohesion: 0.11
+Nodes (35): RFC-9562, useFormatters(), AddressLike, clean(), formatAddress(), cache, DateInput, dtf() (+27 more)
 
 ### Community 4 - "ref_react"
-Cohesion: 0.10
-Nodes (15): App(), router, App(), updateSW, router, App(), updateSW, router (+7 more)
+Cohesion: 0.08
+Nodes (25): App(), router, App(), updateSW, router, App(), updateSW, router (+17 more)
 
 ### Community 5 - "10 — Database Schema (logical + physical)"
-Cohesion: 0.07
-Nodes (29): 10 — Database Schema (logical + physical), 10. DDL — ratings, support, notifications, 11. DDL — admin, platform, 12. PII classification (DPDP Act 2023 & encryption decisions), 13.1 Erasure map (DPDP, M15, RV-031) [LEGAL], 13. Data retention policy (per table), 14. Retention jobs and partitioning triggers (C8), 15.1 Reference seeds (all environments) (+21 more)
+Cohesion: 0.12
+Nodes (16): 10 — Database Schema (logical + physical), 10. DDL — ratings, support, notifications, 11. DDL — admin, platform, 12. PII classification (DPDP Act 2023 & encryption decisions), 13.1 Erasure map (DPDP, M15, RV-031) [LEGAL], 13. Data retention policy (per table), 14. Retention jobs and partitioning triggers (C8), 16. Migration strategy (goose, zero-downtime) (+8 more)
 
 ### Community 6 - "api-client/package.json"
 Cohesion: 0.06
 Nodes (48): openapi-fetch, openapi-typescript, dependencies, openapi-fetch@catalog:, @rovo/utils@workspace:*, description, devDependencies, jsdom@catalog: (+40 more)
 
 ### Community 7 - "react.tsx"
-Cohesion: 0.11
-Nodes (28): 5.1 Endpoint and events (aligned with R10, doc 08 §Real-time and doc 12 §4.7), 5.2 Client (`createEventStream` in `packages/api-client`), 5. Real-time integration (SSE), ListFilters, qk, RestaurantFilters, ApiClientContext, healthListeners (+20 more)
+Cohesion: 0.06
+Nodes (34): 5.1 Endpoint and events (aligned with R10, doc 08 §Real-time and doc 12 §4.7), 5.2 Client (`createEventStream` in `packages/api-client`), 5. Real-time integration (SSE), ListFilters, qk, RestaurantFilters, ApiClientContext, healthListeners (+26 more)
 
 ### Community 8 - "auth/package.json"
 Cohesion: 0.06
@@ -439,43 +432,43 @@ Nodes (43): 0. Summary of decisions, 10. Internationalisation (`packages/i18n`),
 
 ### Community 10 - "app.go"
 Cohesion: 0.23
-Nodes (7): principalKey, FieldError, hasJSONContentType(), trimSpace(), audienceKey, problemBody, Config
+Nodes (6): ExpireApprovalsArgs, principalKey, Authenticator, SessionChecker, audienceKey, AuthConfig
 
 ### Community 11 - "i18n/src/index.ts"
-Cohesion: 0.09
-Nodes (29): Catalog, lazyCatalogBackend, loadCatalog(), loaders, Language, LANGUAGE_STORAGE_KEY, NAMESPACES, SUPPORTED_LANGUAGES (+21 more)
+Cohesion: 0.10
+Nodes (27): AppId, Catalog, lazyCatalogBackend, loadCatalog(), loaders, Language, LANGUAGE_STORAGE_KEY, Namespace (+19 more)
 
 ### Community 12 - "12 — Authentication & Authorisation (Auth / RBAC)"
 Cohesion: 0.04
-Nodes (47): 0. Decision summary, 10. Sources (accessed 2026-10-04), 11. Challenges to baseline (summary; full list in report), 12 — Authentication & Authorisation (Auth / RBAC), 1.1 Entities, 1.2 Roles and scopes, 1.3 Can a person be both customer and rider on one phone? (decision), 1.4 Phone-number recycling (India-specific risk) (+39 more)
+Nodes (46): 0. Decision summary, 10. Sources (accessed 2026-10-04), 11. Challenges to baseline (summary; full list in report), 12 — Authentication & Authorisation (Auth / RBAC), 1.1 Entities, 1.2 Roles and scopes, 1.3 Can a person be both customer and rider on one phone? (decision), 1.4 Phone-number recycling (India-specific risk) (+38 more)
 
 ### Community 13 - "14 — Payment Architecture"
-Cohesion: 0.10
+Cohesion: 0.09
 Nodes (21): 13. Commission and fee computation (quote engine), 14. COD risk controls, 14 — Payment Architecture, 15. Refunds, 17. Settlement cycle and payouts, 18. Failure and timeout handling (payments-specific), 19. Security and privacy, 1. Principles (+13 more)
 
 ### Community 14 - "testutil/db.go"
-Cohesion: 0.16
-Nodes (16): adminExec(), ensureTemplate(), DB, migrationsHash(), NewDB(), NewEmptyDB(), withDatabase(), NewMigratedDB() (+8 more)
+Cohesion: 0.07
+Nodes (22): RandomCrockford(), New(), Up(), adminExec(), ensureTemplate(), DB, migrationsHash(), NewDB() (+14 more)
 
 ### Community 15 - "16 — Delivery Zone & Geography Architecture"
-Cohesion: 0.05
-Nodes (36): 0. Decision summary, 10.1 Mahabubnagar sample zone (fixture, NOT the real service area), 10.2 Fixture points and expected results, 10.3 Scenario tests, 10. Test fixtures, 11. Mahabubnagar specifics: verified vs. assumed, 12. Not doing in V1, 13. Open items (+28 more)
+Cohesion: 0.07
+Nodes (30): 0. Decision summary, 10.1 Mahabubnagar sample zone (fixture, NOT the real service area), 10.2 Fixture points and expected results, 10.3 Scenario tests, 10. Test fixtures, 11. Mahabubnagar specifics: verified vs. assumed, 12. Not doing in V1, 13. Open items (+22 more)
 
 ### Community 16 - "06 — Delivery Partner (Rider) Workflow"
-Cohesion: 0.07
-Nodes (30): 06 — Delivery Partner (Rider) Workflow, 10.1 Earnings (D-20, D-21), 10.2 Cash-in-hand and deposit (D-22, D-23), 10.3 Delivery history (D-24), 10. Earnings, cash-in-hand, deposits, history, 11. Safety and SOS (D-30), 12. Delivery status ↔ order status map, 13. Edge cases (+22 more)
+Cohesion: 0.06
+Nodes (35): 06 — Delivery Partner (Rider) Workflow, 10.1 Earnings (D-20, D-21), 10.2 Cash-in-hand and deposit (D-22, D-23), 10.3 Delivery history (D-24), 10. Earnings, cash-in-hand, deposits, history, 11. Safety and SOS (D-30), 12. Delivery status ↔ order status map, 13. Edge cases (+27 more)
 
 ### Community 17 - "web/package.json"
 Cohesion: 0.07
 Nodes (35): eslint, prettier, description, devDependencies, eslint@catalog:, @eslint/js@catalog:, prettier@catalog:, @rovo/config@workspace:* (+27 more)
 
 ### Community 18 - "shell/src/index.ts"
-Cohesion: 0.16
-Nodes (18): LoginScreen(), LoginScreen(), isApiError(), AdminLoginScreen(), submitTotp(), verifyTotp(), AdminLoginScreenProps, BrandLogo() (+10 more)
+Cohesion: 0.09
+Nodes (24): isApiError(), AdminLoginScreen(), submitTotp(), verifyTotp(), AdminLoginScreenProps, BrandLogo(), BrandLogoProps, Props (+16 more)
 
-### Community 19 - "PasswordHasher"
-Cohesion: 0.39
-Nodes (5): Argon2Params, TestPasswordHash(), PasswordHasher, NewPasswordHasher(), parsePHC()
+### Community 19 - "data.go"
+Cohesion: 0.27
+Nodes (10): addon, addonGroup, category, coupon, item, ledgerAccount, locality, restaurant (+2 more)
 
 ### Community 20 - "18 — Mobile & PWA Strategy"
 Cohesion: 0.06
@@ -499,23 +492,23 @@ Nodes (9): description, @rovo/testing@workspace:*, @testing-library/react@catalo
 
 ### Community 25 - "github.com/google/uuid.UUID"
 Cohesion: 0.04
-Nodes (37): ExecuteApprovalArgs, New(), New(), NotImplemented(), Menu, MenuCategory, MenuItem, Restaurant (+29 more)
+Nodes (34): ExecuteApprovalArgs, New(), TOTPAAD(), Menu, MenuCategory, MenuItem, Restaurant, Delivery (+26 more)
 
 ### Community 26 - "time.Time"
-Cohesion: 0.16
-Nodes (10): TestPreviousISOWeek(), AccountingDate(), PreviousISOWeek(), StartOfDay(), StartOfISOWeek(), Fake, Real, Week (+2 more)
+Cohesion: 0.08
+Nodes (18): TokenInput, Offset, TestPreviousISOWeek(), AccountingDate(), PreviousISOWeek(), StartOfDay(), StartOfISOWeek(), IsNoRows() (+10 more)
 
 ### Community 27 - "13 — Order & Delivery State Machines"
 Cohesion: 0.06
 Nodes (32): 0. Decision summary, 10. Open items, 11. Challenges / deviations recorded, 13 — Order & Delivery State Machines, 1.1 Order transition table, 1.2 Admin "on behalf" commands, 1. Order state machine, 2.1 Delivery transition table (+24 more)
 
-### Community 28 - "Error"
-Cohesion: 0.12
-Nodes (21): BadRequest(), Conflict(), Forbidden(), Error, Internal(), New(), NotFound(), PreconditionFailed() (+13 more)
+### Community 28 - "Querier"
+Cohesion: 0.21
+Nodes (6): Unprocessable(), Querier, MarkProcessed(), equalBytes(), Sweep(), CompletedResponse
 
 ### Community 29 - "config.go"
-Cohesion: 0.08
-Nodes (19): TestRefreshToken(), HashToken(), LooksLikeRefreshToken(), NewRefreshToken(), decodeB64(), Config, Load(), parseBool() (+11 more)
+Cohesion: 0.04
+Nodes (48): Options, Register, RegisterJobs, Keyset, runSeed(), New(), New(), New() (+40 more)
 
 ### Community 30 - "07 — Admin Console Workflow"
 Cohesion: 0.06
@@ -526,16 +519,16 @@ Cohesion: 0.06
 Nodes (30): 05 — Restaurant Partner Workflow, 10. Screen inventory (`restaurant` app), 11. Requirements for Backend / Frontend and challenges to the baseline, 1.1 Indicative Telugu labels (key actions) `[ASSUMPTION — native-speaker review required]`, 1. Design constraints specific to restaurants, 2. Roles and permissions (restaurant side), 3.1 Flow overview, 3.2 Lead form (P-01, public, no account needed) (+22 more)
 
 ### Community 32 - "context.Context"
-Cohesion: 0.09
-Nodes (21): main(), runMigrate(), runSeed(), runServers(), serverRole(), Connect(), Querier, NewPool() (+13 more)
+Cohesion: 0.11
+Nodes (10): RandomToken(), Connect(), i18n(), ID(), localityIDs(), nullIfEmpty(), nullIfZero(), Runner (+2 more)
 
 ### Community 33 - "ui/package.json"
 Cohesion: 0.20
 Nodes (9): description, @testing-library/user-event@catalog:, exports, @testing-library/user-event, name, private, sideEffects, type (+1 more)
 
 ### Community 34 - "Writer"
-Cohesion: 0.21
-Nodes (4): Frame, Hub, Subscription, Writer
+Cohesion: 0.18
+Nodes (5): Start(), Frame, Hub, Subscription, Writer
 
 ### Community 35 - "22 — Deployment Architecture"
 Cohesion: 0.07
@@ -558,32 +551,32 @@ Cohesion: 0.05
 Nodes (54): dependencies, lucide-react@catalog:, @rovo/api-client@workspace:*, @rovo/auth@workspace:*, @rovo/i18n@workspace:*, @rovo/ui@workspace:*, @rovo/utils@workspace:*, @tanstack/react-query@catalog: (+46 more)
 
 ### Community 40 - "Audience"
-Cohesion: 0.18
-Nodes (6): Role, TokenInput, Audience, Principal, SystemPrincipal(), PrincipalID()
+Cohesion: 0.20
+Nodes (5): Role, Audience, Principal, SystemPrincipal(), PrincipalID()
 
 ### Community 41 - "net/http.ResponseWriter"
-Cohesion: 0.14
-Nodes (9): TestCookies(), Cookies, sameSite(), writeJSON(), BearerToken(), JSON(), NoContent(), Start() (+1 more)
+Cohesion: 0.16
+Nodes (7): writeJSON(), BearerToken(), routePattern(), JSON(), NoContent(), Checker, statusRecorder
 
-### Community 42 - "Middleware"
-Cohesion: 0.07
-Nodes (33): Unauthenticated(), PrincipalFrom(), WithPrincipal(), ParseAppHosts(), AudienceFrom(), Authenticate(), mapTokenError(), Principal() (+25 more)
+### Community 42 - "Error"
+Cohesion: 0.05
+Nodes (44): BadRequest(), Conflict(), Forbidden(), Error, FieldError, New(), NotFound(), PreconditionFailed() (+36 more)
 
 ### Community 43 - "Client"
 Cohesion: 0.10
-Nodes (16): Publisher, NewPublisher(), NewRegistry(), Client, Enqueuer, 4.1 The rules, 4.2 Compiler-enforced encapsulation (cheap and strong), 4.3 CI checks for what the compiler can't see (+8 more)
+Nodes (17): Publisher, NewPublisher(), NewRegistry(), Client, Enqueuer, Decision, 4.1 The rules, 4.2 Compiler-enforced encapsulation (cheap and strong) (+9 more)
 
-### Community 44 - "totp.go"
-Cohesion: 0.24
-Nodes (8): TOTPEnrolment, TestMAC(), TestTOTP(), EqualMAC(), MAC(), NewTOTPSecret(), TOTPCode(), ValidateTOTP()
+### Community 44 - "seed.go"
+Cohesion: 0.08
+Nodes (24): Argon2Params, TOTPEnrolment, TestFieldCrypto(), TestMAC(), TestPasswordHash(), TestTOTP(), FieldKeyring, NewFieldKeyring() (+16 more)
 
 ### Community 45 - "testing.T"
-Cohesion: 0.09
-Nodes (29): TestAllModulesWire(), testConfig(), As(), IsCode(), TestDecodeJSON(), TestErrorRenders9457(), TestErrorRetryAfter(), TestRequestHash() (+21 more)
+Cohesion: 0.08
+Nodes (35): TestAllModulesWire(), testConfig(), Load(), ParseAppHosts(), env(), TestDevDefaults(), TestExplicitValues(), TestProdRequiresSecrets() (+27 more)
 
-### Community 46 - "obs.go"
-Cohesion: 0.10
-Nodes (6): NewMetrics(), SetupTracing(), statusClass(), ctxKey, Metrics, Tracing
+### Community 46 - "rovo/main.go"
+Cohesion: 0.05
+Nodes (31): main(), runMigrate(), runServers(), serverRole(), As(), Internal(), IsCode(), parseLevel() (+23 more)
 
 ### Community 47 - "24 — Observability Strategy"
 Cohesion: 0.07
@@ -614,19 +607,19 @@ Cohesion: 0.10
 Nodes (21): 0. How to use, 10. Resilience tests, 11. Mobile / PWA device matrix, 12. Accessibility & i18n, 13. Support processes, 14. Rollback plan, 15. Go/No-Go decision procedure, 16.1 Launch day (public launch, target Monday 2027-11-08) (+13 more)
 
 ### Community 54 - "admin/src/app.test.tsx"
-Cohesion: 0.13
-Nodes (29): renderAt(), server, createAdminRouter(), renderAt(), server, renderAt(), server, renderAt() (+21 more)
+Cohesion: 0.12
+Nodes (28): renderAt(), server, NotFound(), createAdminRouter(), renderAt(), server, NotFound(), createAppRouter() (+20 more)
 
 ### Community 55 - "02 — V1 Scope"
 Cohesion: 0.10
 Nodes (20): 02 — V1 Scope, 1.1 Capability map (P0 = launch blocker), 1.2 P1 items committed to V1 (built before launch), 1.3 Golden-flow coverage check, 1. In scope for V1, 2.1 Mandatory deferrals (baseline §1), 2.2 Additional scope-creep decisions, 2.3 Accepted scope cuts from the review (31 §13.1, baseline §9) — all deferred to V1.1+ (+12 more)
 
 ### Community 56 - "15 — Notification Architecture"
-Cohesion: 0.08
+Cohesion: 0.07
 Nodes (26): 0. Summary, 10. Provider abstraction (Go sketch), 11. Delivery receipts and observability, 12. Failure modes, 13. Open questions, 15 — Notification Architecture, 1. Channels, 2.1 Customer (+18 more)
 
 ### Community 57 - "21 — CI/CD Strategy"
-Cohesion: 0.07
+Cohesion: 0.08
 Nodes (26): 10. Release process, 11. Dependency updates, 12. Branch protection (repository rulesets), 13. CI time budget, 1. Principles, 21 — CI/CD Strategy, 2. Workflow map, 3.1 Go backend (`backend/**`, `openapi/**`) (+18 more)
 
 ### Community 58 - "23 — Backup & Disaster Recovery"
@@ -638,12 +631,12 @@ Cohesion: 0.10
 Nodes (20): 30 — Risks, Assumptions, Decisions & Open Questions (RAID), (a) Risk register, Architecture Decision Records (doc 09), (b) Assumptions register (significant `[ASSUMPTION]`s from docs 01–26), (c) Decisions log, (d) Unresolved decisions / open questions (deduplicated), (e) Remaining cross-document conflicts (for reconciliation by doc owners), Financial (+12 more)
 
 ### Community 60 - "client.ts"
-Cohesion: 0.07
-Nodes (25): absolute(), acceptLanguage(), API_BASE_URL, ApiClientOptions, FetchResultLike, idempotencyHeaders(), RovoClient, Handler (+17 more)
+Cohesion: 0.08
+Nodes (27): absolute(), acceptLanguage(), API_BASE_URL, ApiClientOptions, createApiClient(), FetchResultLike, idempotencyHeaders(), RovoClient (+19 more)
 
-### Community 61 - "time.Duration"
-Cohesion: 0.17
-Nodes (9): maxAge(), Offset, IsNoRows(), RateLimit(), Limiter, Options, ADR-007: Redis at launch? **No.** Managed Redis later, by configuration, E01 — Platform foundations (+1 more)
+### Community 61 - ".SetSession"
+Cohesion: 0.35
+Nodes (4): TestCookies(), Cookies, maxAge(), sameSite()
 
 ### Community 62 - "compute/main.tf"
 Cohesion: 0.07
@@ -662,36 +655,36 @@ Cohesion: 0.12
 Nodes (17): devDependencies, @rovo/config@workspace:*, @testing-library/user-event@catalog:, typescript@catalog:, vite@catalog:, workbox-cacheable-response@catalog:, workbox-core@catalog:, workbox-precaching@catalog: (+9 more)
 
 ### Community 66 - "auth/src/index.ts"
-Cohesion: 0.14
-Nodes (24): unwrap(), ApiError, isRecord(), useApiClient(), AdminMfaChallenge, Me, useAdminLogin(), UseAdminLoginResult (+16 more)
+Cohesion: 0.10
+Nodes (35): 5.2 Permission catalogue and role matrix, Loading(), LoginRedirect(), Protected(), RequireScreenRole(), canOpenScreen(), unwrap(), ApiError (+27 more)
 
-### Community 67 - "auth_test.go"
-Cohesion: 0.15
-Nodes (16): Keyset, newIssuer(), TestJWTRejectsForgeries(), TestJWTRoundTrip(), TestKeyRotationVerifiesPrevious(), Issuer, NewIssuer(), KID() (+8 more)
+### Community 67 - "go_pkg_time"
+Cohesion: 0.12
+Nodes (16): Claims, Scopes, newIssuer(), TestJWTRejectsForgeries(), TestJWTRoundTrip(), TestKeyRotationVerifiesPrevious(), Issuer, NewIssuer() (+8 more)
 
 ### Community 68 - "rider/src/router.tsx"
-Cohesion: 0.13
-Nodes (22): RootLayout(), TABS, RootLayout(), TABS, RootLayout(), TABS, full(), layoutRoute (+14 more)
+Cohesion: 0.15
+Nodes (20): RootLayout(), TABS, RootLayout(), TABS, RootLayout(), TABS, useLanguage(), IconButton (+12 more)
 
 ### Community 69 - "utils/package.json"
 Cohesion: 0.13
 Nodes (17): description, devDependencies, @rovo/config@workspace:*, typescript@catalog:, vitest@catalog:, exports, @rovo/config, typescript (+9 more)
 
-### Community 70 - "BillLine"
-Cohesion: 0.67
-Nodes (3): 1.4 Money, numbers, rounding, BillComponent, BillLine
+### Community 70 - "minio-init"
+Cohesion: 0.22
+Nodes (9): minio, condition, depends_on, entrypoint, image, networks, restart, volumes (+1 more)
 
 ### Community 71 - "module.compute"
 Cohesion: 0.08
-Nodes (50): Terraform module: deploy/terraform/envs/prod, local.app_environment, local.app_hosts, local.name_prefix, local.tags, module.compute, module.database, module.edge (+42 more)
+Nodes (53): Terraform module: deploy/terraform/envs/prod, local.app_environment, local.app_hosts, local.name_prefix, local.tags, module.compute, module.database, module.edge (+45 more)
 
 ### Community 72 - "11. Business rules (BR-*)"
 Cohesion: 0.12
 Nodes (17): 11.10 BR-COUP — Coupons and stacking, 11.11 BR-CONT — Contact & privacy rules (V1 without masked calling), 11.12 BR-OTP — Delivery OTP, 11.13 BR-RES — Restaurant operating rules, 11.14 BR-PAYOUT — Payout cycles, 11.15 BR-MENU — Menu & dietary rules, 11.15a BR-COST — Running cost as a business line item, 11.1 BR-FEE — Customer-facing fees and pricing (+9 more)
 
 ### Community 73 - "admin/src/router.tsx"
-Cohesion: 0.12
-Nodes (29): Loading(), LoginRedirect(), Protected(), RequireScreenRole(), ConsoleFrame(), ICONS, isActive(), NAV (+21 more)
+Cohesion: 0.10
+Nodes (18): ConsoleFrame(), ICONS, isActive(), NAV, NavScreen, RootLayout(), AdminScreenSkeleton(), layoutRoute (+10 more)
 
 ### Community 74 - "03 — User Personas"
 Cohesion: 0.12
@@ -725,9 +718,9 @@ Nodes (26): eslint-plugin-jsx-a11y, eslint-plugin-react-hooks, @fontsource/noto-
 Cohesion: 0.10
 Nodes (14): html, bin, out, pkg, placeholder, real, checkCatalogs(), flatten() (+6 more)
 
-### Community 82 - "AppProviders.tsx"
-Cohesion: 0.25
-Nodes (5): ApiClient, AppId, Namespace, AppProvidersProps, ProviderOptions
+### Community 82 - "index.tsx"
+Cohesion: 0.17
+Nodes (8): ApiClient, createTestProviders(), Providers(), createTestQueryClient(), DEFAULT_AXE, expectNoAxeViolations(), ProviderOptions, renderWithProviders()
 
 ### Community 83 - "8. Privacy and regulatory (DPDP, IT Act, CERT-In, RBI/PCI, Aadhaar) — `[LEGAL]` throughout"
 Cohesion: 0.14
@@ -737,13 +730,13 @@ Nodes (14): 8.10 CERT-In Directions (28 Apr 2022), 8.11 RBI Payment Aggregator d
 Cohesion: 0.14
 Nodes (14): 9.10 Privacy and compliance, 9.11 Incident readiness, 9.12 Cloud platform (added for 00 §4a), 9.13 Added in v1.1, 9.1 Authentication (OTP and admin), 9.2 Sessions, tokens, CSRF, CORS, SSE, 9.3 Authorisation, 9.4 Web and content security (+6 more)
 
-### Community 85 - "Toast.tsx"
-Cohesion: 0.23
-Nodes (12): dismissToast(), emit(), items, listeners, toast(), Toaster(), ToastInput, ToastItem (+4 more)
+### Community 85 - "WithTx"
+Cohesion: 0.62
+Nodes (4): InTx(), WithTx(), WithTxOptions(), TxBeginner
 
-### Community 86 - "restaurant/src/router.tsx"
-Cohesion: 0.13
-Nodes (16): LoginScreen(), analytics, full(), hours, inbox, indexRoute, layoutRoute, loginRoute (+8 more)
+### Community 86 - "ref_tanstack_react_router"
+Cohesion: 0.07
+Nodes (35): Loading(), LoginRedirect(), Protected(), guarded(), publicScreen(), Loading(), LoginRedirect(), Protected() (+27 more)
 
 ### Community 87 - "eslint.js"
 Cohesion: 0.20
@@ -774,12 +767,12 @@ Cohesion: 0.25
 Nodes (4): defineRovoApp(), RovoAppName, RovoAppOptions, RovoPwaOptions
 
 ### Community 94 - "Deps"
-Cohesion: 0.06
-Nodes (22): App, registerPlatformJobs(), Deps, FieldKeyring, Mux, AddWorker(), Registry, NewRegistry() (+14 more)
+Cohesion: 0.07
+Nodes (22): App, registerPlatformJobs(), Deps, Mux, NewMux(), AddWorker(), Registry, NewRegistry() (+14 more)
 
 ### Community 95 - "module.compute"
 Cohesion: 0.08
-Nodes (53): Terraform module: deploy/terraform/envs/staging, local.app_environment, local.app_hosts, local.name_prefix, local.tags, module.compute, module.database, module.edge (+45 more)
+Nodes (50): Terraform module: deploy/terraform/envs/staging, local.app_environment, local.app_hosts, local.name_prefix, local.tags, module.compute, module.database, module.edge (+42 more)
 
 ### Community 96 - "00 — Planning Baseline (Lead Architect Brief)"
 Cohesion: 0.15
@@ -822,24 +815,24 @@ Cohesion: 0.10
 Nodes (21): dependencies, lucide-react@catalog:, react@catalog:, react-dom@catalog:, @rovo/api-client@workspace:*, @rovo/auth@workspace:*, @rovo/i18n@workspace:*, @rovo/shell@workspace:* (+13 more)
 
 ### Community 106 - "environment"
-Cohesion: 0.08
-Nodes (55): environment, environment, minio, MINIO_BROWSER, MINIO_REGION, MINIO_ROOT_PASSWORD, MINIO_ROOT_USER, OTEL_EXPORTER_OTLP_ENDPOINT (+47 more)
+Cohesion: 0.12
+Nodes (41): environment, environment, OTEL_EXPORTER_OTLP_ENDPOINT, ROVO_ACME_EMAIL, ROVO_ADMIN_BOOTSTRAP_PASSWORD, ROVO_API_HEALTH_UPSTREAM, ROVO_API_UPSTREAM, ROVO_APP_HOSTS (+33 more)
 
 ### Community 107 - "Phase 2 — Implementation Progress"
 Cohesion: 0.11
 Nodes (17): API contract (`openapi/`), Backend (`backend/`), DevOps (`deploy/`, `.github/`), Frontend (`web/`), Known risks / notes, Phase 2 — Implementation Progress, Remaining before the foundation is "done", Snapshot (+9 more)
 
 ### Community 108 - "1. Conventions"
-Cohesion: 0.06
-Nodes (33): 11 — API Specification (REST, OpenAPI 3.1), 1.10 Rate limiting, 1.11 Localization, 1.12 Auth (detail in 12), 1.13 Versioning and deprecation, 1.14 Caching, 1.1 Hosts, audiences, prefixes, 1.2 Resource naming (+25 more)
+Cohesion: 0.05
+Nodes (36): 11 — API Specification (REST, OpenAPI 3.1), 1.10 Rate limiting, 1.11 Localization, 1.12 Auth (detail in 12), 1.13 Versioning and deprecation, 1.14 Caching, 1.1 Hosts, audiences, prefixes, 1.2 Resource naming (+28 more)
 
-### Community 109 - "10. End-to-end tests"
-Cohesion: 0.40
-Nodes (5): 10.1 Stack and conventions, 10.2 Time control in E2E, 10.3 Golden flow (multi-actor, 4 browser contexts), 10.4 Failure scenarios, 10. End-to-end tests
+### Community 109 - "Clock"
+Cohesion: 0.20
+Nodes (11): Clock, IdempotencyStore, NewIdempotencyStore(), 10.1 Stack and conventions, 10.2 Time control in E2E, 10.3 Golden flow (multi-actor, 4 browser contexts), 10.4 Failure scenarios, 10. End-to-end tests (+3 more)
 
 ### Community 110 - "20 — Testing Strategy"
-Cohesion: 0.15
-Nodes (12): 13. Resilience / chaos-lite, 16.1 Telugu localisation QA, 16.2 Accessibility audit (manual, pre-release), 16. Localisation QA and accessibility audit, 17. UAT, pilot, dogfooding, bug bash, 20 — Testing Strategy, 24. What we are deliberately not doing, 25. Open questions (+4 more)
+Cohesion: 0.09
+Nodes (21): 13. Resilience / chaos-lite, 16.1 Telugu localisation QA, 16.2 Accessibility audit (manual, pre-release), 16. Localisation QA and accessibility audit, 17. UAT, pilot, dogfooding, bug bash, 20.1 Backend, 20.2 Frontend, 20. Testability hooks required from backend and frontend (+13 more)
 
 ### Community 111 - "Part A — Free tiers for local / CI / dev-preview / demo"
 Cohesion: 0.18
@@ -857,9 +850,9 @@ Nodes (15): devDependencies, @rovo/config@workspace:*, @testing-library/jest-dom
 Cohesion: 0.11
 Nodes (37): addon_groups, addons, cuisines, item_variants, ix_addons__group, ix_item_variants__item, ix_leads__queue, ix_menu_item_addon_groups__group (+29 more)
 
-### Community 115 - "rovo/main.go"
-Cohesion: 0.08
-Nodes (11): InTx(), IsCheckViolation(), isCode(), IsExclusionViolation(), IsUniqueViolation(), PgError(), WithTx(), WithTxOptions() (+3 more)
+### Community 115 - "db/db.go"
+Cohesion: 0.11
+Nodes (16): IsCheckViolation(), isCode(), IsExclusionViolation(), IsUniqueViolation(), NewPool(), PgError(), New(), New() (+8 more)
 
 ### Community 116 - "aws_cloudfront_distribution.this"
 Cohesion: 0.12
@@ -906,8 +899,8 @@ Cohesion: 0.22
 Nodes (9): 7.1 Database roles and hardening (managed PostgreSQL), 7.2 Accounts, network and operator access, 7.3 Encryption and key management (KMS envelope encryption), 7.4 Backups (summary; owned by 23), 7.5 Secrets management, 7.6 Logging, audit and PII redaction, 7.7 Supply chain and CI/CD (for 21), 7.8 Open-source-specific measures (+1 more)
 
 ### Community 128 - "6. Go integration tests"
-Cohesion: 0.22
-Nodes (9): 6.1 Database provisioning and isolation, 6.2 sqlc queries and repositories, 6.3 Migrations, 6.4 PostGIS serviceability with Mahabubnagar fixtures, 6.5 River jobs and timers (fake clock), 6.6 Concurrency and race tests, 6.7 Per-subscriber jobs (River as outbox, R22/R42) and invariants, 6.8 SSE (+1 more)
+Cohesion: 0.25
+Nodes (8): 6.1 Database provisioning and isolation, 6.2 sqlc queries and repositories, 6.3 Migrations, 6.4 PostGIS serviceability with Mahabubnagar fixtures, 6.6 Concurrency and race tests, 6.7 Per-subscriber jobs (River as outbox, R22/R42) and invariants, 6.8 SSE, 6. Go integration tests
 
 ### Community 129 - "14. Service-by-service comparison (India regions)"
 Cohesion: 0.22
@@ -941,9 +934,9 @@ Nodes (8): 1.1 Mobile-first at 360 px, 1.2 Low bandwidth and low-end devices, 1.
 Cohesion: 0.25
 Nodes (8): 15.1 AWS production profiles (R32 / M17), 15.2 AWS: 10× growth (≈ 5,000–20,000 orders/day, ~1,000 riders, ~15k SSE connections), 15.3 GCP alternative (asia-south1), 15.4 Azure (Central India), for completeness, 15.5 Other cost lines: non-AWS, one-time, and cut items (RV-014), 15.6 Per-order cloud cost by phase (R45 volumes), 15.7 CDN request-volume model and request reduction (M13, R27), 15. Cost estimates (on-demand, excl. GST; ₹95/USD) — single source of cost (R46)
 
-### Community 137 - "PROMPT — rovo Phase 2: implement V1"
-Cohesion: 0.25
-Nodes (8): 1. Read first, in this order (this is your spec), 2. Hard constraints, 4. Domain rules you must implement exactly, 5. How to work, 6. Definition of done for V1 development (end of M5, local), 7. Decisions that need humans (do not block on them; use the stated default), 8. Reporting, PROMPT — rovo Phase 2: implement V1
+### Community 137 - "planning/README.md"
+Cohesion: 0.12
+Nodes (10): 1. Read first, in this order (this is your spec), 2. Hard constraints, 33 — Phase 2 Implementation Prompt, 4. Domain rules you must implement exactly, 5. How to work, 6. Definition of done for V1 development (end of M5, local), 7. Decisions that need humans (do not block on them; use the stated default), 8. Reporting (+2 more)
 
 ### Community 138 - "smoke.sh"
 Cohesion: 0.47
@@ -1193,6 +1186,10 @@ Nodes (3): @rovo/config/tsconfig/node.json, extends, include
 Cohesion: 0.83
 Nodes (3): cleanup_snapshot(), backup.sh script, snap_query()
 
+### Community 202 - "ADR-P2-003: Production-mode Docker Compose is the deployment target for this phase"
+Cohesion: 0.33
+Nodes (5): ADR-P2-003: Production-mode Docker Compose is the deployment target for this phase, Consequences, Context, Decision, Revisit when
+
 ### Community 203 - "api-client/tsconfig.json"
 Cohesion: 0.50
 Nodes (3): extends, include, @rovo/config/tsconfig/react.json
@@ -1218,8 +1215,8 @@ Cohesion: 0.67
 Nodes (3): 3.1 Module map and dependency direction, 3.3 Event catalogue conventions, 3. Components: the Go modular monolith (C4 level 3)
 
 ### Community 209 - "customer/src/router.tsx"
-Cohesion: 0.06
-Nodes (38): NotFound(), accountRoute, addressEditRoute, addressesRoute, addressNewRoute, cartRoute, checkoutRoute, cityRoute (+30 more)
+Cohesion: 0.08
+Nodes (23): accountRoute, addressEditRoute, addressesRoute, addressNewRoute, cartRoute, checkoutRoute, cityRoute, indexRoute (+15 more)
 
 ### Community 210 - "00009_ratings_support_notifications.sql"
 Cohesion: 0.14
@@ -1229,9 +1226,9 @@ Nodes (23): ix_notification_deliveries__notification, ix_notifications__inbox, i
 Cohesion: 0.13
 Nodes (20): app_config, approval_requests, audit_logs, feature_flags, file_objects, idempotency_keys, ix_approval_requests__post_review, ix_approval_requests__queue (+12 more)
 
-### Community 212 - "2. Quality goals and risk-based prioritisation"
-Cohesion: 0.67
-Nodes (3): 2.1 Quality goals (what "good" means for V1), 2.2 Risk register driving test intensity, 2. Quality goals and risk-based prioritisation
+### Community 212 - "6. Fees and rider pay"
+Cohesion: 0.33
+Nodes (6): 6.1 Customer delivery fee, 6.2 Surge: not in V1 (R30, C1), 6.3 Zone pause, 6.4 Rider pay per delivery (00 §5), 6.5 Commercial defaults (single source, R48), 6. Fees and rider pay
 
 ### Community 213 - "x-app-env"
 Cohesion: 0.06
@@ -1242,12 +1239,12 @@ Cohesion: 0.67
 Nodes (3): scripts, test, typecheck
 
 ### Community 217 - "Outbox"
-Cohesion: 0.10
-Nodes (15): New(), Outbox, Channel, FakePush, FakeSMS, InboxPage, Notification, PushPayload (+7 more)
+Cohesion: 0.17
+Nodes (8): Outbox, FakePush, FakeSMS, PushPayload, PushSubscription, SMSSender, Controls, Message
 
-### Community 218 - "New"
-Cohesion: 0.09
-Nodes (24): Options, Register, RegisterJobs, New(), New(), New(), New(), New() (+16 more)
+### Community 218 - "NotImplemented"
+Cohesion: 0.11
+Nodes (11): NotImplemented(), Serviceability, ServiceStatus, Tokens, Channel, InboxPage, Notification, ProviderEvent (+3 more)
 
 ### Community 219 - "jobs"
 Cohesion: 0.09
@@ -1285,9 +1282,9 @@ Nodes (10): New(), Dashboard, Export, ExportRequest, ExportStatus, Period, Repor
 Cohesion: 0.21
 Nodes (16): cities, coupon_redemptions, coupon_targets, coupons, fee_configs, ix_coupon_redemptions__user, ix_coupon_targets__target, ix_coupons__live (+8 more)
 
-### Community 233 - "fieldcrypt.go"
-Cohesion: 0.11
-Nodes (9): TestFieldCrypto(), NewFieldKeyring(), Generator, NewSequence(), RandomCrockford(), TestDefault(), TestSequenceDeterministic(), Default (+1 more)
+### Community 233 - "Sequence"
+Cohesion: 0.23
+Nodes (4): Generator, TestDefault(), Default, Sequence
 
 ### Community 234 - "name"
 Cohesion: 0.22
@@ -1302,28 +1299,28 @@ Cohesion: 0.25
 Nodes (16): assert_order_bill_balanced(), ix_order_charges__order, ix_order_status_history__occurred, ix_orders__city_created, ix_orders__city_live, ix_orders__customer, ix_orders__restaurant, ix_orders__restaurant_live (+8 more)
 
 ### Community 237 - "uuidv7"
-Cohesion: 0.25
-Nodes (8): RFC-9562, ADR-005: PostgreSQL 18 + PostGIS; pgx + sqlc; goose migrations, ADR-019: UUIDv7 primary keys, 0. Decision summary, 20. Sources (accessed 2026-10-04), useIdempotencyKey(), newIdempotencyKey(), uuidv7()
+Cohesion: 0.40
+Nodes (5): ADR-005: PostgreSQL 18 + PostGIS; pgx + sqlc; goose migrations, ADR-019: UUIDv7 primary keys, 0. Decision summary, 20. Sources (accessed 2026-10-04), uuidv7()
 
 ### Community 238 - "phone.ts"
 Cohesion: 0.57
 Nodes (6): E164, formatIndianMobile(), isValidIndianMobile(), maskIndianMobile(), normalizeIndianMobile(), toNationalMobile()
 
 ### Community 239 - "Provider"
-Cohesion: 0.17
-Nodes (8): NewFakePA(), ADR-012: Payment aggregator choice and abstraction, 0. Summary, 2. Naming conventions, 10. Vendor lock-in and the portability ADR, FakePA, Provider, ProviderEvent
+Cohesion: 0.20
+Nodes (7): NewFakePA(), ADR-012: Payment aggregator choice and abstraction, 0. Summary, 2. Naming conventions, 10. Vendor lock-in and the portability ADR, FakePA, Provider
 
 ### Community 240 - "18. Test data management"
-Cohesion: 0.29
-Nodes (7): 18.1 Principles, 18.2 Seed profiles, 18.3 Mahabubnagar `e2e` dataset (illustrative), 18.4 Factories / builders, 18.5 Production-derived data and anonymisation (DPDP), 18.6 Deterministic clocks and IDs, 18. Test data management
+Cohesion: 0.33
+Nodes (6): 18.1 Principles, 18.2 Seed profiles, 18.3 Mahabubnagar `e2e` dataset (illustrative), 18.4 Factories / builders, 18.5 Production-derived data and anonymisation (DPDP), 18. Test data management
 
 ### Community 241 - "minio"
-Cohesion: 0.12
-Nodes (17): deploy, deploy, resources, cpus, memory, deploy, command, deploy (+9 more)
+Cohesion: 0.15
+Nodes (13): MINIO_BROWSER, MINIO_REGION, MINIO_ROOT_PASSWORD, MINIO_ROOT_USER, command, deploy, environment, image (+5 more)
 
 ### Community 242 - "api"
-Cohesion: 0.12
-Nodes (16): cap_drop, command, depends_on, expose, image, networks, ports, read_only (+8 more)
+Cohesion: 0.09
+Nodes (22): cap_drop, command, deploy, expose, image, networks, ports, read_only (+14 more)
 
 ### Community 243 - "attributes"
 Cohesion: 0.12
@@ -1334,28 +1331,24 @@ Cohesion: 0.12
 Nodes (16): POSTGRES_DB, POSTGRES_PASSWORD, POSTGRES_USER, ROVO_TEST_DATABASE_URL, env, if, needs, permissions (+8 more)
 
 ### Community 246 - "Ticket"
-Cohesion: 0.21
-Nodes (7): New(), Category, OpenRequest, Resolution, Service, Status, Ticket
+Cohesion: 0.14
+Nodes (9): New(), Category, Message, OpenRequest, Resolution, Service, service, Status (+1 more)
 
 ### Community 247 - "worker"
-Cohesion: 0.13
-Nodes (15): migrate, condition, worker, cap_drop, command, depends_on, expose, image (+7 more)
+Cohesion: 0.11
+Nodes (18): depends_on, migrate, minio-init, condition, condition, worker, cap_drop, command (+10 more)
 
 ### Community 256 - "migrate"
 Cohesion: 0.13
 Nodes (15): postgis, disable, cap_drop, command, depends_on, healthcheck, image, networks (+7 more)
 
-### Community 257 - "FakeEventSource"
-Cohesion: 0.15
-Nodes (3): EventSourceLike, StreamEventLike, FakeEventSource
+### Community 257 - "5. DDL — quote & pricing, promotions"
+Cohesion: 0.40
+Nodes (5): 5.1 Cart decision: device cart + persisted quote (Lead ruling 12), 5.2 Fee configs (versioned per city / zone), 5.3 Tax rules [LEGAL], 5.4 Promotions, 5. DDL — quote & pricing, promotions
 
-### Community 258 - "money.ts"
-Cohesion: 0.33
-Nodes (13): addPaise(), assertPaise(), currencyFormatter(), formatMoney(), formatNumber(), formatterCache, money(), MoneyError (+5 more)
-
-### Community 259 - "Bus"
-Cohesion: 0.21
-Nodes (3): New(), Bus, Checker
+### Community 258 - "15. Seed data plan — Mahabubnagar"
+Cohesion: 0.50
+Nodes (4): 15.1 Reference seeds (all environments), 15.2 Demo seeds (local/dev/staging only), 15.3 Operational `app_config` defaults owned by this doc (R53), 15. Seed data plan — Mahabubnagar
 
 ### Community 260 - "grafana"
 Cohesion: 0.14
@@ -1402,8 +1395,8 @@ Cohesion: 0.15
 Nodes (12): concurrency, cancel-in-progress, group, env, GO_VERSION_FILE, POSTGIS_IMAGE, name, on (+4 more)
 
 ### Community 272 - "Money"
-Cohesion: 0.26
-Nodes (5): New(), Money, Refund, Service, Session
+Cohesion: 0.33
+Nodes (4): Money, Refund, Service, Session
 
 ### Community 273 - "postgis"
 Cohesion: 0.17
@@ -1432,6 +1425,10 @@ Nodes (9): apiVersion, path, providers, allowUiUpdates, disableDeletion, folder,
 ### Community 279 - "datasources"
 Cohesion: 0.20
 Nodes (9): apiVersion, datasources, access, editable, isDefault, name, type, uid (+1 more)
+
+### Community 280 - "3. DDL — geo, users, identity"
+Cohesion: 0.50
+Nodes (4): 3.1 geo, 3.2 users, 3.3 identity, 3. DDL — geo, users, identity
 
 ### Community 281 - "outputs"
 Cohesion: 0.20
@@ -1474,8 +1471,8 @@ Cohesion: 0.29
 Nodes (6): Competitor "paved path" review — Zomato, Swiggy, Toing, Confirmed: our dispatch timing matches Swiggy's published model, Findings to act on, Sources (accessed 2026-11-12), Unverified / limits, Verdict
 
 ### Community 291 - "Order"
-Cohesion: 0.43
-Nodes (3): Order, PlaceRequest, Status
+Cohesion: 0.33
+Nodes (5): New(), Order, PlaceRequest, Service, Status
 
 ### Community 293 - "minio"
 Cohesion: 0.33
@@ -1500,10 +1497,6 @@ Nodes (6): 1.1 `backend/` (Go module), 1.2 `openapi/`, 1.3 `web/` (pnpm workspac
 ### Community 298 - "contact_links"
 Cohesion: 0.33
 Nodes (5): blank_issues_enabled, contact_links, about, name, url
-
-### Community 299 - "8. Failure flows"
-Cohesion: 0.40
-Nodes (5): 8.1 Customer unreachable or not at location (D-18), 8.2 Rider can't find the address, 8.3 Restaurant not ready, 8.4 Rider cancels an accepted delivery (before pickup only), 8. Failure flows
 
 ### Community 300 - "10. Ledger design (double-entry-lite)"
 Cohesion: 0.40
@@ -1545,45 +1538,33 @@ Nodes (4): 13.1 Scope cut list (defer to V1.1+ unless noted), 13.2 Missing items
 Cohesion: 0.50
 Nodes (4): if, needs, runs-on, ci-ok
 
-### Community 311 - "address.ts"
-Cohesion: 0.67
-Nodes (3): AddressLike, clean(), formatAddress()
-
 ### Community 313 - "16. Reconciliation"
 Cohesion: 0.67
 Nodes (3): 16.1 Daily PA reconciliation job (`payments.recon_daily`, for D-1; catch-up semantics, M11), 16.2 Internal integrity checks (nightly), 16. Reconciliation
-
-### Community 314 - "20. Testability hooks required from backend and frontend"
-Cohesion: 0.67
-Nodes (3): 20.1 Backend, 20.2 Frontend, 20. Testability hooks required from backend and frontend
-
-### Community 315 - "23. Traceability"
-Cohesion: 0.67
-Nodes (3): 23.1 Requirement ID prefixes → suites, 23.2 Tagging convention and report, 23. Traceability
 
 ### Community 316 - "5. Property-based tests and fuzzing"
 Cohesion: 0.67
 Nodes (3): 5.1 Invariants (rapid), 5.2 Fuzz targets (Go native, nightly, 5 min each), 5. Property-based tests and fuzzing
 
 ## Knowledge Gaps
-- **22 isolated node(s):** `github.com/storetmobiles2-code/rovo/backend`, `github.com/storetmobiles2-code/rovo/deploy/docker/healthcheck`, `ROVO_TEST_DATABASE_URL`, `PG_CONTAINER`, `@rovo/config/tsconfig/react.json` (+17 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2327 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **66 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **22 isolated node(s):** `RFC-9457`, `./base.json`, `./tsconfig/node.json`, `@rovo/config/tsconfig/react.json`, `@rovo/config/tsconfig/react.json` (+17 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2363 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **62 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `2. Backlog by epic` connect `2. Backlog by epic` to `27 — Implementation Backlog (Phase 2)`, `time.Duration`?**
-  _High betweenness centrality (0.060) - this node is a cross-community bridge._
-- **What connects `github.com/storetmobiles2-code/rovo/backend`, `github.com/storetmobiles2-code/rovo/deploy/docker/healthcheck`, `ROVO_TEST_DATABASE_URL` to the rest of the system?**
+- **Why does `2. Backlog by epic` connect `2. Backlog by epic` to `27 — Implementation Backlog (Phase 2)`, `time.Time`?**
+  _High betweenness centrality (0.065) - this node is a cross-community bridge._
+- **What connects `RFC-9457`, `./base.json`, `./tsconfig/node.json` to the rest of the system?**
   _22 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `schema.d.ts` be split into smaller, more focused modules?**
   _Cohesion score 0.02 - nodes in this community are weakly interconnected._
-- **Why does `E01 — Platform foundations` connect `time.Duration` to `rovo/main.go`, `auth_test.go`, `2. Backlog by epic`?**
-  _High betweenness centrality (0.054) - this node is a cross-community bridge._
+- **Why does `formatMoney()` connect `datetime.ts` to `i18n/src/index.ts`, `2. Backlog by epic`?**
+  _High betweenness centrality (0.060) - this node is a cross-community bridge._
 - **Should `ui/src/index.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.06022408963585434 - nodes in this community are weakly interconnected._
-- **Why does `formatMoney()` connect `money.ts` to `datetime.ts`, `i18n/src/index.ts`, `2. Backlog by epic`?**
-  _High betweenness centrality (0.050) - this node is a cross-community bridge._
-- **Should `ref_react` be split into smaller, more focused modules?**
-  _Cohesion score 0.09747899159663866 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06740506329113924 - nodes in this community are weakly interconnected._
+- **Why does `E16 — Shared web packages` connect `2. Backlog by epic` to `datetime.ts`?**
+  _High betweenness centrality (0.060) - this node is a cross-community bridge._
+- **Should `utils/src/index.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.13666666666666666 - nodes in this community are weakly interconnected._

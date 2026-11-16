@@ -13,18 +13,22 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
 	"log/slog"
 
 	rovoapp "github.com/storetmobiles2-code/rovo/backend/internal/app"
+	"github.com/storetmobiles2-code/rovo/backend/internal/platform/auth"
+	"github.com/storetmobiles2-code/rovo/backend/internal/platform/clock"
 	"github.com/storetmobiles2-code/rovo/backend/internal/platform/config"
 	"github.com/storetmobiles2-code/rovo/backend/internal/platform/db"
 	"github.com/storetmobiles2-code/rovo/backend/internal/platform/health"
 	"github.com/storetmobiles2-code/rovo/backend/internal/platform/httpx"
 	"github.com/storetmobiles2-code/rovo/backend/internal/platform/migrate"
 	"github.com/storetmobiles2-code/rovo/backend/internal/platform/obs"
+	"github.com/storetmobiles2-code/rovo/backend/internal/seed"
 )
 
 // version is overridden at build time with -ldflags "-X main.version=...".
@@ -121,15 +125,56 @@ func runMigrate(ctx context.Context, cfg *config.Config, logger *slog.Logger, ar
 	}
 }
 
-// runSeed is a guarded placeholder: the Mahabubnagar seed dataset (city, localities,
-// zone polygon, fee config with platform_fee_paise=0 per R59, demo restaurants/riders)
-// is implemented as a follow-up (see docs/implementation/HANDOFF.md). It refuses to run
-// against a production environment so the contract is already enforced.
-func runSeed(_ context.Context, cfg *config.Config, logger *slog.Logger) error {
-	if cfg.Env == config.EnvProd {
-		return errors.New("seed refused: ROVO_ENV=prod")
+// runSeed loads the Mahabubnagar demo dataset (internal/seed). It is idempotent and refuses to
+// run when ROVO_ENV=prod. One-time admin credentials are written to stdout, never to the log.
+func runSeed(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	if cfg.IsProd() {
+		return seed.ErrProd
 	}
-	logger.Warn("seed not yet implemented; see docs/implementation/HANDOFF.md")
+	pool, err := db.NewPool(ctx, cfg.DatabaseURL, db.Options{MaxConns: 2, StatementTimeout: 30 * time.Second, ApplicationName: "rovo-seed"})
+	if err != nil {
+		return fmt.Errorf("db pool: %w", err)
+	}
+	defer pool.Close()
+
+	fields, err := auth.NewFieldKeyring(cfg.FieldKeyID(), map[string][]byte{cfg.FieldKeyID(): cfg.FieldEncryptionKey})
+	if err != nil {
+		return fmt.Errorf("field keyring: %w", err)
+	}
+	res, err := seed.Run(ctx, pool, seed.Options{
+		Config:    cfg,
+		Passwords: auth.NewPasswordHasher(auth.DefaultArgon2, 1),
+		Fields:    fields,
+		Now:       clock.Real{}.Now(),
+	})
+	if err != nil {
+		return err
+	}
+	logger.Info("seed complete", "city_id", res.CityID, "zone_id", res.ZoneID, "rows_created", res.Created)
+
+	a := res.Admin
+	fmt.Printf("\nSeeded %s (%s), zone %s.\n", seed.CityName, seed.CityCode, seed.ZoneCode)
+	fmt.Printf("Admin: %s (ADMIN_SUPER)\n", a.Email)
+	switch {
+	case a.Password != "":
+		fmt.Printf("  password (generated, shown once; must be changed at first login): %s\n", a.Password)
+	case a.PasswordFromEnv:
+		fmt.Println("  password: set from ROVO_ADMIN_BOOTSTRAP_PASSWORD")
+	default:
+		fmt.Println("  password: unchanged (set ROVO_ADMIN_BOOTSTRAP_PASSWORD and re-run to reset it)")
+	}
+	switch {
+	case a.TOTPEnrolledAtRun:
+		fmt.Printf("  TOTP secret (dev only): %s\n  TOTP URI: %s\n", a.TOTPSecret, a.TOTPURI)
+		if slices.Contains(cfg.Generated, "ROVO_FIELD_ENCRYPTION_KEY") {
+			fmt.Println("  note: ROVO_FIELD_ENCRYPTION_KEY is unset, so this secret was sealed with an ephemeral key")
+			fmt.Println("        that the api process will not have. Set the key in .env and re-run the seed.")
+		}
+	case cfg.DevLike():
+		fmt.Println("  TOTP: unchanged")
+	default:
+		fmt.Println("  TOTP: not pre-enrolled outside dev/test; the admin enrols at first login")
+	}
 	return nil
 }
 
