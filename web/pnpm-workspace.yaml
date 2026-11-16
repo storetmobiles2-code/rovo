@@ -6,22 +6,22 @@ packages:
 # with "catalog:". Bump here, then run `pnpm install`.
 catalog:
   # runtime
-  react: 19.3.0
-  react-dom: 19.3.0
-  '@tanstack/react-router': 1.170.42
-  '@tanstack/react-query': 5.104.2
+  react: 19.3.1
+  react-dom: 19.3.1
+  '@tanstack/react-router': 1.170.46
+  '@tanstack/react-query': 5.107.1
   i18next: 27.1.1
   react-i18next: 18.0.1
   openapi-fetch: 0.17.0
-  zustand: 5.0.15
+  zustand: 5.1.0
   clsx: 2.1.1
-  lucide-react: 1.55.0
-  '@radix-ui/react-dialog': 1.3.0
-  '@radix-ui/react-toast': 1.3.0
-  '@radix-ui/react-select': 2.4.0
-  '@radix-ui/react-checkbox': 1.4.0
-  '@radix-ui/react-radio-group': 1.5.0
-  '@radix-ui/react-switch': 1.4.0
+  lucide-react: 1.72.0
+  '@radix-ui/react-dialog': 1.3.1
+  '@radix-ui/react-toast': 1.3.1
+  '@radix-ui/react-select': 2.4.1
+  '@radix-ui/react-checkbox': 1.4.1
+  '@radix-ui/react-radio-group': 1.5.1
+  '@radix-ui/react-switch': 1.4.1
   '@radix-ui/react-slot': 1.5.0
   '@radix-ui/react-visually-hidden': 1.2.13
   '@fontsource/noto-sans-telugu': 5.3.0
@@ -33,10 +33,10 @@ catalog:
   workbox-expiration: 7.4.1
   workbox-cacheable-response: 7.4.1
   # build
-  vite: 8.3.4
-  '@vitejs/plugin-react': 6.1.2
-  tailwindcss: 4.3.3
-  '@tailwindcss/vite': 4.3.3
+  vite: 8.3.8
+  '@vitejs/plugin-react': 6.3.0
+  tailwindcss: 4.3.5
+  '@tailwindcss/vite': 4.3.5
   vite-plugin-pwa: 2.0.0
   workbox-build: 7.4.1
   typescript: 5.9.3
@@ -47,20 +47,20 @@ catalog:
   # lint / format
   eslint: 9.39.5
   '@eslint/js': 9.39.5
-  typescript-eslint: 8.71.1
+  typescript-eslint: 8.72.2
   eslint-plugin-react-hooks: 7.1.1
   eslint-plugin-jsx-a11y: 6.10.2
   eslint-plugin-react-refresh: 0.5.7
-  globals: 17.13.0
-  prettier: 3.9.10
+  globals: 17.14.0
+  prettier: 3.10.1
   # test
-  vitest: 5.0.3
+  vitest: 5.1.0
   jsdom: 31.0.1
-  msw: 3.0.3
+  msw: 3.0.5
   axe-core: 4.14.0
   '@testing-library/react': 16.3.3
   '@testing-library/dom': 10.4.2
-  '@testing-library/user-event': 14.6.7
+  '@testing-library/user-event': 14.6.10
   '@testing-library/jest-dom': 7.0.1
 
 onlyBuiltDependencies:
