@@ -40,6 +40,12 @@ func Authenticate(cfg AuthConfig) Middleware {
 			}
 			p, err := cfg.Issuer.Verify(token, aud)
 			if err != nil {
+				// The auth endpoints (refresh, logout, OTP) must stay reachable with a stale access
+				// cookie: they authenticate by refresh token or not at all.
+				if strings.HasPrefix(r.URL.Path, auth.RefreshCookiePath+"/") {
+					next.ServeHTTP(w, r)
+					return
+				}
 				Error(w, r, mapTokenError(err))
 				return
 			}

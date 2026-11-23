@@ -17,6 +17,20 @@
 - **Frontend**: green across 9 packages + 4 apps (172 tests), admin app 21 routes (strict CSP), R59 zero-line hiding; customer initial JS 159.7 KB gzip; i18n te complete.
 - **ADRs** P2-001/002/003; `backend-guide.md`; Graphify knowledge graph.
 
+## M1 — started (2026-11-16, branch `feat/m1-identity-geo-catalog`)
+
+Done and covered by integration tests (real PostGIS, full middleware chain via `internal/app/apptest`):
+
+- **Public middleware wired** on the api listener: audience-from-Host, CSRF (cross-origin + `X-Rovo-Client`), edge-origin check, principal extraction (`App.PublicMiddleware`).
+- **identity**: `POST /auth/otp/request`, `/auth/otp/verify`, `/auth/refresh`, `/auth/logout` — HMAC-stored 6-digit codes, 5 attempts, resend cooldown 30/60/120/300 s, per-phone and per-IP send budgets, refresh rotation with reuse detection (15 s race window), server-side session check.
+- **users**: `GET /me`, `PATCH /me`.
+- **geo**: `GET /public/cities`, `/public/serviceability`, `/public/localities`; canonical haversine + road factor in `internal/platform/geo`; fee slab and ETA lookup from `fee_configs`.
+- **catalog (read side)**: `GET /public/cuisines`, `/public/restaurants` (filters, sort, signed cursor), `/public/restaurants/{id}`, `/public/restaurants/{id}/menu` (ETag), `/public/search`.
+
+Not done yet in M1: admin email+password+TOTP login, bot challenge (Turnstile) on OTP, failed-verify day limit and lockout SMS, partner/admin catalog write endpoints (onboarding, KYC, menu editing, hours), images (cards return `image: null`), `/config/client`, `/public/offers`, waitlist and leads, `GET /stream`, cart quote, audit log, OpenAPI contract tests against these handlers, and all frontend screens.
+
+Toolchain: Go bumped to **1.26.11** and `golang.org/x/net` to v0.62.0 (govulncheck was failing CI on Go 1.25.0 stdlib advisories); golangci-lint pinned to v2.15.0 to match.
+
 ## Known small items (not blocking; fold into feature phase)
 
 - River workers should stop before the pgx pool closes on shutdown (benign "pool is closed" log lines during drain).
